@@ -1,147 +1,339 @@
 # Zotero Research Assistant
 
-AI-powered research assistant that turns your Zotero library into a conversational knowledge base. Provides **16 MCP tools** for paper discovery, reading, citation, annotation, and library management — designed with zero functional overlap so LLMs always pick the right tool.
+Connect your [Zotero](https://www.zotero.org/) library to AI assistants ([Cherry Studio](https://cherry-ai.com/), [Claude Desktop](https://claude.ai/download), [Cursor](https://www.cursor.com/), etc.) via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). Search papers by meaning, read PDF passages with page numbers, suggest citations for your drafts, add papers by DOI/URL, and manage tags and collections — all through natural language.
 
-Built for researchers who want to ask questions like *"find me papers about urban public services after 2022"*, *"what does this paper say about gravity models?"*, or *"help me cite this paragraph"* — and get precise, traceable answers grounded in their own library.
+**16 MCP tools**, one intent each, designed so LLMs always pick the right tool.
 
-## Architecture
+---
 
-```
-research_core/              # Shared Python library (core logic)
-├── zotero/                 # pyzotero wrapper (hybrid: local read + web write)
-├── parsers/                # PDF extraction + 800-char chunking with page tracking
-├── rag/                    # ChromaDB indexer/retriever, bge-m3 embedding,
-│                           # cross-encoder reranker, incremental sync
-├── llm/                    # LiteLLM wrapper
-├── tools/                  # 16 pure-function tools (search, read, cite, manage, admin)
-└── utils.py                # Input normalization, HTML escaping
+## Features
 
-project_a_mcp/              # MCP server for Cherry Studio / Claude Desktop / Cursor
-project_b_agent/            # Full-stack agent app scaffold (FastAPI + Next.js, planned)
-```
+- **Hybrid search** — Zotero keyword search + ChromaDB semantic search, merged with Reciprocal Rank Fusion; fallback to Zotero full-text index
+- **Filter-only search** — list papers by year, tags, or collection with an empty query (e.g. all papers from 2024+)
+- **Cross-encoder reranking** — optional `ms-marco-MiniLM-L-6-v2` for higher precision
+- **Chinese + English** — `BAAI/bge-m3` embedding (1024-dim, 100+ languages)
+- **Page-level traceability** — retrieved passages include exact PDF page numbers
+- **Full-text & outline** — read complete paper text or PDF table of contents
+- **Incremental index sync** — version-based diff; auto-sync on MCP startup
+- **Add papers** — DOI, arXiv, ISBN, BibTeX, or publisher URL (ScienceDirect, Springer, Wiley, …)
+- **Open-access PDF waterfall** — arXiv → Unpaywall → Semantic Scholar → PMC
+- **Duplicate merge** — find by DOI/title, merge with dry-run preview
+- **Annotations** — search highlights across the library; create highlights on PDFs
+- **Write safety** — all write/delete operations preview first; **requires explicit user approval** before executing
+- **Hybrid Zotero mode** — fast local reads + web API writes (when API key is set)
 
-## Key Features
+---
 
-- **Hybrid Search** — keyword (Zotero API) + semantic (ChromaDB) merged via Reciprocal Rank Fusion, with automatic fallback to Zotero full-text index
-- **Cross-Encoder Reranking** — optional `ms-marco-MiniLM-L-6-v2` re-scores retrieved chunks for higher precision
-- **Chinese + English** — `BAAI/bge-m3` (1024-dim) natively supports 100+ languages
-- **Page-Level Traceability** — every retrieved passage carries exact page numbers from the source PDF
-- **Full-Text & Outline** — read complete paper text or extract PDF table of contents on demand
-- **Incremental Sync** — version-based diffing only re-indexes new or modified items; auto-sync on server startup
-- **5-Format Paper Import** — add papers by DOI, arXiv ID, ISBN, BibTeX string, or URL
-- **4-Level PDF Waterfall** — arXiv → Unpaywall → Semantic Scholar → PMC for open-access downloads
-- **Duplicate Management** — find duplicates by title/DOI, then merge (tags, collections, children) with dry-run preview
-- **Annotation CRUD** — search annotations across all papers; create highlight annotations on PDFs
-- **Dry-Run Safety** — all write operations preview changes before executing
-- **Hybrid Zotero Mode** — local API for fast reads, web API for writes (when API key provided)
-- **API Concurrency Protection** — thread-safe RLock on all Zotero API calls
-- **LLM Input Normalization** — tolerates JSON strings, comma-separated values, Zotero tag dicts, and other wire format variations
-- **Global Error Handling** — structured `{error, tool}` responses instead of raw tracebacks
+## Requirements
+
+| Component | Version / note |
+|-----------|----------------|
+| **Python** | 3.11 – 3.13 |
+| **Zotero** | 7+ desktop app, running with local API enabled |
+| **MCP client** | Cherry Studio, Claude Desktop, Cursor, etc. |
+| **LLM** | Any model with tool/function calling (DeepSeek, GPT-4o, Claude, Qwen, …) |
+| **Disk** | ~2.5 GB for embedding model (`bge-m3`) on first run |
+| **Git** | To clone this repository |
+
+> **Path tip:** Install the project in a short path **without spaces or non-ASCII characters**, e.g. `~/zotero-research-agent` (macOS) or `C:\Users\you\zotero-research-agent` (Windows).
+
+---
 
 ## Quick Start
 
+### 1. Clone the repository
+
+**macOS / Linux:**
 ```bash
-# Install uv package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Setup environment
-uv venv .venv --python 3.13 && source .venv/bin/activate
-uv pip install -e ".[dev]"
-cp .env.example .env   # edit as needed
-
-# Index your Zotero library (requires Zotero 7 running)
-python scripts/index_library.py
-
-# Start the MCP server
-zra-mcp
+cd ~
+git clone https://github.com/qiobn/zotero-research-agent.git
+cd zotero-research-agent
 ```
 
-## MCP Tools (16 tools, 5 categories)
+**Windows (cmd):**
+```cmd
+cd %USERPROFILE%
+git clone https://github.com/qiobn/zotero-research-agent.git
+cd zotero-research-agent
+```
 
-Tools are organized by **user intent**, not backend mechanism. They compose via `item_key`: discovery tools return keys, read/write tools consume them.
+### 2. Install dependencies
 
-### DISCOVER — Find and deduplicate papers
+Install [uv](https://github.com/astral-sh/uv) if needed:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS/Linux
+```
 
-| Tool | Description |
-|---|---|
-| `search_papers` | **Primary entry point.** Hybrid keyword + semantic search with RRF fusion. Supports year range, tag include/exclude, collection filters. Falls back to Zotero full-text index when no results. |
-| `find_similar_papers` | Given a specific paper, find conceptually similar ones using title + abstract as the query. Cross-encoder reranking for precision. |
-| `browse_library` | Navigate library structure: list collections (with parent hierarchy), tags, recent additions, or items in a collection. |
-| `find_duplicates` | Scan the library for duplicate entries by normalized title or DOI match. Returns groups of 2+ items. |
-| `merge_duplicates` | **NEW.** Merge duplicate items into a keeper: combines tags, collections, re-parents children, deduplicates attachments, and trashes duplicates. Dry-run by default. |
+Then create a virtual environment and install:
+```bash
+uv venv .venv --python 3.13    # use 3.12 or 3.11 if 3.13 is unavailable
+uv pip install -e .
+```
 
-### READ — Read content and annotations
+Verify:
+```bash
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -c "from project_a_mcp.server import mcp; print('OK')"
+```
 
-| Tool | Description |
-|---|---|
-| `get_paper` | Metadata + abstract of one specific paper. |
-| `get_paper_content` | Read inside a paper. Five modes: **fulltext** (complete text, up to 50 pages), **outline** (PDF table of contents), **query** (semantic search within the paper), **page** (specific page), or **default** (paper opening). Optionally includes annotations. |
-| `search_annotations` | Search highlights and comments across ALL papers by keyword. Paginates through the entire library (no cap). |
-| `create_annotation` | **NEW.** Create a highlight annotation on a paper's PDF. Auto-resolves parent item to PDF attachment. Dry-run by default. |
+> First run downloads the embedding model (~2.3 GB). If download is slow, set `export HF_ENDPOINT=https://hf-mirror.com` (macOS/Linux) or `set HF_ENDPOINT=https://hf-mirror.com` (Windows) and retry.
 
-### WRITE — Citations and paper import
+### 3. Configure Zotero
 
-| Tool | Description |
-|---|---|
-| `suggest_citations` | Paste your draft text → get library papers that support your claims. Multi-sentence drafts are split and searched independently for diverse results. |
-| `export_bibliography` | Export BibTeX or formatted citations for selected papers. |
-| `add_paper` | Add a new paper by **DOI, arXiv ID, ISBN, BibTeX string, or URL**. Fetches metadata from CrossRef/arXiv/OpenLibrary. Downloads open-access PDF via 4-level waterfall. Dry-run by default. |
+**Enable local API** (required):
 
-### MANAGE — Organize your library
+1. Open Zotero → **Edit → Settings → Advanced**
+2. Check **"Allow other applications on this computer to communicate with Zotero"**
+3. Confirm in browser: http://localhost:23119/api/ shows JSON
 
-| Tool | Description |
-|---|---|
-| `add_note` | Attach a reading note to a paper with HTML title escaping. Dry-run by default. |
-| `edit_tags` | Add/remove tags on one or more papers in batch. Dry-run by default. |
-| `manage_collections` | Create collections, add/remove papers from collections. Dry-run by default. |
+**Create `.env`:**
+```bash
+cp .env.example .env
+```
 
-### ADMIN — Index maintenance
+Minimum for **read-only** (search, read, cite):
+```ini
+ZOTERO_LOCAL=true
+```
 
-| Tool | Description |
-|---|---|
-| `sync_index` | Sync the vector index with your Zotero library. Incremental by default — only processes new/modified items using version tracking. Auto-detects embedding model changes. Also runs automatically on server startup (disable with `ZRA_AUTO_SYNC=false`). |
+For **write operations** (add papers, notes, tags, collections, annotations), also set your [Zotero API key](https://www.zotero.org/settings/keys) (enable library + write access):
+```ini
+ZOTERO_LOCAL=true
+ZOTERO_LIBRARY_ID=12345678
+ZOTERO_API_KEY=your_api_key_here
+```
 
-## Connect from Cherry Studio
+### 4. Build the vector index (first time)
 
+Zotero must be running:
+```bash
+source .venv/bin/activate
+python scripts/index_library.py
+```
+
+This parses PDFs in your library and stores embeddings in `.chroma_db/` (local only, not in git).  
+Typical time: ~3–5 min for 100 papers, ~10–15 min for 500 papers.
+
+After the first run, the MCP server **auto-syncs incrementally** on startup (`ZRA_AUTO_SYNC=true` by default).
+
+### 5. Connect an MCP client
+
+Replace `YOU` with your OS username and adjust the project path if you cloned elsewhere.
+
+#### Cherry Studio (recommended)
+
+**Settings → MCP Servers → Add → JSON mode:**
+
+**macOS:**
 ```json
 {
   "mcpServers": {
     "zra-mcp": {
-      "command": "/path/to/project/.venv/bin/python",
+      "name": "zra-mcp",
+      "type": "stdio",
+      "isActive": true,
+      "command": "/Users/YOU/zotero-research-agent/.venv/bin/python",
       "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/path/to/project"
+      "cwd": "/Users/YOU/zotero-research-agent"
     }
   }
 }
 ```
 
-See [`docs/cherry-studio-setup.md`](./docs/cherry-studio-setup.md) for a detailed configuration guide (in Chinese).
+**Windows:**
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "name": "zra-mcp",
+      "type": "stdio",
+      "isActive": true,
+      "command": "C:\\Users\\YOU\\zotero-research-agent\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "project_a_mcp.server"],
+      "cwd": "C:\\Users\\YOU\\zotero-research-agent"
+    }
+  }
+}
+```
+
+**Quick path check** (run inside the project folder):
+```bash
+# macOS
+echo "$(pwd)/.venv/bin/python"
+# Windows
+echo %cd%\.venv\Scripts\python.exe
+```
+
+Also configure an LLM under **Settings → Model Services** (e.g. DeepSeek, GPT-4o, Claude, Qwen).
+
+#### Claude Desktop
+
+Add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "command": "/Users/YOU/zotero-research-agent/.venv/bin/python",
+      "args": ["-m", "project_a_mcp.server"],
+      "cwd": "/Users/YOU/zotero-research-agent"
+    }
+  }
+}
+```
+
+#### Cursor
+
+**Settings → MCP → Add server** with the same `command`, `args`, and `cwd` as above.
+
+### 6. Test the connection
+
+1. Start **Zotero desktop**
+2. Open a **new chat** in your MCP client
+3. Ask: *"List all collections in my Zotero library"*
+
+If you see your collections, setup is complete.
+
+---
+
+## Example prompts
+
+```
+Find papers about 15-minute cities published after 2020
+List all papers in my library from 2024 onwards
+What does this paper say about the research methodology?
+Find papers similar to [paper title]
+I'm writing: "Walkability is a key indicator of urban quality..." — suggest citations from my library
+Export BibTeX for the top 3 results
+Add this paper: 10.1016/j.cities.2025.105902
+Add this URL: https://www.sciencedirect.com/science/article/pii/...
+Tag these papers as "core reading"
+Sync my index — I just added new PDFs
+```
+
+**Write operations** (add paper, notes, tags, merge duplicates, create annotations) always **preview first**. The assistant should ask you to confirm (e.g. "确认" / "yes") before executing.
+
+---
+
+## MCP tools (16)
+
+| Category | Tools |
+|----------|-------|
+| **Discover** | `search_papers`, `find_similar_papers`, `browse_library`, `find_duplicates`, `merge_duplicates` |
+| **Read** | `get_paper`, `get_paper_content`, `search_annotations`, `create_annotation` |
+| **Write** | `suggest_citations`, `export_bibliography`, `add_paper` |
+| **Manage** | `add_note`, `edit_tags`, `manage_collections` |
+| **Admin** | `sync_index` |
+
+<details>
+<summary>Tool details</summary>
+
+### Discover
+- **`search_papers`** — Primary search. Hybrid keyword + semantic. Use `query=""` with `year_from` / tags for filter-only listing.
+- **`find_similar_papers`** — Similar papers to one known item (by `item_key`).
+- **`browse_library`** — Collections, tags, recent items, items in a collection.
+- **`find_duplicates`** / **`merge_duplicates`** — Detect and merge duplicates (dry-run by default).
+
+### Read
+- **`get_paper`** — Metadata + abstract.
+- **`get_paper_content`** — Modes: semantic query, page, fulltext, outline; optional annotations.
+- **`search_annotations`** — Search highlights/comments across all papers.
+- **`create_annotation`** — Highlight text on a PDF (dry-run by default).
+
+### Write & manage
+- **`suggest_citations`** — Match your draft text to library evidence.
+- **`export_bibliography`** — BibTeX or plain citations.
+- **`add_paper`** — Import by DOI / arXiv / ISBN / BibTeX / URL (dry-run by default).
+- **`add_note`**, **`edit_tags`**, **`manage_collections`** — Library organization (dry-run by default).
+
+### Admin
+- **`sync_index`** — Incremental vector index sync. Also runs automatically on MCP startup.
+
+</details>
+
+---
 
 ## Configuration
 
-See [`.env.example`](./.env.example) for all available settings:
+Copy [`.env.example`](./.env.example) to `.env`:
 
 | Variable | Default | Description |
-|---|---|---|
-| `ZOTERO_LOCAL` | `true` | Use local Zotero API for reads |
-| `ZOTERO_API_KEY` | — | Enables write operations via web API (hybrid mode) |
-| `ZOTERO_LIBRARY_ID` | `0` | Your Zotero user/group library ID |
-| `EMBEDDING_MODEL` | `BAAI/bge-m3` | Sentence-transformer model for semantic search |
-| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Cross-encoder for reranking (`none` to disable) |
-| `CHROMA_PERSIST_DIR` | `.chroma_db` | ChromaDB storage directory |
-| `ZRA_AUTO_SYNC` | `true` | Auto-sync index on server startup |
+|----------|---------|-------------|
+| `ZOTERO_LOCAL` | `true` | Read from local Zotero API (fast) |
+| `ZOTERO_API_KEY` | — | Required for writes (hybrid mode) |
+| `ZOTERO_LIBRARY_ID` | `0` | Your Zotero user ID |
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | Sentence-transformer for semantic search |
+| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker (`none` to disable) |
+| `CHROMA_PERSIST_DIR` | `.chroma_db` | Local vector database path |
+| `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on MCP startup |
+
+All data stays **on your machine**: Zotero library, `.chroma_db/`, and HuggingFace model cache (`~/.cache/huggingface/`). Each user indexes their own library independently.
+
+---
+
+## Updating
+
+After pulling new releases from GitHub:
+
+```bash
+cd ~/zotero-research-agent          # or your clone path
+git pull
+uv pip install -e .                 # only if dependencies changed
+```
+
+Restart your MCP client conversation to reload the server.
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| **Connection refused / no results** | Ensure Zotero desktop is running and local API is enabled |
+| **New papers not found** | Say *"sync my index"* or restart MCP (auto-sync runs on startup) |
+| **Write operations fail** | Set `ZOTERO_API_KEY` + `ZOTERO_LIBRARY_ID` in `.env` |
+| **Slow first start** | Embedding model download (~2.3 GB); use HF mirror or copy cached model |
+| **Windows: script blocked** | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` in PowerShell |
+| **MCP tools not called** | Use a model that supports function calling; enable MCP tools in client settings |
+| **AI executes writes without asking** | Add to system prompt: *"Always wait for my explicit confirmation before confirm=true on write tools"* |
+
+---
+
+## Architecture
+
+```
+research_core/          # Shared library (Zotero, RAG, tools)
+project_a_mcp/          # MCP server (this repo's main entry)
+project_b_agent/        # Full-stack agent scaffold (planned)
+```
+
+Each tool maps to **one user intent** — discovery tools return `item_key`, read/write tools consume it.
+
+---
 
 ## Development
 
 ```bash
-# Run tests (requires Zotero running)
+uv pip install -e ".[dev]"
 pytest tests/ -v
-
-# Lint
 ruff check .
 ```
 
-See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full roadmap.
+See [DEVELOPMENT.md](./DEVELOPMENT.md) for the roadmap.
+
+---
+
+## Comparison with [zotero-mcp](https://github.com/54yyyu/zotero-mcp)
+
+| | **This project** | **zotero-mcp** |
+|--|------------------|----------------|
+| Install | `git clone` + editable install | `pip` / `uv tool install zotero-mcp-server` |
+| Embedding | `bge-m3` (multilingual, built-in) | Optional extras; default English model |
+| Tool design | 16 intent-based tools, no overlap | Broader tool surface |
+| Index | ChromaDB + incremental version sync | ChromaDB + configurable update schedules |
+| Deployment | Local per-user (stdio MCP) | Local + optional HTTP/SSE |
+
+---
 
 ## License
 
