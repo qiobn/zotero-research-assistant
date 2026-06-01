@@ -215,11 +215,11 @@ Sync my index — I just added new PDFs
 
 ---
 
-## MCP tools (16)
+## MCP tools (17)
 
 | Category | Tools |
 |----------|-------|
-| **Discover** | `search_papers`, `find_similar_papers`, `browse_library`, `find_duplicates`, `merge_duplicates` |
+| **Discover** | `search_papers`, `search_online_literature`, `find_similar_papers`, `browse_library`, `find_duplicates`, `merge_duplicates` |
 | **Read** | `get_paper`, `get_paper_content`, `search_annotations`, `create_annotation` |
 | **Write** | `suggest_citations`, `export_bibliography`, `add_paper` |
 | **Manage** | `add_note`, `edit_tags`, `manage_collections` |
@@ -229,7 +229,8 @@ Sync my index — I just added new PDFs
 <summary>Tool details</summary>
 
 ### Discover
-- **`search_papers`** — Primary search. Hybrid keyword + semantic. Use `query=""` with `year_from` / tags for filter-only listing.
+- **`search_papers`** — Primary search in your local library. Hybrid keyword + semantic. Use `query=""` with `year_from` / tags for filter-only listing.
+- **`search_online_literature`** — Search OpenAlex + Semantic Scholar for papers not yet in your library. Returns DOI, OA status, and `in_local_library`. Chain with `add_paper(doi)` to import.
 - **`find_similar_papers`** — Similar papers to one known item (by `item_key`).
 - **`browse_library`** — Collections, tags, recent items, items in a collection.
 - **`find_duplicates`** / **`merge_duplicates`** — Detect and merge duplicates (dry-run by default).
@@ -266,6 +267,10 @@ Copy [`.env.example`](./.env.example) to `.env`:
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker (`none` to disable) |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | Local vector database path |
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on MCP startup |
+| `SEMANTIC_SCHOLAR_API_KEY` | — | Optional; higher rate limits for online search |
+| `OPENALEX_MAILTO` | — | Optional; contact email for OpenAlex polite pool |
+| `UNPAYWALL_EMAIL` | — | Optional; contact email for Unpaywall OA PDF lookup |
+| `CORE_API_KEY` | — | Optional; CORE repository full-text in PDF waterfall |
 
 All data stays **on your machine**: Zotero library, `.chroma_db/`, and HuggingFace model cache (`~/.cache/huggingface/`). Each user indexes their own library independently.
 

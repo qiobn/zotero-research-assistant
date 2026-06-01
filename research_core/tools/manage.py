@@ -501,44 +501,80 @@ def _save_pdf_content(content: bytes) -> str | None:
     return tmp.name
 
 
+def _download_pdf_from_url(url: str) -> str | None:
+    """Download a PDF from URL; return temp path or None."""
+    if not url:
+        return None
+    try:
+        r = httpx.get(
+            url,
+            follow_redirects=True,
+            timeout=30,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (compatible; ZoteroResearchAssistant/0.1; "
+                    "+https://github.com/qiobn/zotero-research-agent)"
+                ),
+                "Accept": "application/pdf,*/*",
+            },
+        )
+        if r.status_code != 200:
+            return None
+        ct = r.headers.get("content-type", "").lower()
+        if "pdf" in ct or url.lower().rstrip("/").endswith(".pdf"):
+            return _save_pdf_content(r.content)
+    except Exception as e:
+        logger.debug(f"PDF download failed for {url}: {e}")
+    return None
+
+
+def _unpaywall_email() -> str:
+    import os
+
+    return os.getenv("UNPAYWALL_EMAIL", "dev@example.com")
+
+
 def _try_arxiv_pdf(arxiv_id: str) -> str | None:
     """Stage 1: Direct arXiv PDF download."""
     if not arxiv_id:
         return None
-    try:
-        r = httpx.get(
-            f"https://arxiv.org/pdf/{arxiv_id}.pdf",
-            follow_redirects=True,
-            timeout=30,
-        )
-        if r.status_code == 200:
-            ct = r.headers.get("content-type", "")
-            if "pdf" in ct:
-                return _save_pdf_content(r.content)
-    except Exception as e:
-        logger.debug(f"arXiv PDF download failed: {e}")
-    return None
+    return _download_pdf_from_url(f"https://arxiv.org/pdf/{arxiv_id}.pdf")
+
+
+def _collect_unpaywall_pdf_urls(data: dict) -> list[str]:
+    """Collect PDF URLs from Unpaywall response (best + all OA locations)."""
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def add(url: str | None) -> None:
+        if url and url not in seen:
+            seen.add(url)
+            urls.append(url)
+
+    best = data.get("best_oa_location") or {}
+    add(best.get("url_for_pdf"))
+    add(best.get("url"))
+    for loc in data.get("oa_locations") or []:
+        add(loc.get("url_for_pdf"))
+        add(loc.get("url"))
+    return urls
 
 
 def _try_unpaywall(doi: str) -> str | None:
-    """Stage 2: Unpaywall open-access lookup."""
+    """Stage 2: Unpaywall — try best and all OA locations."""
     if not doi:
         return None
     try:
         r = httpx.get(
-            f"https://api.unpaywall.org/v2/{doi}?email=dev@example.com",
+            f"https://api.unpaywall.org/v2/{doi}?email={_unpaywall_email()}",
             timeout=10,
         )
         if r.status_code != 200:
             return None
-        data = r.json()
-        best = data.get("best_oa_location") or {}
-        pdf_url = best.get("url_for_pdf") or best.get("url")
-        if not pdf_url:
-            return None
-        r2 = httpx.get(pdf_url, follow_redirects=True, timeout=30)
-        if r2.status_code == 200:
-            return _save_pdf_content(r2.content)
+        for pdf_url in _collect_unpaywall_pdf_urls(r.json()):
+            result = _download_pdf_from_url(pdf_url)
+            if result:
+                return result
     except Exception as e:
         logger.debug(f"Unpaywall download failed for {doi}: {e}")
     return None
@@ -560,12 +596,7 @@ def _try_semantic_scholar(doi: str) -> str | None:
         if not data.get("isOpenAccess"):
             return None
         oa = data.get("openAccessPdf") or {}
-        pdf_url = oa.get("url")
-        if not pdf_url:
-            return None
-        r2 = httpx.get(pdf_url, follow_redirects=True, timeout=30)
-        if r2.status_code == 200:
-            return _save_pdf_content(r2.content)
+        return _download_pdf_from_url(oa.get("url"))
     except Exception as e:
         logger.debug(f"Semantic Scholar download failed for {doi}: {e}")
     return None
@@ -592,20 +623,76 @@ def _try_pmc(doi: str) -> str | None:
         if not pmcid:
             return None
         pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/"
-        r2 = httpx.get(pdf_url, follow_redirects=True, timeout=30)
-        if r2.status_code == 200:
-            ct = r2.headers.get("content-type", "")
-            if "pdf" in ct:
-                return _save_pdf_content(r2.content)
+        return _download_pdf_from_url(pdf_url)
     except Exception as e:
         logger.debug(f"PMC download failed for {doi}: {e}")
     return None
 
 
-def _try_download_pdf(doi: str, arxiv_id: str = "") -> str | None:
-    """Try to download an open-access PDF via 4-level waterfall.
+def _try_openalex_pdf(doi: str) -> str | None:
+    """Stage 5: OpenAlex primary_location / open_access PDF URL."""
+    import os
 
-    Order: arXiv → Unpaywall → Semantic Scholar → PMC.
+    if not doi:
+        return None
+    mailto = os.getenv("OPENALEX_MAILTO", os.getenv("UNPAYWALL_EMAIL", "dev@example.com"))
+    try:
+        r = httpx.get(
+            f"https://api.openalex.org/works/doi:{doi}",
+            params={"mailto": mailto},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None
+        work = r.json()
+        primary = work.get("primary_location") or {}
+        for url in (
+            primary.get("pdf_url"),
+            (work.get("open_access") or {}).get("oa_url"),
+            (work.get("best_oa_location") or {}).get("pdf_url"),
+        ):
+            result = _download_pdf_from_url(url)
+            if result:
+                return result
+    except Exception as e:
+        logger.debug(f"OpenAlex PDF lookup failed for {doi}: {e}")
+    return None
+
+
+def _try_core(doi: str) -> str | None:
+    """Stage 6: CORE repository full text (requires CORE_API_KEY)."""
+    import os
+
+    api_key = os.getenv("CORE_API_KEY", "").strip()
+    if not api_key or not doi:
+        return None
+    try:
+        r = httpx.get(
+            "https://api.core.ac.uk/v3/search/works",
+            params={"q": f'doi:"{doi}"', "limit": 1},
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return None
+        results = r.json().get("results") or []
+        if not results:
+            return None
+        work = results[0]
+        for url in (work.get("downloadUrl"), work.get("fullTextLink")):
+            result = _download_pdf_from_url(url)
+            if result:
+                return result
+    except Exception as e:
+        logger.debug(f"CORE download failed for {doi}: {e}")
+    return None
+
+
+def _try_download_pdf(doi: str, arxiv_id: str = "") -> str | None:
+    """Try to download an open-access PDF via multi-stage waterfall.
+
+    Order: arXiv → Unpaywall (all OA locations) → Semantic Scholar → PMC
+           → OpenAlex → CORE.
     Returns local temp file path or None.
     """
     for fn in [
@@ -613,6 +700,8 @@ def _try_download_pdf(doi: str, arxiv_id: str = "") -> str | None:
         lambda: _try_unpaywall(doi),
         lambda: _try_semantic_scholar(doi),
         lambda: _try_pmc(doi),
+        lambda: _try_openalex_pdf(doi),
+        lambda: _try_core(doi),
     ]:
         result = fn()
         if result:

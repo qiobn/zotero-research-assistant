@@ -1,9 +1,9 @@
 """Zotero Research Assistant — MCP server.
 
-16 tools, one intent each, designed to compose via `item_key`.
+17 tools, one intent each, designed to compose via `item_key`.
 
 Categories:
-  DISCOVER   search_papers, find_similar_papers, browse_library, find_duplicates, merge_duplicates
+  DISCOVER   search_papers, search_online_literature, find_similar_papers, browse_library, find_duplicates, merge_duplicates
   READ       get_paper, get_paper_content, search_annotations, create_annotation
   WRITE      suggest_citations, export_bibliography, add_paper
   MANAGE     add_note, edit_tags, manage_collections
@@ -65,6 +65,9 @@ from research_core.tools import (
     search_annotations as _search_annotations,
 )
 from research_core.tools import (
+    search_online_literature as _search_online_literature,
+)
+from research_core.tools import (
     search_papers as _search_papers,
 )
 from research_core.tools import (
@@ -120,7 +123,9 @@ mcp = FastMCP(
     instructions=(
         "Help researchers discover, read, cite, and manage papers in their Zotero library. "
         "Tools compose via `item_key`: discovery tools return keys, read/write tools consume them. "
-        "Prefer search_papers as the entry point. Never call multiple search tools for the same intent. "
+        "Prefer search_papers for the user's local Zotero library; use search_online_literature "
+        "only when they want to discover papers NOT yet in their library. "
+        "Never call multiple search tools for the same intent. "
         + _WRITE_CONFIRMATION_POLICY
         + " Tools with a confirm parameter: add_note, edit_tags, manage_collections, add_paper, "
         "merge_duplicates, create_annotation."
@@ -206,6 +211,7 @@ def search_papers(
     - User wants more papers like a specific one they named → use find_similar_papers.
     - User wants to browse collections/tags/recent additions → use browse_library.
     - User is writing a draft and wants citations for it → use suggest_citations.
+    - User wants to discover papers NOT in their library → use search_online_literature.
 
     Args:
         query: Natural-language topic, concept, or keyword string. Can be empty ("")
@@ -230,6 +236,48 @@ def search_papers(
         tags_include=normalize_list(tags_include, "tags_include"),
         tags_exclude=normalize_list(tags_exclude, "tags_exclude"),
         collection_key=collection_key,
+        limit=limit,
+    )
+    return [h.__dict__ for h in hits]
+
+
+@mcp.tool()
+@_safe_tool
+def search_online_literature(
+    query: str,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    limit: int = 15,
+) -> list[dict]:
+    """Search external literature databases (OpenAlex + Semantic Scholar).
+
+    Use this when the user wants to DISCOVER papers that may NOT be in their Zotero
+    library yet — e.g. "search online for recent LLM agent papers", "find papers on
+    X from 2023–2025", or "what's published on topic Y outside my library".
+
+    Results include DOI, abstract snippet, citation count, open-access status, and
+    whether the paper is already in the user's local library (`in_local_library`).
+    To import a hit, chain with add_paper(identifier=doi, confirm=false) for preview.
+
+    When NOT to use:
+    - User wants papers already in their Zotero library → use search_papers.
+    - User already has a DOI and wants to add it → use add_paper directly.
+    - User wants similar papers to one they already have → use find_similar_papers.
+
+    Args:
+        query: Topic, keywords, or natural-language search string (required).
+        year_from/year_to: Publication year window (inclusive). Optional.
+        limit: Max merged results (default 15).
+
+    Returns:
+        List of online hits with title, authors, year, doi, abstract, venue,
+        citation_count, is_open_access, oa_pdf_url, sources, score, in_local_library.
+    """
+    hits = _search_online_literature(
+        query=query,
+        zot=_get_zot(),
+        year_from=year_from,
+        year_to=year_to,
         limit=limit,
     )
     return [h.__dict__ for h in hits]

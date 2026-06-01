@@ -4,6 +4,7 @@ Each tool maps to a single user intent (not to a backend mechanism), and tools a
 designed to compose via `item_key`.
 """
 
+from research_core.sources.models import OnlinePaperHit
 from research_core.tools.admin import SyncReport, sync_index
 from research_core.tools.cite import (
     BibliographyExport,
@@ -11,6 +12,7 @@ from research_core.tools.cite import (
     export_bibliography,
     suggest_citations,
 )
+from research_core.tools.discover_online import search_online_literature
 from research_core.tools.manage import (
     AddPaperResult,
     WriteResult,
@@ -46,6 +48,8 @@ __all__ = [
     "BrowseResult",
     "CitationSuggestion",
     "DuplicateGroup",
+    "MergeResult",
+    "OnlinePaperHit",
     "PaperContent",
     "PaperHit",
     "SyncReport",
@@ -64,6 +68,7 @@ __all__ = [
     "get_paper_content",
     "manage_collections",
     "search_annotations",
+    "search_online_literature",
     "search_papers",
     "suggest_citations",
     "sync_index",

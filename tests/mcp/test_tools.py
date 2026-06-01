@@ -59,6 +59,33 @@ class TestSearchPapers:
             assert r["source"] in ("keyword", "semantic", "hybrid")
 
 
+class TestSearchOnlineLiterature:
+    """search_online_literature: external OpenAlex + Semantic Scholar search."""
+
+    def test_basic_query(self):
+        results = asyncio.run(
+            call("search_online_literature", {"query": "transformer language model", "limit": 5})
+        )
+        assert isinstance(results, list)
+        assert len(results) > 0
+        first = results[0]
+        assert "title" in first
+        assert "doi" in first
+        assert "sources" in first
+        assert isinstance(first["sources"], list)
+
+    def test_year_filter(self):
+        results = asyncio.run(
+            call(
+                "search_online_literature",
+                {"query": "large language model", "year_from": 2023, "limit": 5},
+            )
+        )
+        for r in results:
+            if r["year"]:
+                assert r["year"] >= 2023
+
+
 class TestFindSimilarPapers:
     """find_similar_papers: given a paper key, find related ones."""
 
