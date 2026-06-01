@@ -60,7 +60,7 @@ class TestSearchPapers:
 
 
 class TestSearchOnlineLiterature:
-    """search_online_literature: external OpenAlex + Semantic Scholar search."""
+    """search_online_literature: external bibliographic search."""
 
     def test_basic_query(self):
         results = asyncio.run(
@@ -71,6 +71,7 @@ class TestSearchOnlineLiterature:
         first = results[0]
         assert "title" in first
         assert "doi" in first
+        assert "publisher" in first
         assert "sources" in first
         assert isinstance(first["sources"], list)
 
@@ -84,6 +85,22 @@ class TestSearchOnlineLiterature:
         for r in results:
             if r["year"]:
                 assert r["year"] >= 2023
+
+    def test_includes_elsevier_for_medical_imaging_query(self):
+        results = asyncio.run(
+            call(
+                "search_online_literature",
+                {"query": "deep learning medical imaging diagnosis", "limit": 15},
+            )
+        )
+        assert len(results) > 0
+        elsevier_hits = [
+            r
+            for r in results
+            if "elsevier" in (r.get("publisher") or "").lower()
+            or (r.get("doi") or "").lower().startswith("10.1016/")
+        ]
+        assert elsevier_hits, "Expected at least one Elsevier hit for medical imaging query"
 
 
 class TestFindSimilarPapers:

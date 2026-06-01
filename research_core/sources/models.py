@@ -15,6 +15,7 @@ class ExternalPaper:
     doi: str
     abstract: str = ""
     venue: str = ""
+    publisher: str = ""
     citation_count: int = 0
     is_open_access: bool = False
     oa_pdf_url: str = ""
@@ -40,6 +41,7 @@ class OnlinePaperHit:
     doi: str
     abstract: str
     venue: str
+    publisher: str
     citation_count: int
     is_open_access: bool
     oa_pdf_url: str

@@ -230,7 +230,7 @@ Sync my index — I just added new PDFs
 
 ### Discover
 - **`search_papers`** — Primary search in your local library. Hybrid keyword + semantic. Use `query=""` with `year_from` / tags for filter-only listing.
-- **`search_online_literature`** — Search OpenAlex + Semantic Scholar for papers not yet in your library. Returns DOI, OA status, and `in_local_library`. Chain with `add_paper(doi)` to import.
+- **`search_online_literature`** — Search OpenAlex, Semantic Scholar, and CrossRef (with targeted Elsevier coverage) for papers not yet in your library. Returns DOI, publisher, OA status, and `in_local_library`. Chain with `add_paper(doi)` to import.
 - **`find_similar_papers`** — Similar papers to one known item (by `item_key`).
 - **`browse_library`** — Collections, tags, recent items, items in a collection.
 - **`find_duplicates`** / **`merge_duplicates`** — Detect and merge duplicates (dry-run by default).

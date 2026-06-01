@@ -249,13 +249,16 @@ def search_online_literature(
     year_to: int | None = None,
     limit: int = 15,
 ) -> list[dict]:
-    """Search external literature databases (OpenAlex + Semantic Scholar).
+    """Search external literature databases (OpenAlex + Semantic Scholar + CrossRef).
 
     Use this when the user wants to DISCOVER papers that may NOT be in their Zotero
     library yet — e.g. "search online for recent LLM agent papers", "find papers on
     X from 2023–2025", or "what's published on topic Y outside my library".
 
-    Results include DOI, abstract snippet, citation count, open-access status, and
+    Queries OpenAlex, Semantic Scholar, and CrossRef in parallel (including a targeted
+    Elsevier CrossRef pass) and merges results for broader publisher coverage.
+
+    Results include DOI, abstract snippet, publisher, citation count, open-access status,
     whether the paper is already in the user's local library (`in_local_library`).
     To import a hit, chain with add_paper(identifier=doi, confirm=false) for preview.
 
@@ -270,7 +273,7 @@ def search_online_literature(
         limit: Max merged results (default 15).
 
     Returns:
-        List of online hits with title, authors, year, doi, abstract, venue,
+        List of online hits with title, authors, year, doi, abstract, venue, publisher,
         citation_count, is_open_access, oa_pdf_url, sources, score, in_local_library.
     """
     hits = _search_online_literature(
