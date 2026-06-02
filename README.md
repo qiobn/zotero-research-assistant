@@ -32,12 +32,14 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 - [Troubleshooting](#troubleshooting)
 - [Architecture](#architecture)
 - [Development](#development)
-- [Comparison](#comparison-with-zotero-mcp)
+- [Acknowledgments](#acknowledgments)
 - [License](#license)
 
 ---
 
 ## Features
+
+### Local Library Intelligence
 
 - **Hybrid search** — Zotero keyword search + ChromaDB semantic search, merged with Reciprocal Rank Fusion; fallback to Zotero full-text index
 - **Filter-only search** — list papers by year, tags, or collection with an empty query
@@ -45,13 +47,26 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 - **Multilingual** — `BAAI/bge-m3` embedding (1024-dim, 100+ languages including Chinese and English)
 - **Page-level traceability** — retrieved passages include exact PDF page numbers
 - **Full-text & outline** — read complete paper text or PDF table of contents
-- **Online discovery** — search OpenAlex, CrossRef, and Semantic Scholar with publisher-diverse ranking and discipline filtering
-- **Related paper discovery** — give a paper's metadata, auto-generate multi-query search across all sources in one call, with post-filtering to remove off-topic noise
-- **Discipline filtering** — optional `fields_of_study` parameter constrains results to relevant academic fields (Business, Economics, Sociology, etc.)
-- **Source verification** — every returned paper includes a verifiable link (DOI URL, Semantic Scholar URL, or CNKI link) so users can check authenticity
-- **Anti-hallucination guardrails** — AI is instructed to never fabricate citations; only tool-returned papers are presented
-- **CNKI integration** — optional Chinese journal search via browser automation (disabled by default)
 - **Incremental index sync** — version-based diff; auto-sync on MCP startup
+
+### Online Literature Discovery
+
+- **Multi-source search** — queries OpenAlex, CrossRef, and Semantic Scholar in parallel with publisher-diverse ranking
+- **Discipline filtering** — optional `fields_of_study` parameter constrains results to relevant academic fields (Business, Economics, Sociology, etc.), preventing cross-domain noise
+- **Related paper discovery** — provide a paper's title/abstract/keywords → automatically generates 3-6 diverse queries → searches all sources → post-filters irrelevant results → returns deduplicated hits in a single call
+- **Source verification** — every returned paper includes a verifiable link (DOI URL, Semantic Scholar URL, or CNKI link) so users can independently check authenticity
+- **Anti-hallucination guardrails** — the AI is instructed to never fabricate citations; only papers actually returned by search tools are presented to the user
+
+### CNKI (Chinese Literature)
+
+- **CNKI integration** — optional Chinese journal search via browser automation (disabled by default, enabled on demand)
+- **Journal-level tags** — search results include indexing status badges (CSSCI, PKU Core, CSCD, SCI, EI)
+- **Direct Zotero import** — export papers from CNKI to Zotero without manual DOI lookup
+- **Paper detail extraction** — full metadata (abstract, keywords, DOI, affiliations) from CNKI detail pages
+- **Smart pagination** — AI proactively fetches more results when thorough coverage is needed
+
+### Library Management
+
 - **Add papers** — DOI, arXiv, ISBN, BibTeX, or publisher URL (ScienceDirect, Springer, Wiley, …)
 - **Open-access PDF waterfall** — arXiv → Unpaywall → OpenAlex → Semantic Scholar → CORE → PMC
 - **Duplicate merge** — find by DOI/title, merge with dry-run preview
@@ -402,9 +417,9 @@ Sync my index — I just added new PDFs
 
 ### Discover
 - **`search_papers`** — Primary search in your local library. Hybrid keyword + semantic. Use `query=""` with `year_from` / tags for filter-only listing.
-- **`search_online_literature`** — Online discovery (English/international: OpenAlex, CrossRef, Semantic Scholar). Default for online search unless user explicitly requests Chinese literature.
-- **`search_cnki_literature`** — CNKI Chinese journal search (optional module, disabled by default). Only triggered when user explicitly requests Chinese papers / 中文文献 / CNKI.
-- **`find_related_literature`** — Auto multi-query search from paper metadata. Provide a paper's title/abstract/keywords → generates 3-5 diverse queries → searches all sources (online/CNKI/both) → returns deduplicated results in one call.
+- **`search_online_literature`** — Online discovery (English/international: OpenAlex, CrossRef, Semantic Scholar). Supports `fields_of_study` for discipline filtering. Default for online search unless user explicitly requests Chinese literature.
+- **`search_cnki_literature`** — CNKI Chinese journal search (optional module, disabled by default). Only triggered when user explicitly requests Chinese papers / 中文文献 / CNKI. Returns journal-level tags (CSSCI, PKU Core, etc.).
+- **`find_related_literature`** — Auto multi-query related paper search. Provide a paper's title/abstract/keywords → generates 3-6 diverse queries with quoted phrases → searches all sources (online/CNKI/both) with discipline filtering → post-filters irrelevant results → returns deduplicated hits in one call. Supports `fields_of_study` and `scope` parameters.
 - **`cnki_paper_detail`** — Full metadata (abstract, keywords, DOI, affiliations) from a CNKI paper page.
 - **`cnki_navigate_pages`** — Pagination & re-sorting for CNKI results. Used proactively when user needs many papers or deeper search.
 - **`find_similar_papers`** — Similar papers to a known item (by `item_key`).
@@ -585,18 +600,14 @@ See [DEVELOPMENT.md](./DEVELOPMENT.md) for the roadmap and contribution guidelin
 
 ---
 
-## Comparison with [zotero-mcp](https://github.com/54yyyu/zotero-mcp)
+## Acknowledgments
 
-| | **This project** | **zotero-mcp** |
-|--|------------------|----------------|
-| Install | `git clone` + editable install | `pip install` / `uv tool install` |
-| Embedding | `bge-m3` (multilingual, built-in) | Optional; default English model |
-| Tool design | 22 intent-based tools, no overlap | Broader tool surface |
-| Online search | OpenAlex + CrossRef + S2 + CNKI | — |
-| CNKI support | Full (search, detail, export to Zotero) | — |
-| Index | ChromaDB + incremental version sync | ChromaDB + scheduled updates |
-| Multi-client | Cursor, Claude, Cherry Studio, Trae, Codex | Cursor, Claude |
-| Deployment | Local per-user (stdio MCP) | Local + optional HTTP/SSE |
+This project was inspired by and built upon ideas from:
+
+- **[zotero-mcp](https://github.com/54yyyu/zotero-mcp)** — Pioneering work on connecting Zotero with AI assistants via MCP.
+- **[cnki-skills](https://github.com/cookjohn/cnki-skills)** — Elegant approach to CNKI browser automation via Chrome DevTools Protocol.
+
+Thank you to the authors of these projects for sharing their work with the community.
 
 ---
 
