@@ -46,5 +46,6 @@ class OnlinePaperHit:
     is_open_access: bool
     oa_pdf_url: str
     sources: list[str] = field(default_factory=list)
+    source_url: str = ""
     score: float = 0.0
     in_local_library: bool = False

@@ -58,6 +58,31 @@ def _extract_oa(work: dict) -> tuple[bool, str]:
     return is_oa, pdf_url or ""
 
 
+_OPENALEX_FIELD_IDS: dict[str, int] = {
+    "business": 14,
+    "management": 14,
+    "accounting": 14,
+    "economics": 20,
+    "finance": 20,
+    "sociology": 33,
+    "social sciences": 33,
+    "psychology": 32,
+    "computer science": 17,
+    "environmental science": 23,
+    "geography": 19,
+    "earth science": 19,
+    "political science": 33,
+    "education": 33,
+    "medicine": 27,
+    "engineering": 22,
+    "tourism": 14,
+    "marketing": 14,
+    "law": 33,
+    "arts and humanities": 12,
+    "decision sciences": 18,
+}
+
+
 def search_openalex(
     query: str,
     *,
@@ -65,6 +90,7 @@ def search_openalex(
     year_to: int | None = None,
     limit: int = 20,
     sort_by: str = "relevance",
+    fields_of_study: list[str] | None = None,
 ) -> list[ExternalPaper]:
     """Search OpenAlex works API."""
     if not query.strip():
@@ -75,6 +101,14 @@ def search_openalex(
         filters.append(f"from_publication_date:{year_from}-01-01")
     if year_to is not None:
         filters.append(f"until_publication_date:{year_to}-12-31")
+    if fields_of_study:
+        field_ids = list({
+            _OPENALEX_FIELD_IDS[f.lower()]
+            for f in fields_of_study
+            if f.lower() in _OPENALEX_FIELD_IDS
+        })
+        if field_ids:
+            filters.append(f"topics.field.id:{'|'.join(str(fid) for fid in field_ids)}")
 
     fetch_count = min(max(limit, 10), 50)
     oa_sort = "cited_by_count:desc" if sort_by == "citations" else "relevance_score:desc"

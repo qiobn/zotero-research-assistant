@@ -17,6 +17,15 @@ _FIELDS = (
 )
 
 
+_S2_VALID_FIELDS = frozenset({
+    "Computer Science", "Medicine", "Biology", "Chemistry", "Physics",
+    "Mathematics", "Materials Science", "Engineering", "Environmental Science",
+    "Business", "Economics", "Sociology", "Psychology", "Political Science",
+    "Geography", "History", "Art", "Philosophy", "Linguistics", "Education",
+    "Agricultural and Food Sciences", "Law",
+})
+
+
 def search_semantic_scholar(
     query: str,
     *,
@@ -24,6 +33,7 @@ def search_semantic_scholar(
     year_to: int | None = None,
     limit: int = 20,
     sort_by: str = "relevance",
+    fields_of_study: list[str] | None = None,
 ) -> list[ExternalPaper]:
     """Search Semantic Scholar paper search API."""
     if not query.strip():
@@ -44,6 +54,10 @@ def search_semantic_scholar(
         params["year"] = f"{year_from}-"
     if year_to is not None:
         params["year"] = f"-{year_to}" if year_from is None else f"{year_from}-{year_to}"
+    if fields_of_study:
+        valid = [f for f in fields_of_study if f in _S2_VALID_FIELDS]
+        if valid:
+            params["fieldsOfStudy"] = ",".join(valid)
 
     data: list = []
     for attempt in range(3):

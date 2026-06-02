@@ -43,6 +43,23 @@ _ENGLISH_STOPWORDS = frozenset(
     "effect effects impact influence role".split()
 )
 
+_FIELDS_OF_STUDY_MAP: dict[str, list[str]] = {
+    "Business": ["Business", "Economics"],
+    "Economics": ["Business", "Economics"],
+    "Sociology": ["Sociology"],
+    "Psychology": ["Psychology"],
+    "Computer Science": ["Computer Science"],
+    "Medicine": ["Medicine"],
+    "Environmental Science": ["Environmental Science"],
+    "Geography": ["Geography", "Environmental Science"],
+    "Education": ["Education"],
+    "Political Science": ["Political Science"],
+    "Engineering": ["Engineering"],
+    "Tourism": ["Business", "Economics", "Sociology"],
+    "Marketing": ["Business", "Economics"],
+    "Law": ["Law", "Political Science"],
+}
+
 
 def _is_chinese(text: str) -> bool:
     """Check if text contains predominantly Chinese characters."""
@@ -81,6 +98,13 @@ def _extract_english_terms(text: str) -> list[str]:
     return meaningful
 
 
+def _quote_phrase(phrase: str) -> str:
+    """Wrap multi-word phrases in quotes for exact matching in search APIs."""
+    if " " in phrase.strip() and not phrase.startswith('"'):
+        return f'"{phrase.strip()}"'
+    return phrase.strip()
+
+
 def _generate_queries(
     title: str = "",
     abstract: str = "",
@@ -89,50 +113,114 @@ def _generate_queries(
     """Generate 3-5 search queries from paper metadata (pure rules, no LLM).
 
     Strategy:
-    1. Use keyword combinations (most reliable)
-    2. Use title core terms
-    3. Use full keyword set as broad query
+    1. Use keyword combinations with quoted multi-word phrases
+    2. Use title core terms as disambiguating context
+    3. Combine keywords with title domain words for cross-context queries
     """
     queries: list[str] = []
     kw_list = [k.strip() for k in (keywords or []) if k.strip()]
 
     if kw_list:
+        quoted_kws = [_quote_phrase(k) for k in kw_list]
         if len(kw_list) >= 3:
-            for combo in itertools.combinations(kw_list[:6], 2):
+            for combo in itertools.combinations(quoted_kws[:6], 2):
                 queries.append(" ".join(combo))
         if len(kw_list) >= 4:
-            for combo in itertools.combinations(kw_list[:5], 3):
+            for combo in itertools.combinations(quoted_kws[:5], 3):
                 queries.append(" ".join(combo))
         if len(kw_list) <= 4:
-            queries.append(" ".join(kw_list))
+            queries.append(" ".join(quoted_kws))
 
     if title.strip():
         title_clean = re.sub(r"[——\-—–:：].*$", "", title.strip())
         if _is_chinese(title_clean):
             terms = _extract_chinese_terms(title_clean)
             if len(terms) >= 2:
-                queries.append(" ".join(terms[:3]))
+                queries.append(" ".join(terms[:4]))
         else:
             terms = _extract_english_terms(title_clean)
             if len(terms) >= 2:
-                queries.append(" ".join(terms[:4]))
+                queries.append(" ".join(terms[:5]))
 
-    if abstract and len(queries) < 3:
-        abs_text = abstract[:200]
+    if title.strip() and kw_list:
+        title_clean = re.sub(r"[——\-—–:：].*$", "", title.strip())
+        if _is_chinese(title_clean):
+            title_terms = _extract_chinese_terms(title_clean)
+        else:
+            title_terms = _extract_english_terms(title_clean)
+        if title_terms and kw_list:
+            domain_word = title_terms[0] if title_terms else ""
+            if domain_word:
+                for kw in kw_list[:2]:
+                    combo_q = f"{_quote_phrase(kw)} {domain_word}"
+                    queries.append(combo_q)
+
+    if abstract and len(queries) < 4:
+        abs_text = abstract[:300]
         if _is_chinese(abs_text):
             terms = _extract_chinese_terms(abs_text)
             if terms:
-                queries.append(" ".join(terms[:3]))
+                queries.append(" ".join(terms[:4]))
         else:
             terms = _extract_english_terms(abs_text)
             if terms:
-                queries.append(" ".join(terms[:4]))
+                queries.append(" ".join(terms[:5]))
 
     seen: list[str] = []
     for q in queries:
         if q and q not in seen:
             seen.append(q)
-    return seen[:5]
+    return seen[:6]
+
+
+def _build_relevance_terms(
+    title: str = "",
+    keywords: list[str] | None = None,
+) -> set[str]:
+    """Build a set of relevance terms from paper metadata for post-filtering."""
+    terms: set[str] = set()
+    for kw in (keywords or []):
+        kw_clean = kw.strip().lower()
+        if kw_clean:
+            terms.add(kw_clean)
+            for word in re.findall(r"[a-z\u4e00-\u9fff]+", kw_clean):
+                if len(word) >= 3 and word not in _ENGLISH_STOPWORDS:
+                    terms.add(word)
+    if title.strip():
+        title_lower = title.strip().lower()
+        for word in re.findall(r"[a-z\u4e00-\u9fff]+", title_lower):
+            if len(word) >= 4 and word not in _ENGLISH_STOPWORDS:
+                terms.add(word)
+    return terms
+
+
+def _relevance_score(hit_title: str, hit_abstract: str, relevance_terms: set[str]) -> float:
+    """Score 0-1 indicating how relevant a hit is to the original paper."""
+    if not relevance_terms:
+        return 1.0
+    text = f"{hit_title} {hit_abstract}".lower()
+    matched = sum(1 for term in relevance_terms if term in text)
+    return matched / len(relevance_terms)
+
+
+def _filter_irrelevant(
+    hits: list,
+    relevance_terms: set[str],
+    min_score: float = 0.15,
+) -> list:
+    """Remove hits that have negligible overlap with the paper's topic."""
+    if not relevance_terms:
+        return hits
+    filtered = []
+    for hit in hits:
+        title = getattr(hit, "title", "")
+        abstract = getattr(hit, "abstract", "")
+        score = _relevance_score(title, abstract, relevance_terms)
+        if score >= min_score:
+            filtered.append(hit)
+        else:
+            logger.debug(f"Filtered out irrelevant hit: {title[:60]}... (score={score:.2f})")
+    return filtered
 
 
 def _dedup_cnki_hits(all_hits: list) -> list:
@@ -155,6 +243,8 @@ def _run_online_related(
     year_to: int | None,
     limit: int,
     sort_by: SortBy,
+    fields_of_study: list[str] | None,
+    relevance_terms: set[str],
     zot: ZoteroClient | None,
 ) -> list[OnlinePaperHit]:
     """Run multiple queries through online sources and merge."""
@@ -173,6 +263,7 @@ def _run_online_related(
                 year_to=year_to,
                 fetch_depth=fetch_depth,
                 sort_by=sort_by,
+                fields_of_study=fields_of_study,
             )
             futures[future] = f"batch_{i}"
 
@@ -186,7 +277,9 @@ def _run_online_related(
     if not all_source_lists:
         return []
 
-    hits = _merge_papers(all_source_lists, limit=limit, sort_by=sort_by)
+    hits = _merge_papers(all_source_lists, limit=limit * 2, sort_by=sort_by)
+    hits = _filter_irrelevant(hits, relevance_terms)
+    hits = hits[:limit]
     if zot is not None:
         _mark_local_online(hits, zot)
     return hits
@@ -200,6 +293,7 @@ def _run_cnki_related(
     source_categories: list[str] | None,
     limit: int,
     sort_by: SortBy,
+    relevance_terms: set[str],
     zot: ZoteroClient | None,
 ) -> list:
     """Run multiple queries through CNKI in a single browser session."""
@@ -243,6 +337,7 @@ def _run_cnki_related(
             logger.debug(f"CNKI related query '{query}' -> {len(hits)} hits")
 
     all_hits = _dedup_cnki_hits(all_hits)
+    all_hits = _filter_irrelevant(all_hits, relevance_terms)
 
     all_hits = _apply_filters(
         all_hits,
@@ -263,6 +358,7 @@ def find_related_literature(
     title: str = "",
     abstract: str = "",
     keywords: list[str] | None = None,
+    fields_of_study: list[str] | None = None,
     source_categories: list[str] | None = None,
     year_from: int | None = None,
     year_to: int | None = None,
@@ -273,15 +369,22 @@ def find_related_literature(
     """Find literature related to a known paper by auto-generating multiple queries.
 
     Accepts paper metadata (title, abstract, keywords) and automatically:
-    1. Generates 3-5 diverse search queries from the metadata
-    2. Executes all queries (online / CNKI / both)
-    3. Deduplicates and merges results
+    1. Generates 3-6 diverse search queries from the metadata
+    2. Executes all queries (online / CNKI / both) with optional field filtering
+    3. Post-filters irrelevant results via keyword overlap scoring
+    4. Deduplicates and merges results
 
-    Replaces 8-12 manual search_*_literature calls with a single invocation.
+    Args:
+        fields_of_study: Optional discipline filter to improve precision.
+            Valid values: Business, Economics, Sociology, Psychology,
+            Computer Science, Medicine, Environmental Science, Geography,
+            Education, Political Science, Engineering, Tourism, Marketing, Law.
     """
     queries = _generate_queries(title=title, abstract=abstract, keywords=keywords)
     if not queries:
         return {"error": "Provide at least title or keywords to generate queries.", "queries": []}
+
+    relevance_terms = _build_relevance_terms(title=title, keywords=keywords)
 
     result: dict = {"queries_generated": queries, "scope": scope}
 
@@ -292,6 +395,8 @@ def find_related_literature(
             year_to=year_to,
             limit=limit,
             sort_by=sort_by,
+            fields_of_study=fields_of_study,
+            relevance_terms=relevance_terms,
             zot=zot,
         )
         result["online_hits"] = online_hits
@@ -305,6 +410,7 @@ def find_related_literature(
             source_categories=source_categories,
             limit=limit,
             sort_by=sort_by,
+            relevance_terms=relevance_terms,
             zot=zot,
         )
         result["cnki_hits"] = cnki_hits

@@ -45,8 +45,11 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 - **Multilingual** — `BAAI/bge-m3` embedding (1024-dim, 100+ languages including Chinese and English)
 - **Page-level traceability** — retrieved passages include exact PDF page numbers
 - **Full-text & outline** — read complete paper text or PDF table of contents
-- **Online discovery** — search OpenAlex, CrossRef, and Semantic Scholar with publisher-diverse ranking
-- **Related paper discovery** — give a paper's metadata, auto-generate multi-query search across all sources in one call
+- **Online discovery** — search OpenAlex, CrossRef, and Semantic Scholar with publisher-diverse ranking and discipline filtering
+- **Related paper discovery** — give a paper's metadata, auto-generate multi-query search across all sources in one call, with post-filtering to remove off-topic noise
+- **Discipline filtering** — optional `fields_of_study` parameter constrains results to relevant academic fields (Business, Economics, Sociology, etc.)
+- **Source verification** — every returned paper includes a verifiable link (DOI URL, Semantic Scholar URL, or CNKI link) so users can check authenticity
+- **Anti-hallucination guardrails** — AI is instructed to never fabricate citations; only tool-returned papers are presented
 - **CNKI integration** — optional Chinese journal search via browser automation (disabled by default)
 - **Incremental index sync** — version-based diff; auto-sync on MCP startup
 - **Add papers** — DOI, arXiv, ISBN, BibTeX, or publisher URL (ScienceDirect, Springer, Wiley, …)

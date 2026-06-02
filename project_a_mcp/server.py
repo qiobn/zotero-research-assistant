@@ -157,12 +157,35 @@ mcp = FastMCP(
         "RELATED PAPER DISCOVERY: when the user provides a paper (title/abstract/keywords) and wants "
         "related literature, use find_related_literature — it auto-generates multiple queries and "
         "searches in one call (replaces 8-12 manual search rounds). Set scope='online' for English, "
-        "'cnki' for Chinese, 'both' for bilingual. "
+        "'cnki' for Chinese, 'both' for bilingual. IMPORTANT: for social science, humanities, or "
+        "niche domains, ALWAYS set fields_of_study to constrain results (e.g. ['Business', 'Economics'] "
+        "for management research, ['Sociology'] for sociology papers). This prevents irrelevant "
+        "results from other disciplines. "
         "CNKI→Zotero workflow: after search_cnki_literature returns hits, use "
         "cnki_add_to_zotero(export_ids=[...]) to import papers directly — NO DOI required. "
         "Use cnki_paper_detail(cnki_url) for full abstract/keywords/DOI if the user wants details. "
         "Use cnki_navigate_pages PROACTIVELY when: user needs many papers (>20), asks for thorough/"
         "deep search, or first-page results are insufficient. Do NOT wait for user to say 'next page'. "
+        "\n\n"
+        "=== CRITICAL: ANTI-HALLUCINATION RULES ===\n"
+        "1. NEVER fabricate, invent, or hallucinate citations. You must ONLY present papers that "
+        "were actually returned by the search tools (search_papers, search_online_literature, "
+        "search_cnki_literature, find_related_literature, find_similar_papers).\n"
+        "2. If search tools return NO relevant results or EMPTY results, honestly tell the user: "
+        "'The search did not find relevant papers matching your criteria. This may be because "
+        "the topic is too niche for the databases covered, or the query needs adjustment.' "
+        "NEVER compensate by generating a fake literature list from your own knowledge.\n"
+        "3. Every paper you present to the user MUST include a verifiable source anchor:\n"
+        "   - For online hits: include the source_url (DOI link like https://doi.org/... or "
+        "platform URL) so the user can click to verify.\n"
+        "   - For CNKI hits: include the cnki_url (知网链接) so the user can verify.\n"
+        "   - For local Zotero papers: include item_key so the user can look it up.\n"
+        "4. When presenting results, format each paper with its verification link clearly visible. "
+        "Do NOT omit source URLs. If a paper has no DOI and no source_url, note that it lacks "
+        "a verifiable link.\n"
+        "5. If you are uncertain whether a paper exists, DO NOT include it. Only report what "
+        "the tools returned.\n"
+        "=== END ANTI-HALLUCINATION RULES ===\n\n"
         + _WRITE_CONFIRMATION_POLICY
         + " Tools with a confirm parameter: add_note, edit_tags, manage_collections, add_paper, "
         "merge_duplicates, create_annotation."
@@ -287,6 +310,7 @@ def search_online_literature(
     year_to: int | None = None,
     limit: int = 15,
     sort_by: Literal["relevance", "citations"] = "relevance",
+    fields_of_study: list[str] | None = None,
 ) -> list[dict]:
     """Search external literature databases (OpenAlex + Semantic Scholar + CrossRef).
 
@@ -307,8 +331,8 @@ def search_online_literature(
     (often together with year_from) so landmark papers surface instead of only the most
     keyword-relevant recent preprints.
 
-    Results include DOI, abstract snippet, publisher, citation count, open-access status,
-    whether the paper is already in the user's local library (`in_local_library`).
+    Results include DOI, source_url (verifiable link), abstract snippet, publisher,
+    citation count, open-access status, and whether the paper is in the user's library.
     To import a hit, chain with add_paper(identifier=doi, confirm=false) for preview.
 
     When NOT to use:
@@ -322,10 +346,13 @@ def search_online_literature(
         year_from/year_to: Publication year window (inclusive). Optional.
         limit: Max merged results (default 15).
         sort_by: "relevance" (default) for topic matching; "citations" for high-impact surveys.
+        fields_of_study: Optional discipline filter to improve precision. Valid values:
+            Business, Economics, Sociology, Psychology, Computer Science, Medicine,
+            Environmental Science, Geography, Education, Political Science, Engineering.
 
     Returns:
-        List of online hits with title, authors, year, doi, abstract, venue, publisher,
-        citation_count, is_open_access, oa_pdf_url, sources, score, in_local_library.
+        List of online hits with title, authors, year, doi, source_url, abstract, venue,
+        publisher, citation_count, is_open_access, oa_pdf_url, sources, score, in_local_library.
     """
     hits = _search_online_literature(
         query=query,
@@ -334,6 +361,7 @@ def search_online_literature(
         year_to=year_to,
         limit=limit,
         sort_by=sort_by,
+        fields_of_study=fields_of_study,
     )
     return [h.__dict__ for h in hits]
 
@@ -423,6 +451,7 @@ def find_related_literature(
     title: str = "",
     abstract: str = "",
     keywords: list[str] | None = None,
+    fields_of_study: list[str] | None = None,
     source_categories: list[str] | None = None,
     year_from: int | None = None,
     year_to: int | None = None,
@@ -432,9 +461,10 @@ def find_related_literature(
     """Find literature related to a known paper — auto multi-query, one call.
 
     PREFERRED tool when the user provides a paper (or its metadata) and wants
-    to find related/similar literature. Automatically generates 3-5 diverse
+    to find related/similar literature. Automatically generates 3-6 diverse
     search queries from the paper's title/abstract/keywords, executes them all,
-    and returns deduplicated merged results.
+    applies relevance filtering to remove off-topic noise, and returns
+    deduplicated merged results.
 
     Replaces 8-12 manual search_online_literature or search_cnki_literature
     calls with a SINGLE invocation. Use this whenever:
@@ -460,6 +490,11 @@ def find_related_literature(
         title: Paper title (at least title or keywords required).
         abstract: Paper abstract (optional, helps generate better queries).
         keywords: Paper keywords list (most effective for query generation).
+        fields_of_study: Optional discipline filter. Valid values: Business, Economics,
+            Sociology, Psychology, Computer Science, Medicine, Environmental Science,
+            Geography, Education, Political Science, Engineering, Tourism, Marketing, Law.
+            STRONGLY RECOMMENDED for social science / humanities papers to avoid
+            retrieving irrelevant results from other fields.
         source_categories: CNKI filter: ["CSSCI", "北大核心", "SCI", ...].
         year_from/year_to: Publication year window.
         limit: Max results per scope (default 30).
@@ -467,14 +502,16 @@ def find_related_literature(
 
     Returns:
         {queries_generated, scope, online_hits, online_count, cnki_hits, cnki_count}.
+        Each hit includes source_url (DOI link or platform URL) for verification.
         online_hits: list of OnlinePaperHit dicts.
-        cnki_hits: list of CnkiPaperHit dicts (with journal_level field).
+        cnki_hits: list of CnkiPaperHit dicts (with cnki_url and journal_level).
     """
     result = _find_related_literature(
         scope=scope,
         title=title,
         abstract=abstract,
         keywords=normalize_list(keywords, "keywords"),
+        fields_of_study=normalize_list(fields_of_study, "fields_of_study"),
         source_categories=normalize_list(source_categories, "source_categories"),
         year_from=year_from,
         year_to=year_to,

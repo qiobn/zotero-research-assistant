@@ -10,7 +10,12 @@ from research_core.sources.cnki.search import (
     _raw_to_hits,
 )
 from research_core.sources.cnki.zotero_export import _build_zotero_item, _parse_elearning
-from research_core.tools.find_related import _generate_queries
+from research_core.sources.models import OnlinePaperHit
+from research_core.tools.find_related import (
+    _build_relevance_terms,
+    _filter_irrelevant,
+    _generate_queries,
+)
 
 
 class TestCnkiParsing:
@@ -148,9 +153,33 @@ class TestQueryGeneration:
         qs = _generate_queries(keywords=["A", "B"])
         assert len(qs) == len(set(qs))
 
-    def test_max_5_queries(self):
+    def test_max_6_queries(self):
         qs = _generate_queries(keywords=["a", "b", "c", "d", "e", "f", "g"])
-        assert len(qs) <= 5
+        assert len(qs) <= 6
+
+    def test_quoted_phrases_in_queries(self):
+        qs = _generate_queries(keywords=["social norms", "online reviews", "restaurant performance"])
+        has_quoted = any('"' in q for q in qs)
+        assert has_quoted, f"Expected quoted phrases in queries: {qs}"
+
+    def test_relevance_filter_removes_irrelevant(self):
+        terms = _build_relevance_terms(
+            title="Authenticity in non-local restaurants",
+            keywords=["authenticity", "social norms", "restaurant", "online reviews"],
+        )
+        relevant_hit = OnlinePaperHit(
+            title="Authenticity and Consumer Value Ratings in Restaurants",
+            authors=["A"], year=2020, doi="", abstract="Study on restaurant authenticity norms",
+            venue="", publisher="", citation_count=0, is_open_access=False, oa_pdf_url="",
+        )
+        irrelevant_hit = OnlinePaperHit(
+            title="Non-local quantum correlations in photonic systems",
+            authors=["B"], year=2020, doi="", abstract="Quantum entanglement measurement",
+            venue="", publisher="", citation_count=500, is_open_access=False, oa_pdf_url="",
+        )
+        filtered = _filter_irrelevant([relevant_hit, irrelevant_hit], terms)
+        assert relevant_hit in filtered
+        assert irrelevant_hit not in filtered
 
     def test_journal_level_in_raw_to_hits(self):
         raw = {

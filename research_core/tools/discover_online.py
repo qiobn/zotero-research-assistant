@@ -84,6 +84,13 @@ def _merge_papers(
         sources = [s.strip() for s in (paper.source or "").split(",") if s.strip()]
         if not sources:
             sources = ["unknown"]
+        source_url = ""
+        if paper.doi:
+            source_url = f"https://doi.org/{paper.doi}"
+        elif paper.source_id and paper.source == "openalex":
+            source_url = paper.source_id
+        elif paper.source_id and paper.source == "semantic_scholar":
+            source_url = f"https://www.semanticscholar.org/paper/{paper.source_id}"
         hits.append(
             OnlinePaperHit(
                 title=paper.title,
@@ -97,6 +104,7 @@ def _merge_papers(
                 is_open_access=paper.is_open_access,
                 oa_pdf_url=paper.oa_pdf_url,
                 sources=sources,
+                source_url=source_url,
                 score=round(score_by_key.get(key, 0.0), 4),
             )
         )
@@ -178,6 +186,7 @@ def _fetch_all_sources(
     year_to: int | None,
     fetch_depth: int,
     sort_by: SortBy,
+    fields_of_study: list[str] | None = None,
 ) -> list[tuple[str, list[ExternalPaper]]]:
     """Query all bibliographic sources in parallel."""
     common = {
@@ -187,8 +196,10 @@ def _fetch_all_sources(
         "sort_by": sort_by,
     }
     tasks = {
-        "openalex": lambda: search_openalex(query, **common),
-        "semantic_scholar": lambda: search_semantic_scholar(query, **common),
+        "openalex": lambda: search_openalex(query, **common, fields_of_study=fields_of_study),
+        "semantic_scholar": lambda: search_semantic_scholar(
+            query, **common, fields_of_study=fields_of_study
+        ),
         "crossref": lambda: search_crossref(query, **common),
         "crossref_elsevier": lambda: search_crossref(
             query,
@@ -235,6 +246,7 @@ def search_online_literature(
     year_to: int | None = None,
     limit: int = 15,
     sort_by: SortBy = "relevance",
+    fields_of_study: list[str] | None = None,
 ) -> list[OnlinePaperHit]:
     """Search OpenAlex, Semantic Scholar, and CrossRef; merge by DOI/title."""
     if not query.strip():
@@ -247,6 +259,7 @@ def search_online_literature(
         year_to=year_to,
         fetch_depth=fetch_depth,
         sort_by=sort_by,
+        fields_of_study=fields_of_study,
     )
     if not source_lists:
         return []
