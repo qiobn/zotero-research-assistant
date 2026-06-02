@@ -163,35 +163,45 @@ mcp = FastMCP(
         "niche domains, ALWAYS set fields_of_study to constrain results (e.g. ['Business', 'Economics'] "
         "for management research, ['Sociology'] for sociology papers). This prevents irrelevant "
         "results from other disciplines. "
-        "CITATION NETWORK: use expand_citation_network(doi=...) when you want to directly explore "
-        "a paper's citation neighborhood — papers that cite it (forward) and papers it references "
-        "(backward). This is especially effective for niche topics where keyword search fails. "
-        "Provide DOI whenever possible; title-only matching may fail for recent papers. "
+        "CITATION NETWORK: use expand_citation_network when you want to explore citation "
+        "neighborhoods. Pass dois=[...] with multiple DOIs for best results. "
+        "CRITICAL STRATEGY: if the user's paper is too new/unpublished to have a DOI, extract "
+        "2-4 DOIs of its KEY REFERENCES and use those as seeds — this finds papers in the same "
+        "intellectual lineage. Example: dois=['10.1287/orsc.2013.0856', '10.1016/j.ijhm.2016.07.001']. "
+        "This is especially effective for niche topics where keyword search fails. "
         "CNKI→Zotero workflow: after search_cnki_literature returns hits, use "
         "cnki_add_to_zotero(export_ids=[...]) to import papers directly — NO DOI required. "
         "Use cnki_paper_detail(cnki_url) for full abstract/keywords/DOI if the user wants details. "
         "Use cnki_navigate_pages PROACTIVELY when: user needs many papers (>20), asks for thorough/"
         "deep search, or first-page results are insufficient. Do NOT wait for user to say 'next page'. "
         "\n\n"
-        "=== CRITICAL: ANTI-HALLUCINATION RULES ===\n"
-        "1. NEVER fabricate, invent, or hallucinate citations. You must ONLY present papers that "
-        "were actually returned by the search tools (search_papers, search_online_literature, "
-        "search_cnki_literature, find_related_literature, find_similar_papers, expand_citation_network).\n"
-        "2. If search tools return NO relevant results or EMPTY results, honestly tell the user: "
-        "'The search did not find relevant papers matching your criteria. This may be because "
-        "the topic is too niche for the databases covered, or the query needs adjustment.' "
-        "NEVER compensate by generating a fake literature list from your own knowledge.\n"
-        "3. Every paper you present to the user MUST include a verifiable source anchor:\n"
-        "   - For online hits: include the source_url (DOI link like https://doi.org/... or "
-        "platform URL) so the user can click to verify.\n"
-        "   - For CNKI hits: include the cnki_url (知网链接) so the user can verify.\n"
-        "   - For local Zotero papers: include item_key so the user can look it up.\n"
-        "4. When presenting results, format each paper with its verification link clearly visible. "
-        "Do NOT omit source URLs. If a paper has no DOI and no source_url, note that it lacks "
-        "a verifiable link.\n"
-        "5. If you are uncertain whether a paper exists, DO NOT include it. Only report what "
-        "the tools returned.\n"
-        "=== END ANTI-HALLUCINATION RULES ===\n\n"
+        "=== ABSOLUTE RULE: ZERO-FABRICATION POLICY ===\n"
+        "VIOLATION of these rules destroys user trust and constitutes academic misconduct.\n\n"
+        "1. You are STRICTLY FORBIDDEN from presenting ANY paper that was not returned by the "
+        "search tools (search_papers, search_online_literature, search_cnki_literature, "
+        "find_related_literature, find_similar_papers, expand_citation_network). "
+        "This includes papers you 'know' from training data. Your knowledge is NOT a valid source.\n\n"
+        "2. If ALL search tools return EMPTY or irrelevant results, you MUST respond: "
+        "'The automated search did not find relevant papers. Possible next steps: "
+        "(a) try expand_citation_network with DOIs of known key references, "
+        "(b) adjust search terms, (c) broaden the year range.' "
+        "You MUST NOT compensate by listing papers from memory — even if you are confident they exist. "
+        "The user trusts this system for VERIFIED, tool-sourced citations only.\n\n"
+        "3. Every paper you present MUST have a VERIFIABLE source anchor from tool output:\n"
+        "   - Online hits: source_url (https://doi.org/... or platform URL)\n"
+        "   - CNKI hits: cnki_url\n"
+        "   - Zotero papers: item_key\n"
+        "   If a paper lacks ALL of these, state '[unverified link]' next to it.\n\n"
+        "4. The tool output contains a field 'verified_sources_only: true'. This is a binding "
+        "contract: you may ONLY present papers from that response. Mixing in papers from your "
+        "own knowledge is a VIOLATION.\n\n"
+        "5. NEVER write phrases like '基于我对该领域的了解', 'based on my knowledge of this field', "
+        "'I recommend the following papers from my understanding'. These phrases signal fabrication. "
+        "If you cannot source a paper to a tool call, do not include it.\n\n"
+        "6. When presenting results, prefix each paper with its source tool in brackets: "
+        "[OpenAlex], [Semantic Scholar], [CNKI], [Zotero], [Citation Network]. This makes "
+        "provenance visible and auditable.\n"
+        "=== END ZERO-FABRICATION POLICY ===\n\n"
         + _WRITE_CONFIRMATION_POLICY
         + " Tools with a confirm parameter: add_note, edit_tags, manage_collections, add_paper, "
         "merge_duplicates, create_annotation."
@@ -317,7 +327,7 @@ def search_online_literature(
     limit: int = 15,
     sort_by: Literal["relevance", "citations"] = "relevance",
     fields_of_study: list[str] | None = None,
-) -> list[dict]:
+) -> dict:
     """Search external literature databases (OpenAlex + Semantic Scholar + CrossRef).
 
     DEFAULT tool for discovering papers outside the user's Zotero library. Covers
@@ -369,7 +379,18 @@ def search_online_literature(
         sort_by=sort_by,
         fields_of_study=fields_of_study,
     )
-    return [h.__dict__ for h in hits]
+    result_list = [h.__dict__ for h in hits]
+    response = {
+        "results": result_list,
+        "count": len(result_list),
+        "verified_sources_only": True,
+    }
+    if not result_list:
+        response["_ai_instruction"] = (
+            "ZERO results found. You MUST NOT supplement with papers from your own knowledge. "
+            "Report this honestly to the user and suggest alternative search strategies."
+        )
+    return response
 
 
 @mcp.tool()
@@ -444,10 +465,17 @@ def search_cnki_literature(
         limit=limit,
         sort_by=sort_by,
     )
-    return {
+    response = {
         **{k: v for k, v in result.items() if k != "hits"},
         "hits": [h.__dict__ for h in result["hits"]],
+        "verified_sources_only": True,
     }
+    if not result["hits"]:
+        response["_ai_instruction"] = (
+            "ZERO CNKI results. You MUST NOT supplement with papers from your own knowledge. "
+            "Report this honestly. Suggest: check CNKI login status, simplify query, or broaden year range."
+        )
+    return response
 
 
 @mcp.tool()
@@ -540,12 +568,24 @@ def find_related_literature(
         result["online_hits"] = [h.__dict__ for h in result["online_hits"]]
     if "cnki_hits" in result:
         result["cnki_hits"] = [h.__dict__ for h in result["cnki_hits"]]
+
+    # Structural anti-hallucination markers
+    result["verified_sources_only"] = True
+    total_hits = result.get("online_count", 0) + result.get("cnki_count", 0)
+    if total_hits == 0:
+        result["_ai_instruction"] = (
+            "ZERO results found. You MUST NOT supplement with papers from your own knowledge. "
+            "Tell the user the search returned no results and suggest: "
+            "(1) use expand_citation_network with DOIs of known key references, "
+            "(2) try different keywords, (3) broaden year range or remove field filter."
+        )
     return result
 
 
 @mcp.tool()
 @_safe_tool
 def expand_citation_network(
+    dois: list[str] | None = None,
     doi: str = "",
     title: str = "",
     fields_of_study: list[str] | None = None,
@@ -555,22 +595,28 @@ def expand_citation_network(
 ) -> dict:
     """Find papers via citation relationships (forward & backward citations).
 
-    Given a seed paper (by DOI or title), finds papers that CITE it and papers
-    it REFERENCES using OpenAlex's citation graph. This is especially powerful
-    for niche topics where keyword search fails — citation networks capture
-    intellectual lineage regardless of terminology differences.
+    Given one or more seed papers (by DOI or title), finds papers that CITE them
+    and papers they REFERENCE using OpenAlex's citation graph. This is especially
+    powerful for niche topics where keyword search fails — citation networks
+    capture intellectual lineage regardless of terminology differences.
 
     Use this tool when:
     - find_related_literature returned too few results for a specific paper
     - User has a DOI and wants to explore its citation neighborhood
     - User wants to find papers in a specific intellectual lineage
     - Topic uses inconsistent terminology across the literature
+    - The user's paper is too recent to have a DOI in OpenAlex — in that case,
+      use DOIs of its KEY REFERENCES as seeds (e.g. pass dois=["10.1287/orsc.2013.0856",
+      "10.1016/j.ijhm.2016.07.001"] for Kovacs 2014 and Kim & Jang 2016)
 
-    IMPORTANT: Provide DOI whenever available — title-only matching may fail
-    for very recent or obscure papers.
+    STRATEGY: If the user's own paper has no DOI, extract 2-4 DOIs of its most
+    important cited references and pass them in the `dois` list. This finds the
+    citation neighborhood of the paper's intellectual ancestors.
 
     Args:
-        doi: DOI of the seed paper (strongly preferred).
+        dois: List of DOIs for multiple seed papers. Use when expanding from
+            several key references. Takes priority over single doi/title.
+        doi: DOI of a single seed paper (for backward compat).
         title: Paper title (fallback if DOI unavailable).
         fields_of_study: Optional discipline filter. Valid values: Business, Economics,
             Sociology, Psychology, Computer Science, Medicine, Environmental Science,
@@ -579,44 +625,92 @@ def expand_citation_network(
         limit: Max total results (split between citing and referenced papers).
 
     Returns:
-        {openalex_id, citing_papers, referenced_papers, citing_count, references_count}.
+        {seeds_resolved, citing_papers, referenced_papers, citing_count, references_count}.
         Each paper includes: title, authors, year, doi, venue, citation_count,
         is_open_access, oa_pdf_url, source_url.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from research_core.sources.openalex import (
         get_cited_by,
         get_references,
         resolve_openalex_id,
     )
 
-    if not doi and not title:
-        return {"error": "Provide at least doi or title to identify the seed paper."}
+    # Normalize input: support both single doi and multi-doi
+    seed_dois = normalize_list(dois, "dois") or []
+    if not seed_dois and doi:
+        seed_dois = [doi]
+    if not seed_dois and not title:
+        return {"error": "Provide at least doi, dois, or title to identify seed paper(s)."}
 
-    openalex_id = resolve_openalex_id(doi=doi, title=title)
-    if not openalex_id:
+    # Resolve all seeds to OpenAlex IDs
+    resolved_ids: list[str] = []
+    failed_seeds: list[str] = []
+
+    for d in seed_dois:
+        oa_id = resolve_openalex_id(doi=d.strip())
+        if oa_id:
+            resolved_ids.append(oa_id)
+        else:
+            failed_seeds.append(d)
+
+    if not resolved_ids and title:
+        oa_id = resolve_openalex_id(title=title)
+        if oa_id:
+            resolved_ids.append(oa_id)
+
+    if not resolved_ids:
         return {
-            "error": "Could not find this paper in OpenAlex. Try providing the DOI.",
-            "doi_provided": doi,
-            "title_provided": title[:80],
+            "error": "Could not find any seed paper(s) in OpenAlex. Verify the DOIs are correct.",
+            "failed_dois": failed_seeds,
+            "title_provided": title[:80] if title else "",
         }
 
     norm_fields = normalize_list(fields_of_study, "fields_of_study")
-    half_limit = max(limit // 2, 10)
+    per_seed_limit = max(limit // len(resolved_ids), 10)
+    half = max(per_seed_limit // 2, 5)
 
-    citing = get_cited_by(
-        openalex_id,
-        year_from=year_from,
-        year_to=year_to,
-        fields_of_study=norm_fields,
-        limit=half_limit,
-    )
-    refs = get_references(
-        openalex_id,
-        year_from=year_from,
-        year_to=year_to,
-        fields_of_study=norm_fields,
-        limit=half_limit,
-    )
+    all_citing: list = []
+    all_refs: list = []
+
+    with ThreadPoolExecutor(max_workers=min(len(resolved_ids) * 2, 8)) as pool:
+        futures = {}
+        for oa_id in resolved_ids:
+            futures[pool.submit(get_cited_by, oa_id, year_from=year_from, year_to=year_to,
+                                fields_of_study=norm_fields, limit=half)] = ("citing", oa_id)
+            futures[pool.submit(get_references, oa_id, year_from=year_from, year_to=year_to,
+                                fields_of_study=norm_fields, limit=half)] = ("refs", oa_id)
+
+        for future in as_completed(futures):
+            kind, _ = futures[future]
+            try:
+                papers = future.result()
+                if kind == "citing":
+                    all_citing.extend(papers)
+                else:
+                    all_refs.extend(papers)
+            except Exception:
+                pass
+
+    # Deduplicate by DOI
+    def _dedup(papers: list) -> list:
+        seen: set[str] = set()
+        unique = []
+        for p in papers:
+            key = p.doi.lower() if p.doi else p.title.lower()[:50]
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(p)
+        return unique
+
+    all_citing = _dedup(all_citing)
+    all_refs = _dedup(all_refs)
+    all_citing.sort(key=lambda p: p.citation_count, reverse=True)
+    all_refs.sort(key=lambda p: p.citation_count, reverse=True)
+    all_citing = all_citing[:limit]
+    all_refs = all_refs[:limit]
 
     def _paper_to_dict(p) -> dict:
         d = p.__dict__ if hasattr(p, "__dict__") else dict(p)
@@ -628,13 +722,21 @@ def expand_citation_network(
             d["source_url"] = ""
         return d
 
-    return {
-        "openalex_id": openalex_id,
-        "citing_papers": [_paper_to_dict(p) for p in citing],
-        "citing_count": len(citing),
-        "referenced_papers": [_paper_to_dict(p) for p in refs],
-        "references_count": len(refs),
+    response = {
+        "seeds_resolved": len(resolved_ids),
+        "failed_seeds": failed_seeds if failed_seeds else None,
+        "citing_papers": [_paper_to_dict(p) for p in all_citing],
+        "citing_count": len(all_citing),
+        "referenced_papers": [_paper_to_dict(p) for p in all_refs],
+        "references_count": len(all_refs),
+        "verified_sources_only": True,
     }
+    if not all_citing and not all_refs:
+        response["_ai_instruction"] = (
+            "Citation network returned ZERO papers. You MUST NOT supplement with papers "
+            "from your own knowledge. Report this honestly to the user."
+        )
+    return response
 
 
 @mcp.tool()

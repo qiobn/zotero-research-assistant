@@ -297,6 +297,8 @@ def _run_cnki_related(
     zot: ZoteroClient | None,
 ) -> list:
     """Run multiple queries through CNKI in a single browser session."""
+    import time
+
     from research_core.sources.cnki.browser import cnki_page
     from research_core.sources.cnki.exceptions import CnkiCaptchaError
     from research_core.sources.cnki.models import CnkiPaperHit
@@ -311,21 +313,35 @@ def _run_cnki_related(
     from research_core.tools.discover_cnki import _mark_local_library
 
     all_hits: list[CnkiPaperHit] = []
+    max_total_seconds = 60
+    start_time = time.monotonic()
+    timeouts_in_a_row = 0
 
     with cnki_page() as page:
         for i, query in enumerate(queries):
+            elapsed = time.monotonic() - start_time
+            if elapsed > max_total_seconds:
+                logger.info(f"CNKI time budget exhausted ({elapsed:.0f}s), skipping remaining queries")
+                break
+            if timeouts_in_a_row >= 2:
+                logger.info("CNKI timed out 2x in a row, aborting remaining queries")
+                break
+
             try:
                 if i == 0:
-                    page.goto(BASIC_SEARCH_URL, wait_until="domcontentloaded")
+                    page.goto(BASIC_SEARCH_URL, wait_until="domcontentloaded", timeout=30000)
                     raw = page.evaluate(BASIC_SEARCH_JS, {"query": query})
                 else:
                     raw = page.evaluate(BASIC_SEARCH_JS, {"query": query})
             except Exception as exc:
                 if "timeout" in str(exc).lower():
+                    timeouts_in_a_row += 1
                     logger.debug(f"CNKI query '{query}' timed out, skipping")
                     continue
                 logger.debug(f"CNKI query '{query}' failed: {exc}")
                 continue
+
+            timeouts_in_a_row = 0
 
             if raw.get("error") == "captcha":
                 raise CnkiCaptchaError(
@@ -411,9 +427,10 @@ def _run_citation_network(
         return []
 
     hits = _merge_papers(source_lists, limit=limit * 2, sort_by="citations")
-    # Lower threshold for citation network hits — the citation relationship
-    # itself is a relevance signal, so we only filter out extreme noise.
-    hits = _filter_irrelevant(hits, relevance_terms, min_score=0.08)
+    # Do NOT apply keyword-based relevance filtering to citation network results.
+    # The citation relationship itself is the strongest relevance signal —
+    # papers that cite or are cited by the seed paper are definitionally related,
+    # even if they don't share surface-level keywords.
     hits = hits[:limit]
 
     if zot is not None:
@@ -462,42 +479,58 @@ def find_related_literature(
     result: dict = {"queries_generated": queries, "scope": scope}
 
     if scope in ("online", "both"):
-        online_hits = _run_online_related(
-            queries,
-            year_from=year_from,
-            year_to=year_to,
-            limit=limit,
-            sort_by=sort_by,
-            fields_of_study=fields_of_study,
-            relevance_terms=relevance_terms,
-            zot=zot,
-        )
+        # Run keyword search and citation network IN PARALLEL
+        online_hits: list[OnlinePaperHit] = []
+        citation_hits: list[OnlinePaperHit] = []
 
-        # Fallback: if keyword search returned too few results, try citation network
-        if len(online_hits) < 5 and (doi or title):
-            logger.info(
-                f"Keyword search returned only {len(online_hits)} hits, "
-                "expanding via citation network..."
-            )
-            citation_hits = _run_citation_network(
-                doi=doi,
-                title=title,
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            kw_future = pool.submit(
+                _run_online_related,
+                queries,
                 year_from=year_from,
                 year_to=year_to,
+                limit=limit,
+                sort_by=sort_by,
                 fields_of_study=fields_of_study,
                 relevance_terms=relevance_terms,
-                limit=limit,
                 zot=zot,
             )
-            if citation_hits:
-                existing_keys = {h.doi.lower() for h in online_hits if h.doi}
-                for ch in citation_hits:
-                    if ch.doi and ch.doi.lower() in existing_keys:
-                        continue
-                    online_hits.append(ch)
-                    existing_keys.add(ch.doi.lower() if ch.doi else "")
-                online_hits = online_hits[:limit]
-                result["citation_network_used"] = True
+
+            cite_future = None
+            if doi or title:
+                cite_future = pool.submit(
+                    _run_citation_network,
+                    doi=doi,
+                    title=title,
+                    year_from=year_from,
+                    year_to=year_to,
+                    fields_of_study=fields_of_study,
+                    relevance_terms=relevance_terms,
+                    limit=limit,
+                    zot=zot,
+                )
+
+            try:
+                online_hits = kw_future.result()
+            except Exception as exc:
+                logger.debug(f"Keyword search failed: {exc}")
+
+            if cite_future:
+                try:
+                    citation_hits = cite_future.result()
+                except Exception as exc:
+                    logger.debug(f"Citation network failed: {exc}")
+
+        # Merge: always combine citation network results with keyword results
+        if citation_hits:
+            existing_keys = {h.doi.lower() for h in online_hits if h.doi}
+            for ch in citation_hits:
+                if ch.doi and ch.doi.lower() in existing_keys:
+                    continue
+                online_hits.append(ch)
+                existing_keys.add(ch.doi.lower() if ch.doi else "")
+            online_hits = online_hits[:limit]
+            result["citation_network_used"] = True
 
         result["online_hits"] = online_hits
         result["online_count"] = len(online_hits)
