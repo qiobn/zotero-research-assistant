@@ -162,3 +162,178 @@ def search_openalex(
             )
         )
     return papers
+
+
+# ── Citation network functions ──
+
+
+def _work_to_paper(work: dict) -> ExternalPaper:
+    """Convert an OpenAlex work object to ExternalPaper."""
+    doi = (work.get("doi") or "").replace("https://doi.org/", "").strip()
+    primary = work.get("primary_location") or {}
+    src_meta = (primary.get("source") or {})
+    venue = src_meta.get("display_name") or ""
+    is_oa, oa_pdf = _extract_oa(work)
+    abstract = work.get("abstract") or _reconstruct_abstract(work.get("abstract_inverted_index"))
+    return ExternalPaper(
+        title=work.get("title") or work.get("display_name") or "",
+        authors=_author_names(work.get("authorships") or []),
+        year=work.get("publication_year") or 0,
+        doi=doi,
+        abstract=abstract,
+        venue=venue,
+        publisher=_extract_publisher(work),
+        citation_count=work.get("cited_by_count") or 0,
+        is_open_access=is_oa,
+        oa_pdf_url=oa_pdf,
+        source="openalex",
+        source_id=work.get("id") or "",
+    )
+
+
+def resolve_openalex_id(doi: str = "", title: str = "") -> str | None:
+    """Resolve a DOI or title to an OpenAlex work ID."""
+    if doi:
+        url = f"{_OPENALEX_BASE}/works/doi:{doi.strip()}"
+        try:
+            r = httpx.get(
+                url,
+                params={"mailto": _mailto()},
+                headers={"User-Agent": _USER_AGENT},
+                timeout=15,
+            )
+            if r.status_code == 200:
+                return r.json().get("id")
+        except Exception:
+            pass
+
+    if title:
+        try:
+            r = httpx.get(
+                f"{_OPENALEX_BASE}/works",
+                params={
+                    "search": title.strip(),
+                    "per-page": 3,
+                    "mailto": _mailto(),
+                },
+                headers={"User-Agent": _USER_AGENT},
+                timeout=15,
+            )
+            if r.status_code == 200:
+                results = r.json().get("results") or []
+                # Verify title similarity to avoid mis-resolution
+                title_lower = title.strip().lower()
+                for candidate in results:
+                    candidate_title = (candidate.get("title") or "").lower()
+                    if not candidate_title:
+                        continue
+                    # Check word overlap ratio
+                    title_words = set(title_lower.split())
+                    cand_words = set(candidate_title.split())
+                    if not title_words:
+                        continue
+                    overlap = len(title_words & cand_words) / len(title_words)
+                    if overlap >= 0.6:
+                        return candidate.get("id")
+        except Exception:
+            pass
+
+    return None
+
+
+def get_cited_by(
+    openalex_id: str,
+    *,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    fields_of_study: list[str] | None = None,
+    limit: int = 30,
+) -> list[ExternalPaper]:
+    """Get papers that cite the given work (forward citations)."""
+    filters = [f"cites:{openalex_id}"]
+    if year_from is not None:
+        filters.append(f"from_publication_date:{year_from}-01-01")
+    if year_to is not None:
+        filters.append(f"until_publication_date:{year_to}-12-31")
+    if fields_of_study:
+        field_ids = list({
+            _OPENALEX_FIELD_IDS[f.lower()]
+            for f in fields_of_study
+            if f.lower() in _OPENALEX_FIELD_IDS
+        })
+        if field_ids:
+            filters.append(f"topics.field.id:{'|'.join(str(fid) for fid in field_ids)}")
+
+    fetch_count = min(limit, 50)
+    params: dict = {
+        "filter": ",".join(filters),
+        "per-page": fetch_count,
+        "sort": "cited_by_count:desc",
+        "mailto": _mailto(),
+    }
+
+    try:
+        r = httpx.get(
+            f"{_OPENALEX_BASE}/works",
+            params=params,
+            headers={"User-Agent": _USER_AGENT},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            logger.debug(f"OpenAlex cited_by failed: {r.status_code}")
+            return []
+        results = r.json().get("results") or []
+    except Exception as e:
+        logger.debug(f"OpenAlex cited_by error: {e}")
+        return []
+
+    return [_work_to_paper(w) for w in results[:fetch_count]]
+
+
+def get_references(
+    openalex_id: str,
+    *,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    fields_of_study: list[str] | None = None,
+    limit: int = 30,
+) -> list[ExternalPaper]:
+    """Get papers referenced by the given work (backward citations)."""
+    filters = [f"cited_by:{openalex_id}"]
+    if year_from is not None:
+        filters.append(f"from_publication_date:{year_from}-01-01")
+    if year_to is not None:
+        filters.append(f"until_publication_date:{year_to}-12-31")
+    if fields_of_study:
+        field_ids = list({
+            _OPENALEX_FIELD_IDS[f.lower()]
+            for f in fields_of_study
+            if f.lower() in _OPENALEX_FIELD_IDS
+        })
+        if field_ids:
+            filters.append(f"topics.field.id:{'|'.join(str(fid) for fid in field_ids)}")
+
+    fetch_count = min(limit, 50)
+    params: dict = {
+        "filter": ",".join(filters),
+        "per-page": fetch_count,
+        "sort": "cited_by_count:desc",
+        "mailto": _mailto(),
+    }
+
+    try:
+        r = httpx.get(
+            f"{_OPENALEX_BASE}/works",
+            params=params,
+            headers={"User-Agent": _USER_AGENT},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            logger.debug(f"OpenAlex references failed: {r.status_code}")
+            return []
+        results = r.json().get("results") or []
+    except Exception as e:
+        logger.debug(f"OpenAlex references error: {e}")
+        return []
+
+    return [_work_to_paper(w) for w in results[:fetch_count]]

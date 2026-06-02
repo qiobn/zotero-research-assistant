@@ -353,11 +353,80 @@ def _run_cnki_related(
     return all_hits
 
 
+def _run_citation_network(
+    *,
+    doi: str = "",
+    title: str = "",
+    year_from: int | None,
+    year_to: int | None,
+    fields_of_study: list[str] | None,
+    relevance_terms: set[str],
+    limit: int,
+    zot: ZoteroClient | None,
+) -> list[OnlinePaperHit]:
+    """Expand related papers via citation network (cited_by + references)."""
+    from research_core.sources.openalex import (
+        get_cited_by,
+        get_references,
+        resolve_openalex_id,
+    )
+
+    openalex_id = resolve_openalex_id(doi=doi, title=title)
+    if not openalex_id:
+        logger.debug(f"Citation network: could not resolve OpenAlex ID for doi={doi}, title={title[:50]}")
+        return []
+
+    logger.debug(f"Citation network: resolved {openalex_id}")
+
+    common_kwargs = {
+        "year_from": year_from,
+        "year_to": year_to,
+        "fields_of_study": fields_of_study,
+        "limit": limit,
+    }
+
+    citing_papers: list = []
+    referenced_papers: list = []
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        future_citing = pool.submit(get_cited_by, openalex_id, **common_kwargs)
+        future_refs = pool.submit(get_references, openalex_id, **common_kwargs)
+
+        try:
+            citing_papers = future_citing.result()
+        except Exception as exc:
+            logger.debug(f"Citation network cited_by failed: {exc}")
+        try:
+            referenced_papers = future_refs.result()
+        except Exception as exc:
+            logger.debug(f"Citation network references failed: {exc}")
+
+    source_lists: list[tuple[str, list]] = []
+    if citing_papers:
+        source_lists.append(("cited_by", citing_papers))
+    if referenced_papers:
+        source_lists.append(("references", referenced_papers))
+
+    if not source_lists:
+        return []
+
+    hits = _merge_papers(source_lists, limit=limit * 2, sort_by="citations")
+    # Lower threshold for citation network hits — the citation relationship
+    # itself is a relevance signal, so we only filter out extreme noise.
+    hits = _filter_irrelevant(hits, relevance_terms, min_score=0.08)
+    hits = hits[:limit]
+
+    if zot is not None:
+        _mark_local_online(hits, zot)
+    return hits
+
+
 def find_related_literature(
     scope: Scope = "online",
     title: str = "",
     abstract: str = "",
     keywords: list[str] | None = None,
+    doi: str = "",
     fields_of_study: list[str] | None = None,
     source_categories: list[str] | None = None,
     year_from: int | None = None,
@@ -373,8 +442,12 @@ def find_related_literature(
     2. Executes all queries (online / CNKI / both) with optional field filtering
     3. Post-filters irrelevant results via keyword overlap scoring
     4. Deduplicates and merges results
+    5. If keyword search yields few results, falls back to citation network
+       expansion (papers that cite or are cited by the seed paper via OpenAlex)
 
     Args:
+        doi: Optional DOI of the seed paper. Enables citation network expansion
+            as a fallback when keyword search returns insufficient results.
         fields_of_study: Optional discipline filter to improve precision.
             Valid values: Business, Economics, Sociology, Psychology,
             Computer Science, Medicine, Environmental Science, Geography,
@@ -399,6 +472,33 @@ def find_related_literature(
             relevance_terms=relevance_terms,
             zot=zot,
         )
+
+        # Fallback: if keyword search returned too few results, try citation network
+        if len(online_hits) < 5 and (doi or title):
+            logger.info(
+                f"Keyword search returned only {len(online_hits)} hits, "
+                "expanding via citation network..."
+            )
+            citation_hits = _run_citation_network(
+                doi=doi,
+                title=title,
+                year_from=year_from,
+                year_to=year_to,
+                fields_of_study=fields_of_study,
+                relevance_terms=relevance_terms,
+                limit=limit,
+                zot=zot,
+            )
+            if citation_hits:
+                existing_keys = {h.doi.lower() for h in online_hits if h.doi}
+                for ch in citation_hits:
+                    if ch.doi and ch.doi.lower() in existing_keys:
+                        continue
+                    online_hits.append(ch)
+                    existing_keys.add(ch.doi.lower() if ch.doi else "")
+                online_hits = online_hits[:limit]
+                result["citation_network_used"] = True
+
         result["online_hits"] = online_hits
         result["online_count"] = len(online_hits)
 

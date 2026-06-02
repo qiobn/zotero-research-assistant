@@ -204,3 +204,82 @@ class TestQueryGeneration:
         hits, total, page = _raw_to_hits(raw, limit=10)
         assert hits[0].journal_level == ["CSSCI", "北大核心"]
         assert hits[0].venue == "管理世界"
+
+
+class TestCitationNetwork:
+    """Tests for citation network expansion via OpenAlex."""
+
+    def test_resolve_openalex_id_title_validation(self):
+        """Title-based resolution should reject mismatches."""
+        from unittest.mock import patch, MagicMock
+        from research_core.sources.openalex import resolve_openalex_id
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "results": [
+                {"title": "Completely Different Paper About Graphene", "id": "https://openalex.org/W123"},
+                {"title": "Another Irrelevant Paper", "id": "https://openalex.org/W456"},
+            ]
+        }
+
+        with patch("research_core.sources.openalex.httpx.get", return_value=mock_resp):
+            result = resolve_openalex_id(title="Authenticity in non-local restaurant business")
+            assert result is None, "Should not resolve to mismatched title"
+
+    def test_resolve_openalex_id_title_match(self):
+        """Title-based resolution should accept close matches."""
+        from unittest.mock import patch, MagicMock
+        from research_core.sources.openalex import resolve_openalex_id
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "results": [
+                {
+                    "title": "Authenticity in Non-local Restaurant Business Performance",
+                    "id": "https://openalex.org/W789",
+                },
+            ]
+        }
+
+        with patch("research_core.sources.openalex.httpx.get", return_value=mock_resp):
+            result = resolve_openalex_id(title="Authenticity in non-local restaurant business performance")
+            assert result == "https://openalex.org/W789"
+
+    def test_citation_network_fallback_in_find_related(self):
+        """find_related_literature should trigger citation fallback when keyword search is empty."""
+        from unittest.mock import patch, MagicMock
+        from research_core.tools.find_related import find_related_literature
+        from research_core.sources.models import ExternalPaper
+
+        mock_paper = ExternalPaper(
+            title="Citing Paper About Restaurant Authenticity",
+            authors=["Smith J"],
+            year=2023,
+            doi="10.1234/test",
+            abstract="restaurant authenticity social norms",
+            venue="Tourism Management",
+            publisher="Elsevier",
+            citation_count=10,
+            is_open_access=False,
+            oa_pdf_url="",
+            source="openalex",
+            source_id="https://openalex.org/W999",
+        )
+
+        with (
+            patch("research_core.tools.find_related._run_online_related", return_value=[]),
+            patch("research_core.sources.openalex.resolve_openalex_id", return_value="https://openalex.org/W100"),
+            patch("research_core.sources.openalex.get_cited_by", return_value=[mock_paper]),
+            patch("research_core.sources.openalex.get_references", return_value=[]),
+        ):
+            result = find_related_literature(
+                scope="online",
+                title="Authenticity in non-local restaurant business",
+                keywords=["authenticity", "restaurant", "social norms"],
+                doi="10.9999/test",
+                limit=10,
+            )
+            assert result.get("citation_network_used") is True
+            assert result["online_count"] >= 1

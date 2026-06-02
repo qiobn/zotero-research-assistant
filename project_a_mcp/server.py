@@ -157,10 +157,16 @@ mcp = FastMCP(
         "RELATED PAPER DISCOVERY: when the user provides a paper (title/abstract/keywords) and wants "
         "related literature, use find_related_literature — it auto-generates multiple queries and "
         "searches in one call (replaces 8-12 manual search rounds). Set scope='online' for English, "
-        "'cnki' for Chinese, 'both' for bilingual. IMPORTANT: for social science, humanities, or "
+        "'cnki' for Chinese, 'both' for bilingual. ALWAYS provide DOI if available — this enables "
+        "automatic citation network fallback when keyword search yields few results. "
+        "IMPORTANT: for social science, humanities, or "
         "niche domains, ALWAYS set fields_of_study to constrain results (e.g. ['Business', 'Economics'] "
         "for management research, ['Sociology'] for sociology papers). This prevents irrelevant "
         "results from other disciplines. "
+        "CITATION NETWORK: use expand_citation_network(doi=...) when you want to directly explore "
+        "a paper's citation neighborhood — papers that cite it (forward) and papers it references "
+        "(backward). This is especially effective for niche topics where keyword search fails. "
+        "Provide DOI whenever possible; title-only matching may fail for recent papers. "
         "CNKI→Zotero workflow: after search_cnki_literature returns hits, use "
         "cnki_add_to_zotero(export_ids=[...]) to import papers directly — NO DOI required. "
         "Use cnki_paper_detail(cnki_url) for full abstract/keywords/DOI if the user wants details. "
@@ -170,7 +176,7 @@ mcp = FastMCP(
         "=== CRITICAL: ANTI-HALLUCINATION RULES ===\n"
         "1. NEVER fabricate, invent, or hallucinate citations. You must ONLY present papers that "
         "were actually returned by the search tools (search_papers, search_online_literature, "
-        "search_cnki_literature, find_related_literature, find_similar_papers).\n"
+        "search_cnki_literature, find_related_literature, find_similar_papers, expand_citation_network).\n"
         "2. If search tools return NO relevant results or EMPTY results, honestly tell the user: "
         "'The search did not find relevant papers matching your criteria. This may be because "
         "the topic is too niche for the databases covered, or the query needs adjustment.' "
@@ -451,6 +457,7 @@ def find_related_literature(
     title: str = "",
     abstract: str = "",
     keywords: list[str] | None = None,
+    doi: str = "",
     fields_of_study: list[str] | None = None,
     source_categories: list[str] | None = None,
     year_from: int | None = None,
@@ -465,6 +472,11 @@ def find_related_literature(
     search queries from the paper's title/abstract/keywords, executes them all,
     applies relevance filtering to remove off-topic noise, and returns
     deduplicated merged results.
+
+    If keyword-based search yields fewer than 5 results (common for niche social
+    science topics), automatically falls back to CITATION NETWORK expansion:
+    finds papers that cite or are cited by the seed paper via OpenAlex. This
+    ensures meaningful results even for specialized interdisciplinary topics.
 
     Replaces 8-12 manual search_online_literature or search_cnki_literature
     calls with a SINGLE invocation. Use this whenever:
@@ -490,6 +502,9 @@ def find_related_literature(
         title: Paper title (at least title or keywords required).
         abstract: Paper abstract (optional, helps generate better queries).
         keywords: Paper keywords list (most effective for query generation).
+        doi: DOI of the seed paper. If provided, enables citation network fallback
+            (forward + backward citations via OpenAlex) when keyword search is
+            insufficient. STRONGLY RECOMMENDED when available.
         fields_of_study: Optional discipline filter. Valid values: Business, Economics,
             Sociology, Psychology, Computer Science, Medicine, Environmental Science,
             Geography, Education, Political Science, Engineering, Tourism, Marketing, Law.
@@ -501,7 +516,8 @@ def find_related_literature(
         sort_by: "relevance" or "citations".
 
     Returns:
-        {queries_generated, scope, online_hits, online_count, cnki_hits, cnki_count}.
+        {queries_generated, scope, online_hits, online_count, cnki_hits, cnki_count,
+         citation_network_used (bool, if fallback was triggered)}.
         Each hit includes source_url (DOI link or platform URL) for verification.
         online_hits: list of OnlinePaperHit dicts.
         cnki_hits: list of CnkiPaperHit dicts (with cnki_url and journal_level).
@@ -511,6 +527,7 @@ def find_related_literature(
         title=title,
         abstract=abstract,
         keywords=normalize_list(keywords, "keywords"),
+        doi=doi,
         fields_of_study=normalize_list(fields_of_study, "fields_of_study"),
         source_categories=normalize_list(source_categories, "source_categories"),
         year_from=year_from,
@@ -524,6 +541,100 @@ def find_related_literature(
     if "cnki_hits" in result:
         result["cnki_hits"] = [h.__dict__ for h in result["cnki_hits"]]
     return result
+
+
+@mcp.tool()
+@_safe_tool
+def expand_citation_network(
+    doi: str = "",
+    title: str = "",
+    fields_of_study: list[str] | None = None,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    limit: int = 30,
+) -> dict:
+    """Find papers via citation relationships (forward & backward citations).
+
+    Given a seed paper (by DOI or title), finds papers that CITE it and papers
+    it REFERENCES using OpenAlex's citation graph. This is especially powerful
+    for niche topics where keyword search fails — citation networks capture
+    intellectual lineage regardless of terminology differences.
+
+    Use this tool when:
+    - find_related_literature returned too few results for a specific paper
+    - User has a DOI and wants to explore its citation neighborhood
+    - User wants to find papers in a specific intellectual lineage
+    - Topic uses inconsistent terminology across the literature
+
+    IMPORTANT: Provide DOI whenever available — title-only matching may fail
+    for very recent or obscure papers.
+
+    Args:
+        doi: DOI of the seed paper (strongly preferred).
+        title: Paper title (fallback if DOI unavailable).
+        fields_of_study: Optional discipline filter. Valid values: Business, Economics,
+            Sociology, Psychology, Computer Science, Medicine, Environmental Science,
+            Geography, Education, Political Science, Engineering, Tourism, Marketing, Law.
+        year_from/year_to: Publication year window for results.
+        limit: Max total results (split between citing and referenced papers).
+
+    Returns:
+        {openalex_id, citing_papers, referenced_papers, citing_count, references_count}.
+        Each paper includes: title, authors, year, doi, venue, citation_count,
+        is_open_access, oa_pdf_url, source_url.
+    """
+    from research_core.sources.openalex import (
+        get_cited_by,
+        get_references,
+        resolve_openalex_id,
+    )
+
+    if not doi and not title:
+        return {"error": "Provide at least doi or title to identify the seed paper."}
+
+    openalex_id = resolve_openalex_id(doi=doi, title=title)
+    if not openalex_id:
+        return {
+            "error": "Could not find this paper in OpenAlex. Try providing the DOI.",
+            "doi_provided": doi,
+            "title_provided": title[:80],
+        }
+
+    norm_fields = normalize_list(fields_of_study, "fields_of_study")
+    half_limit = max(limit // 2, 10)
+
+    citing = get_cited_by(
+        openalex_id,
+        year_from=year_from,
+        year_to=year_to,
+        fields_of_study=norm_fields,
+        limit=half_limit,
+    )
+    refs = get_references(
+        openalex_id,
+        year_from=year_from,
+        year_to=year_to,
+        fields_of_study=norm_fields,
+        limit=half_limit,
+    )
+
+    def _paper_to_dict(p) -> dict:
+        d = p.__dict__ if hasattr(p, "__dict__") else dict(p)
+        if p.doi:
+            d["source_url"] = f"https://doi.org/{p.doi}"
+        elif p.source_id:
+            d["source_url"] = p.source_id
+        else:
+            d["source_url"] = ""
+        return d
+
+    return {
+        "openalex_id": openalex_id,
+        "citing_papers": [_paper_to_dict(p) for p in citing],
+        "citing_count": len(citing),
+        "referenced_papers": [_paper_to_dict(p) for p in refs],
+        "references_count": len(refs),
+    }
 
 
 @mcp.tool()
