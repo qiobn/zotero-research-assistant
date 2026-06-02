@@ -50,6 +50,9 @@ dev = [
     "pytest-cov>=6.0",
     "ruff>=0.12",
 ]
+cnki = [
+    "playwright>=1.49",
+]
 
 [project.scripts]
 zra-mcp = "project_a_mcp.server:main"

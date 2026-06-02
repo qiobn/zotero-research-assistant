@@ -23,6 +23,7 @@ def search_semantic_scholar(
     year_from: int | None = None,
     year_to: int | None = None,
     limit: int = 20,
+    sort_by: str = "relevance",
 ) -> list[ExternalPaper]:
     """Search Semantic Scholar paper search API."""
     if not query.strip():
@@ -106,4 +107,7 @@ def search_semantic_scholar(
         )
         if len(papers) >= fetch_count:
             break
+
+    if sort_by == "citations":
+        papers.sort(key=lambda p: p.citation_count, reverse=True)
     return papers

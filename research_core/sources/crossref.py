@@ -66,6 +66,7 @@ def search_crossref(
     year_to: int | None = None,
     limit: int = 20,
     doi_prefix: str = "",
+    sort_by: str = "relevance",
 ) -> list[ExternalPaper]:
     """Search CrossRef works API.
 
@@ -91,6 +92,9 @@ def search_crossref(
     }
     if filters:
         params["filter"] = ",".join(filters)
+    if sort_by == "citations":
+        params["sort"] = "is-referenced-by-count"
+        params["order"] = "desc"
 
     try:
         r = httpx.get(

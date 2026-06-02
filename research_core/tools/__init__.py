@@ -4,6 +4,7 @@ Each tool maps to a single user intent (not to a backend mechanism), and tools a
 designed to compose via `item_key`.
 """
 
+from research_core.sources.cnki.models import CnkiPaperHit
 from research_core.sources.models import OnlinePaperHit
 from research_core.tools.admin import SyncReport, sync_index
 from research_core.tools.cite import (
@@ -12,7 +13,12 @@ from research_core.tools.cite import (
     export_bibliography,
     suggest_citations,
 )
+from research_core.tools.cnki_detail import cnki_paper_detail
+from research_core.tools.cnki_navigate import cnki_navigate_pages
+from research_core.tools.cnki_zotero import CnkiZoteroResult, cnki_add_to_zotero
+from research_core.tools.discover_cnki import search_cnki_literature
 from research_core.tools.discover_online import search_online_literature
+from research_core.tools.find_related import find_related_literature
 from research_core.tools.manage import (
     AddPaperResult,
     WriteResult,
@@ -47,6 +53,8 @@ __all__ = [
     "BibliographyExport",
     "BrowseResult",
     "CitationSuggestion",
+    "CnkiPaperHit",
+    "CnkiZoteroResult",
     "DuplicateGroup",
     "MergeResult",
     "OnlinePaperHit",
@@ -57,10 +65,14 @@ __all__ = [
     "add_note",
     "add_paper",
     "browse_library",
+    "cnki_add_to_zotero",
+    "cnki_navigate_pages",
+    "cnki_paper_detail",
     "create_annotation",
     "edit_tags",
     "export_bibliography",
     "find_duplicates",
+    "find_related_literature",
     "find_similar_papers",
     "merge_duplicates",
     "MergeResult",
@@ -68,6 +80,7 @@ __all__ = [
     "get_paper_content",
     "manage_collections",
     "search_annotations",
+    "search_cnki_literature",
     "search_online_literature",
     "search_papers",
     "suggest_citations",

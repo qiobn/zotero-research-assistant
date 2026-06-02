@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Literal
 
 from loguru import logger
 
@@ -11,6 +12,8 @@ from research_core.sources.models import ExternalPaper, OnlinePaperHit
 from research_core.sources.openalex import search_openalex
 from research_core.sources.semantic_scholar import search_semantic_scholar
 from research_core.zotero.client import ZoteroClient
+
+SortBy = Literal["relevance", "citations"]
 
 # Elsevier DOI prefix — used for a targeted CrossRef pass to improve publisher coverage.
 _ELSEVIER_DOI_PREFIX = "10.1016"
@@ -32,6 +35,8 @@ def _is_elsevier(paper: ExternalPaper) -> bool:
 def _merge_papers(
     source_lists: list[tuple[str, list[ExternalPaper]]],
     limit: int,
+    *,
+    sort_by: SortBy = "relevance",
 ) -> list[OnlinePaperHit]:
     """Merge results from multiple sources with RRF dedup."""
     ranks: dict[str, list[int]] = {}
@@ -66,11 +71,14 @@ def _merge_papers(
         score = sum(1.0 / (rrf_k + r) for r in rank_list)
         scored.append((score, key))
     scored.sort(reverse=True)
+    score_by_key = dict(scored)
 
-    selected_keys = _select_with_publisher_diversity(scored, records, limit)
+    if sort_by == "citations":
+        selected_keys = _select_by_citations(records, score_by_key, limit)
+    else:
+        selected_keys = _select_with_publisher_diversity(scored, records, limit)
 
     hits: list[OnlinePaperHit] = []
-    score_by_key = dict(scored)
     for key in selected_keys:
         paper = records[key]
         sources = [s.strip() for s in (paper.source or "").split(",") if s.strip()]
@@ -92,7 +100,24 @@ def _merge_papers(
                 score=round(score_by_key.get(key, 0.0), 4),
             )
         )
+
+    if sort_by == "citations":
+        hits.sort(key=lambda h: (h.citation_count, h.score), reverse=True)
     return hits
+
+
+def _select_by_citations(
+    records: dict[str, ExternalPaper],
+    score_by_key: dict[str, float],
+    limit: int,
+) -> list[str]:
+    """Pick top hits by citation count (best for high-impact literature surveys)."""
+    ranked = sorted(
+        records.keys(),
+        key=lambda key: (records[key].citation_count, score_by_key.get(key, 0.0)),
+        reverse=True,
+    )
+    return ranked[:limit]
 
 
 def _select_with_publisher_diversity(
@@ -123,6 +148,7 @@ def _select_with_publisher_diversity(
     if not elsevier_candidates:
         return selected
 
+    score_by_key = dict(scored)
     for score, key in elsevier_candidates:
         if elsevier_selected >= min_elsevier:
             break
@@ -135,7 +161,7 @@ def _select_with_publisher_diversity(
             existing_key = selected[idx]
             if _is_elsevier(records[existing_key]):
                 continue
-            if score <= dict(scored).get(existing_key, 0.0):
+            if score <= score_by_key.get(existing_key, 0.0):
                 continue
             selected[idx] = key
             selected_set.add(key)
@@ -151,23 +177,22 @@ def _fetch_all_sources(
     year_from: int | None,
     year_to: int | None,
     fetch_depth: int,
+    sort_by: SortBy,
 ) -> list[tuple[str, list[ExternalPaper]]]:
     """Query all bibliographic sources in parallel."""
+    common = {
+        "year_from": year_from,
+        "year_to": year_to,
+        "limit": fetch_depth,
+        "sort_by": sort_by,
+    }
     tasks = {
-        "openalex": lambda: search_openalex(
-            query, year_from=year_from, year_to=year_to, limit=fetch_depth
-        ),
-        "semantic_scholar": lambda: search_semantic_scholar(
-            query, year_from=year_from, year_to=year_to, limit=fetch_depth
-        ),
-        "crossref": lambda: search_crossref(
-            query, year_from=year_from, year_to=year_to, limit=fetch_depth
-        ),
+        "openalex": lambda: search_openalex(query, **common),
+        "semantic_scholar": lambda: search_semantic_scholar(query, **common),
+        "crossref": lambda: search_crossref(query, **common),
         "crossref_elsevier": lambda: search_crossref(
             query,
-            year_from=year_from,
-            year_to=year_to,
-            limit=fetch_depth,
+            **common,
             doi_prefix=_ELSEVIER_DOI_PREFIX,
         ),
     }
@@ -209,6 +234,7 @@ def search_online_literature(
     year_from: int | None = None,
     year_to: int | None = None,
     limit: int = 15,
+    sort_by: SortBy = "relevance",
 ) -> list[OnlinePaperHit]:
     """Search OpenAlex, Semantic Scholar, and CrossRef; merge by DOI/title."""
     if not query.strip():
@@ -220,11 +246,12 @@ def search_online_literature(
         year_from=year_from,
         year_to=year_to,
         fetch_depth=fetch_depth,
+        sort_by=sort_by,
     )
     if not source_lists:
         return []
 
-    hits = _merge_papers(source_lists, limit=limit)
+    hits = _merge_papers(source_lists, limit=limit, sort_by=sort_by)
     if zot is not None:
         _mark_local_library(hits, zot)
     return hits

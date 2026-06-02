@@ -64,6 +64,7 @@ def search_openalex(
     year_from: int | None = None,
     year_to: int | None = None,
     limit: int = 20,
+    sort_by: str = "relevance",
 ) -> list[ExternalPaper]:
     """Search OpenAlex works API."""
     if not query.strip():
@@ -71,15 +72,16 @@ def search_openalex(
 
     filters: list[str] = []
     if year_from is not None:
-        filters.append(f"publication_year:>={year_from}")
+        filters.append(f"from_publication_date:{year_from}-01-01")
     if year_to is not None:
-        filters.append(f"publication_year:<={year_to}")
+        filters.append(f"until_publication_date:{year_to}-12-31")
 
     fetch_count = min(max(limit, 10), 50)
+    oa_sort = "cited_by_count:desc" if sort_by == "citations" else "relevance_score:desc"
     params: dict = {
         "search": query.strip(),
         "per-page": fetch_count,
-        "sort": "relevance_score:desc",
+        "sort": oa_sort,
         "mailto": _mailto(),
     }
     if filters:

@@ -1,0 +1,313 @@
+"""Find related literature by auto-generating multiple queries from paper metadata.
+
+Unified tool that covers both online (OpenAlex/S2/CrossRef) and CNKI search.
+Reduces 8-12 manual search rounds to a single tool call.
+"""
+
+from __future__ import annotations
+
+import itertools
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Literal
+
+from loguru import logger
+
+from research_core.sources.models import OnlinePaperHit
+from research_core.tools.discover_online import (
+    _fetch_all_sources,
+    _merge_papers,
+)
+from research_core.tools.discover_online import (
+    _mark_local_library as _mark_local_online,
+)
+from research_core.zotero.client import ZoteroClient
+
+SortBy = Literal["relevance", "citations"]
+Scope = Literal["online", "cnki", "both"]
+
+_CHINESE_STOPWORDS = frozenset(
+    "的了是在有不这我他她它们你个中大上为以及与对其可被"
+    "从而所也就都已将会能把被要让用着到过没很还因但如果"
+    "虽然因为所以如何什么怎么那些这些通过进行研究分析"
+    "基于本文探讨影响因素机制作用视角下理论方法模型框架"
+)
+
+_ENGLISH_STOPWORDS = frozenset(
+    "the a an in on of to for with by from at is are was were be been being "
+    "and or not this that these those it its as but if than then so do does did "
+    "has have had will would can could may might shall should about between "
+    "through during into over after before under above how what which where when "
+    "who whom whose why all both each few more most other some such no nor any "
+    "study research paper analysis based using approach method model framework "
+    "effect effects impact influence role".split()
+)
+
+
+def _is_chinese(text: str) -> bool:
+    """Check if text contains predominantly Chinese characters."""
+    chinese_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
+    return chinese_chars > len(text) * 0.3
+
+
+def _extract_chinese_terms(text: str) -> list[str]:
+    """Extract meaningful Chinese terms from text without jieba.
+
+    Strategy: split on punctuation, common delimiters, and stopword characters.
+    For longer segments, also split on common structural particles.
+    """
+    segments = re.split(r"[，。、；：！？\s,;:!?\-—–/()（）【】\[\]\"\'""'']+", text)
+    terms = []
+    for seg in segments:
+        seg = seg.strip()
+        if not seg:
+            continue
+        if len(seg) <= 8:
+            if len(seg) >= 2 and not all(c in _CHINESE_STOPWORDS for c in seg):
+                terms.append(seg)
+        else:
+            sub_parts = re.split(r"[的了是在有对与及其]", seg)
+            for part in sub_parts:
+                part = part.strip()
+                if 2 <= len(part) <= 8 and not all(c in _CHINESE_STOPWORDS for c in part):
+                    terms.append(part)
+    return terms
+
+
+def _extract_english_terms(text: str) -> list[str]:
+    """Extract meaningful English terms (multi-word phrases preserved)."""
+    words = re.findall(r"[a-zA-Z][\w-]*", text.lower())
+    meaningful = [w for w in words if w not in _ENGLISH_STOPWORDS and len(w) > 2]
+    return meaningful
+
+
+def _generate_queries(
+    title: str = "",
+    abstract: str = "",
+    keywords: list[str] | None = None,
+) -> list[str]:
+    """Generate 3-5 search queries from paper metadata (pure rules, no LLM).
+
+    Strategy:
+    1. Use keyword combinations (most reliable)
+    2. Use title core terms
+    3. Use full keyword set as broad query
+    """
+    queries: list[str] = []
+    kw_list = [k.strip() for k in (keywords or []) if k.strip()]
+
+    if kw_list:
+        if len(kw_list) >= 3:
+            for combo in itertools.combinations(kw_list[:6], 2):
+                queries.append(" ".join(combo))
+        if len(kw_list) >= 4:
+            for combo in itertools.combinations(kw_list[:5], 3):
+                queries.append(" ".join(combo))
+        if len(kw_list) <= 4:
+            queries.append(" ".join(kw_list))
+
+    if title.strip():
+        title_clean = re.sub(r"[——\-—–:：].*$", "", title.strip())
+        if _is_chinese(title_clean):
+            terms = _extract_chinese_terms(title_clean)
+            if len(terms) >= 2:
+                queries.append(" ".join(terms[:3]))
+        else:
+            terms = _extract_english_terms(title_clean)
+            if len(terms) >= 2:
+                queries.append(" ".join(terms[:4]))
+
+    if abstract and len(queries) < 3:
+        abs_text = abstract[:200]
+        if _is_chinese(abs_text):
+            terms = _extract_chinese_terms(abs_text)
+            if terms:
+                queries.append(" ".join(terms[:3]))
+        else:
+            terms = _extract_english_terms(abs_text)
+            if terms:
+                queries.append(" ".join(terms[:4]))
+
+    seen: list[str] = []
+    for q in queries:
+        if q and q not in seen:
+            seen.append(q)
+    return seen[:5]
+
+
+def _dedup_cnki_hits(all_hits: list) -> list:
+    """Deduplicate CNKI hits by normalized title."""
+    seen_titles: set[str] = set()
+    unique: list = []
+    for hit in all_hits:
+        key = re.sub(r"\s+", "", hit.title.lower().strip())
+        if key in seen_titles:
+            continue
+        seen_titles.add(key)
+        unique.append(hit)
+    return unique
+
+
+def _run_online_related(
+    queries: list[str],
+    *,
+    year_from: int | None,
+    year_to: int | None,
+    limit: int,
+    sort_by: SortBy,
+    zot: ZoteroClient | None,
+) -> list[OnlinePaperHit]:
+    """Run multiple queries through online sources and merge."""
+    from research_core.tools.discover_online import _fetch_depth
+
+    fetch_depth = _fetch_depth(limit)
+    all_source_lists: list[tuple[str, list]] = []
+
+    with ThreadPoolExecutor(max_workers=min(len(queries) * 4, 16)) as pool:
+        futures = {}
+        for i, query in enumerate(queries):
+            future = pool.submit(
+                _fetch_all_sources,
+                query,
+                year_from=year_from,
+                year_to=year_to,
+                fetch_depth=fetch_depth,
+                sort_by=sort_by,
+            )
+            futures[future] = f"batch_{i}"
+
+        for future in as_completed(futures):
+            try:
+                source_lists = future.result()
+                all_source_lists.extend(source_lists)
+            except Exception as exc:
+                logger.debug(f"Online related search batch failed: {exc}")
+
+    if not all_source_lists:
+        return []
+
+    hits = _merge_papers(all_source_lists, limit=limit, sort_by=sort_by)
+    if zot is not None:
+        _mark_local_online(hits, zot)
+    return hits
+
+
+def _run_cnki_related(
+    queries: list[str],
+    *,
+    year_from: int | None,
+    year_to: int | None,
+    source_categories: list[str] | None,
+    limit: int,
+    sort_by: SortBy,
+    zot: ZoteroClient | None,
+) -> list:
+    """Run multiple queries through CNKI in a single browser session."""
+    from research_core.sources.cnki.browser import cnki_page
+    from research_core.sources.cnki.exceptions import CnkiCaptchaError
+    from research_core.sources.cnki.models import CnkiPaperHit
+    from research_core.sources.cnki.scripts import (
+        BASIC_SEARCH_JS,
+        BASIC_SEARCH_URL,
+    )
+    from research_core.sources.cnki.search import (
+        _apply_filters,
+        _raw_to_hits,
+    )
+    from research_core.tools.discover_cnki import _mark_local_library
+
+    all_hits: list[CnkiPaperHit] = []
+
+    with cnki_page() as page:
+        for i, query in enumerate(queries):
+            try:
+                if i == 0:
+                    page.goto(BASIC_SEARCH_URL, wait_until="domcontentloaded")
+                    raw = page.evaluate(BASIC_SEARCH_JS, {"query": query})
+                else:
+                    raw = page.evaluate(BASIC_SEARCH_JS, {"query": query})
+            except Exception as exc:
+                if "timeout" in str(exc).lower():
+                    logger.debug(f"CNKI query '{query}' timed out, skipping")
+                    continue
+                logger.debug(f"CNKI query '{query}' failed: {exc}")
+                continue
+
+            if raw.get("error") == "captcha":
+                raise CnkiCaptchaError(
+                    "CNKI captcha detected. Solve it in Chrome, then retry."
+                )
+
+            hits, total, page_info = _raw_to_hits(raw, limit=20)
+            all_hits.extend(hits)
+            logger.debug(f"CNKI related query '{query}' -> {len(hits)} hits")
+
+    all_hits = _dedup_cnki_hits(all_hits)
+
+    all_hits = _apply_filters(
+        all_hits,
+        year_from=year_from,
+        year_to=year_to,
+        limit=limit,
+        sort_by=sort_by,
+    )
+
+    if zot is not None:
+        _mark_local_library(all_hits, zot)
+
+    return all_hits
+
+
+def find_related_literature(
+    scope: Scope = "online",
+    title: str = "",
+    abstract: str = "",
+    keywords: list[str] | None = None,
+    source_categories: list[str] | None = None,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    limit: int = 30,
+    sort_by: SortBy = "relevance",
+    zot: ZoteroClient | None = None,
+) -> dict:
+    """Find literature related to a known paper by auto-generating multiple queries.
+
+    Accepts paper metadata (title, abstract, keywords) and automatically:
+    1. Generates 3-5 diverse search queries from the metadata
+    2. Executes all queries (online / CNKI / both)
+    3. Deduplicates and merges results
+
+    Replaces 8-12 manual search_*_literature calls with a single invocation.
+    """
+    queries = _generate_queries(title=title, abstract=abstract, keywords=keywords)
+    if not queries:
+        return {"error": "Provide at least title or keywords to generate queries.", "queries": []}
+
+    result: dict = {"queries_generated": queries, "scope": scope}
+
+    if scope in ("online", "both"):
+        online_hits = _run_online_related(
+            queries,
+            year_from=year_from,
+            year_to=year_to,
+            limit=limit,
+            sort_by=sort_by,
+            zot=zot,
+        )
+        result["online_hits"] = online_hits
+        result["online_count"] = len(online_hits)
+
+    if scope in ("cnki", "both"):
+        cnki_hits = _run_cnki_related(
+            queries,
+            year_from=year_from,
+            year_to=year_to,
+            source_categories=source_categories,
+            limit=limit,
+            sort_by=sort_by,
+            zot=zot,
+        )
+        result["cnki_hits"] = cnki_hits
+        result["cnki_count"] = len(cnki_hits)
+
+    return result

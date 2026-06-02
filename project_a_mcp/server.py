@@ -1,11 +1,13 @@
 """Zotero Research Assistant — MCP server.
 
-17 tools, one intent each, designed to compose via `item_key`.
+22 tools, one intent each, designed to compose via `item_key`.
 
 Categories:
-  DISCOVER   search_papers, search_online_literature, find_similar_papers, browse_library, find_duplicates, merge_duplicates
+  DISCOVER   search_papers, search_online_literature, search_cnki_literature,
+             find_related_literature, cnki_paper_detail, cnki_navigate_pages,
+             find_similar_papers, browse_library, find_duplicates, merge_duplicates
   READ       get_paper, get_paper_content, search_annotations, create_annotation
-  WRITE      suggest_citations, export_bibliography, add_paper
+  WRITE      suggest_citations, export_bibliography, add_paper, cnki_add_to_zotero
   MANAGE     add_note, edit_tags, manage_collections
   ADMIN      sync_index
 """
@@ -35,6 +37,15 @@ from research_core.tools import (
     browse_library as _browse_library,
 )
 from research_core.tools import (
+    cnki_add_to_zotero as _cnki_add_to_zotero,
+)
+from research_core.tools import (
+    cnki_navigate_pages as _cnki_navigate_pages,
+)
+from research_core.tools import (
+    cnki_paper_detail as _cnki_paper_detail,
+)
+from research_core.tools import (
     create_annotation as _create_annotation,
 )
 from research_core.tools import (
@@ -45,6 +56,9 @@ from research_core.tools import (
 )
 from research_core.tools import (
     find_duplicates as _find_duplicates,
+)
+from research_core.tools import (
+    find_related_literature as _find_related_literature,
 )
 from research_core.tools import (
     find_similar_papers as _find_similar_papers,
@@ -63,6 +77,9 @@ from research_core.tools import (
 )
 from research_core.tools import (
     search_annotations as _search_annotations,
+)
+from research_core.tools import (
+    search_cnki_literature as _search_cnki_literature,
 )
 from research_core.tools import (
     search_online_literature as _search_online_literature,
@@ -123,9 +140,29 @@ mcp = FastMCP(
     instructions=(
         "Help researchers discover, read, cite, and manage papers in their Zotero library. "
         "Tools compose via `item_key`: discovery tools return keys, read/write tools consume them. "
-        "Prefer search_papers for the user's local Zotero library; use search_online_literature "
-        "only when they want to discover papers NOT yet in their library. "
-        "Never call multiple search tools for the same intent. "
+        "Prefer search_papers for the user's local Zotero library. "
+        "For papers NOT in the library, DEFAULT to search_online_literature (English/international: "
+        "OpenAlex/CrossRef/S2). "
+        "Call search_cnki_literature ONLY when the user explicitly asks for Chinese literature — "
+        "e.g. 中文文献, 中文论文, 知网, CNKI, 核心期刊, 国内期刊, or 中英文/双语检索 (then call BOTH "
+        "search_online_literature and search_cnki_literature). "
+        "Do NOT call search_cnki_literature for generic online search, English-only requests, or "
+        "because the topic is written in Chinese. "
+        "CNKI MODULE IS DISABLED BY DEFAULT. If a CNKI tool returns an error containing "
+        "'CNKI search is disabled', DO NOT retry — instead tell the user CNKI needs to be enabled "
+        "and show them the setup steps: (1) uv pip install -e \".[cnki]\" && playwright install chromium, "
+        "(2) start Chrome with --remote-debugging-port=9222, (3) log in to CNKI in that Chrome, "
+        "(4) set CNKI_ENABLED=true and CNKI_CDP_URL=http://127.0.0.1:9222 in .env, (5) restart MCP. "
+        "Never call multiple search tools for the same intent except the explicit 中英文/bilingual case. "
+        "RELATED PAPER DISCOVERY: when the user provides a paper (title/abstract/keywords) and wants "
+        "related literature, use find_related_literature — it auto-generates multiple queries and "
+        "searches in one call (replaces 8-12 manual search rounds). Set scope='online' for English, "
+        "'cnki' for Chinese, 'both' for bilingual. "
+        "CNKI→Zotero workflow: after search_cnki_literature returns hits, use "
+        "cnki_add_to_zotero(export_ids=[...]) to import papers directly — NO DOI required. "
+        "Use cnki_paper_detail(cnki_url) for full abstract/keywords/DOI if the user wants details. "
+        "Use cnki_navigate_pages PROACTIVELY when: user needs many papers (>20), asks for thorough/"
+        "deep search, or first-page results are insufficient. Do NOT wait for user to say 'next page'. "
         + _WRITE_CONFIRMATION_POLICY
         + " Tools with a confirm parameter: add_note, edit_tags, manage_collections, add_paper, "
         "merge_duplicates, create_annotation."
@@ -211,7 +248,8 @@ def search_papers(
     - User wants more papers like a specific one they named → use find_similar_papers.
     - User wants to browse collections/tags/recent additions → use browse_library.
     - User is writing a draft and wants citations for it → use suggest_citations.
-    - User wants to discover papers NOT in their library → use search_online_literature.
+    - User wants to discover papers NOT in their library → use search_online_literature (default).
+      Use search_cnki_literature only if they explicitly ask for 中文文献/知网/CNKI/核心期刊.
 
     Args:
         query: Natural-language topic, concept, or keyword string. Can be empty ("")
@@ -248,15 +286,26 @@ def search_online_literature(
     year_from: int | None = None,
     year_to: int | None = None,
     limit: int = 15,
+    sort_by: Literal["relevance", "citations"] = "relevance",
 ) -> list[dict]:
     """Search external literature databases (OpenAlex + Semantic Scholar + CrossRef).
 
-    Use this when the user wants to DISCOVER papers that may NOT be in their Zotero
-    library yet — e.g. "search online for recent LLM agent papers", "find papers on
-    X from 2023–2025", or "what's published on topic Y outside my library".
+    DEFAULT tool for discovering papers outside the user's Zotero library. Covers
+    English and international literature (Elsevier, Springer, IEEE, etc.).
+
+    Use for generic online search — e.g. "search online for LLM agent papers",
+    "find papers on X from 2023–2025", "高引英文文献", or any request that does NOT
+    explicitly mention Chinese/中文/知网/CNKI/核心期刊/国内期刊.
+
+    Do NOT call search_cnki_literature alongside this unless the user explicitly asks
+    for bilingual/中英文 coverage (then call both, separately).
 
     Queries OpenAlex, Semantic Scholar, and CrossRef in parallel (including a targeted
     Elsevier CrossRef pass) and merges results for broader publisher coverage.
+
+    For literature surveys or "highly cited" / "高引" requests, set sort_by="citations"
+    (often together with year_from) so landmark papers surface instead of only the most
+    keyword-relevant recent preprints.
 
     Results include DOI, abstract snippet, publisher, citation count, open-access status,
     whether the paper is already in the user's local library (`in_local_library`).
@@ -266,11 +315,13 @@ def search_online_literature(
     - User wants papers already in their Zotero library → use search_papers.
     - User already has a DOI and wants to add it → use add_paper directly.
     - User wants similar papers to one they already have → use find_similar_papers.
+    - User explicitly wants Chinese/CNKI/知网/核心期刊 → use search_cnki_literature (not this tool alone).
 
     Args:
         query: Topic, keywords, or natural-language search string (required).
         year_from/year_to: Publication year window (inclusive). Optional.
         limit: Max merged results (default 15).
+        sort_by: "relevance" (default) for topic matching; "citations" for high-impact surveys.
 
     Returns:
         List of online hits with title, authors, year, doi, abstract, venue, publisher,
@@ -282,8 +333,265 @@ def search_online_literature(
         year_from=year_from,
         year_to=year_to,
         limit=limit,
+        sort_by=sort_by,
     )
     return [h.__dict__ for h in hits]
+
+
+@mcp.tool()
+@_safe_tool
+def search_cnki_literature(
+    query: str,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    search_field: str = "SU",
+    author: str = "",
+    journal: str = "",
+    source_categories: list[str] | None = None,
+    limit: int = 20,
+    sort_by: Literal["relevance", "citations"] = "relevance",
+) -> dict:
+    """Search CNKI (中国知网) for Chinese journal papers via browser automation.
+
+    ONLY call this when the user EXPLICITLY requests Chinese literature retrieval.
+    Trigger phrases include: 中文文献, 中文论文, 知网, CNKI, 核心期刊, CSSCI, 北大核心,
+    国内期刊, 中国期刊, or combined 中英文/双语检索.
+
+    Do NOT call for:
+    - Generic "search online" / "find papers" without Chinese scope
+    - English-only or international literature requests
+    - Topics written in Chinese but user did not ask for CNKI/中文文献
+      (use search_online_literature instead — it still accepts Chinese query strings)
+
+    For 中英文/双语检索: call search_online_literature AND this tool (two calls).
+
+    CNKI is DISABLED by default. If this tool returns an error about "CNKI search is
+    disabled", tell the user they need to enable CNKI first and show them the setup steps:
+    1. Install: uv pip install -e ".[cnki]" && playwright install chromium
+    2. Start Chrome with --remote-debugging-port=9222
+    3. Log in to CNKI in that Chrome window (institutional VPN may be required)
+    4. Set in .env: CNKI_ENABLED=true and CNKI_CDP_URL=http://127.0.0.1:9222
+    5. Restart the MCP server
+
+    Automatically uses CNKI advanced search when year filters, author, journal, or
+    source_categories (SCI/EI/CSSCI/北大核心/CSCD) are provided.
+
+    For "高引" / highly-cited surveys, set sort_by="citations".
+
+    When NOT to use:
+    - User wants papers already in local Zotero → search_papers.
+    - User wants English/international online search only → search_online_literature (default).
+    - User did not mention 中文/知网/CNKI/核心期刊 → do NOT call this tool.
+    - CNKI is not configured → explain setup instead of retrying endlessly.
+
+    Args:
+        query: Keywords (Chinese or English).
+        year_from/year_to: Publication year window. Triggers advanced search when set.
+        search_field: SU=主题, TI=篇名, KY=关键词, AB=摘要 (default SU).
+        author: Author filter (advanced search).
+        journal: Journal/source filter (advanced search).
+        source_categories: e.g. ["CSSCI", "北大核心", "SCI"].
+        limit: Max hits from current results page (default 20).
+        sort_by: "relevance" or "citations" (CNKI 被引次数).
+
+    Returns:
+        Dict with query, total, page, mode, and hits (title, authors, year, venue,
+        citation_count, download_count, cnki_url, in_local_library, ...).
+    """
+    result = _search_cnki_literature(
+        query=query,
+        zot=_get_zot(),
+        year_from=year_from,
+        year_to=year_to,
+        search_field=search_field,
+        author=author,
+        journal=journal,
+        source_categories=normalize_list(source_categories, "source_categories"),
+        limit=limit,
+        sort_by=sort_by,
+    )
+    return {
+        **{k: v for k, v in result.items() if k != "hits"},
+        "hits": [h.__dict__ for h in result["hits"]],
+    }
+
+
+@mcp.tool()
+@_safe_tool
+def find_related_literature(
+    scope: Literal["online", "cnki", "both"] = "online",
+    title: str = "",
+    abstract: str = "",
+    keywords: list[str] | None = None,
+    source_categories: list[str] | None = None,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    limit: int = 30,
+    sort_by: Literal["relevance", "citations"] = "relevance",
+) -> dict:
+    """Find literature related to a known paper — auto multi-query, one call.
+
+    PREFERRED tool when the user provides a paper (or its metadata) and wants
+    to find related/similar literature. Automatically generates 3-5 diverse
+    search queries from the paper's title/abstract/keywords, executes them all,
+    and returns deduplicated merged results.
+
+    Replaces 8-12 manual search_online_literature or search_cnki_literature
+    calls with a SINGLE invocation. Use this whenever:
+    - User says "find papers related to this paper"
+    - User uploads/describes a paper and wants similar literature
+    - User asks for comprehensive literature around a topic described by keywords
+    - User says "帮我找相关文献", "类似的论文", "相关研究"
+
+    Scope selection:
+    - "online" (default): searches OpenAlex + Semantic Scholar + CrossRef
+    - "cnki": searches CNKI (中国知网) — only for Chinese literature requests
+    - "both": searches both (for 中英文/双语 requests)
+
+    When NOT to use:
+    - User provides a SPECIFIC query string to search → use search_online_literature
+      or search_cnki_literature directly.
+    - User wants papers from their local Zotero library → use search_papers.
+    - User wants papers similar to a paper already IN their library (by key) →
+      use find_similar_papers.
+
+    Args:
+        scope: "online", "cnki", or "both".
+        title: Paper title (at least title or keywords required).
+        abstract: Paper abstract (optional, helps generate better queries).
+        keywords: Paper keywords list (most effective for query generation).
+        source_categories: CNKI filter: ["CSSCI", "北大核心", "SCI", ...].
+        year_from/year_to: Publication year window.
+        limit: Max results per scope (default 30).
+        sort_by: "relevance" or "citations".
+
+    Returns:
+        {queries_generated, scope, online_hits, online_count, cnki_hits, cnki_count}.
+        online_hits: list of OnlinePaperHit dicts.
+        cnki_hits: list of CnkiPaperHit dicts (with journal_level field).
+    """
+    result = _find_related_literature(
+        scope=scope,
+        title=title,
+        abstract=abstract,
+        keywords=normalize_list(keywords, "keywords"),
+        source_categories=normalize_list(source_categories, "source_categories"),
+        year_from=year_from,
+        year_to=year_to,
+        limit=limit,
+        sort_by=sort_by,
+        zot=_get_zot(),
+    )
+    if "online_hits" in result:
+        result["online_hits"] = [h.__dict__ for h in result["online_hits"]]
+    if "cnki_hits" in result:
+        result["cnki_hits"] = [h.__dict__ for h in result["cnki_hits"]]
+    return result
+
+
+@mcp.tool()
+@_safe_tool
+def cnki_add_to_zotero(
+    export_ids: list[str],
+) -> dict:
+    """Add CNKI papers directly to Zotero — no DOI needed.
+
+    Use after search_cnki_literature to import selected papers. Takes the
+    export_id field(s) from search results, calls CNKI's internal export API
+    to get full metadata (title, authors, journal, abstract, keywords, etc.),
+    then pushes to Zotero's local Connector API.
+
+    Requires Zotero desktop to be running (localhost:23119).
+
+    Workflow:
+    1. search_cnki_literature → user picks papers
+    2. cnki_add_to_zotero(export_ids=[hit.export_id for selected hits])
+    3. Papers appear in Zotero's currently selected collection
+
+    When NOT to use:
+    - Paper has a DOI and user wants international metadata → use add_paper(doi).
+    - User hasn't searched CNKI yet → use search_cnki_literature first.
+
+    Args:
+        export_ids: List of export_id strings from search_cnki_literature results.
+
+    Returns:
+        {success, message, papers_saved, papers: [{title, authors, journal, year}]}.
+    """
+    result = _cnki_add_to_zotero(
+        export_ids=normalize_list(export_ids, "export_ids"),
+    )
+    return result.__dict__
+
+
+@mcp.tool()
+@_safe_tool
+def cnki_paper_detail(cnki_url: str) -> dict:
+    """Extract full metadata from a CNKI paper's detail page.
+
+    Navigates to the paper URL and extracts: title, authors, affiliations,
+    abstract, keywords, DOI (if available), fund info, ISSN, and export_id.
+
+    Use when the user asks about a specific CNKI paper's details, or to check
+    if a DOI exists before deciding how to import to Zotero.
+
+    If DOI is found → suggest add_paper(identifier=doi) for standard import.
+    If no DOI → suggest cnki_add_to_zotero(export_ids=[export_id]) for direct import.
+
+    When NOT to use:
+    - User just wants to add a paper to Zotero → use cnki_add_to_zotero directly.
+    - User wants to search → use search_cnki_literature.
+
+    Args:
+        cnki_url: Full URL to the CNKI paper detail page (from search result's cnki_url field).
+
+    Returns:
+        {title, authors, affiliations, abstract, keywords, doi, issn, export_id,
+         has_doi, zotero_hint, ...}.
+    """
+    return _cnki_paper_detail(cnki_url=cnki_url)
+
+
+@mcp.tool()
+@_safe_tool
+def cnki_navigate_pages(
+    action: str = "next",
+    sort_by: str = "",
+) -> dict:
+    """Fetch more CNKI results or change sort order (auto-pagination).
+
+    This tool expands CNKI search results beyond the initial page. Call it
+    PROACTIVELY (without user explicitly asking for "next page") when:
+
+    1. User requests a LARGE number of papers (e.g. limit > 20, or "找30篇", "多找一些")
+       and the first page didn't return enough results.
+    2. User asks for THOROUGH / DEEP search (e.g. "深入检索", "全面检索", "尽量多找").
+    3. The agent judges that current results are insufficient to fulfill the user's
+       request (e.g. user wants comprehensive coverage on a topic, or asked for
+       high-cited papers but the first page had few highly-cited ones).
+    4. User explicitly says "more results", "还有吗", "继续找", "下一批".
+
+    Do NOT use this when:
+    - No prior CNKI search was performed → use search_cnki_literature first.
+    - User wants a completely different query → use search_cnki_literature (fresh search).
+    - First page already has enough results for the user's request.
+
+    Actions:
+    - Pagination: action="next" (default), "previous", or a page number like "3"
+    - Sorting: set sort_by="citations"/"date"/"downloads"/"relevance"/"comprehensive"
+      (action is ignored when sort_by is provided)
+
+    Args:
+        action: "next", "previous", or a page number string. Default "next".
+        sort_by: If provided, changes sort order instead of paginating.
+
+    Returns:
+        {action, total, page, hits: [...]} with additional results.
+    """
+    result = _cnki_navigate_pages(action=action, sort_by=sort_by)
+    if "hits" in result:
+        result["hits"] = [h.__dict__ for h in result["hits"]]
+    return result
 
 
 @mcp.tool()

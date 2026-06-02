@@ -86,6 +86,30 @@ class TestSearchOnlineLiterature:
             if r["year"]:
                 assert r["year"] >= 2023
 
+    def test_geodetector_high_citation_survey(self):
+        results = asyncio.run(
+            call(
+                "search_online_literature",
+                {
+                    "query": "Geodetector",
+                    "year_from": 2020,
+                    "limit": 15,
+                    "sort_by": "citations",
+                },
+            )
+        )
+        assert len(results) > 0
+        target = [
+            r
+            for r in results
+            if "disentangle" in (r.get("title") or "").lower()
+            and "ndvi" in (r.get("title") or "").lower()
+        ]
+        assert target, "Expected Zhu et al. 2020 Ecological Indicators Geodetector paper"
+        assert target[0]["citation_count"] >= 200
+        counts = [r["citation_count"] for r in results]
+        assert counts == sorted(counts, reverse=True)
+
     def test_includes_elsevier_for_medical_imaging_query(self):
         results = asyncio.run(
             call(
