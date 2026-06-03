@@ -138,77 +138,29 @@ _WRITE_CONFIRMATION_POLICY = (
 mcp = FastMCP(
     "Zotero Research Assistant",
     instructions=(
-        "Help researchers discover, read, cite, and manage papers in their Zotero library. "
-        "Tools compose via `item_key`: discovery tools return keys, read/write tools consume them. "
-        "Prefer search_papers for the user's local Zotero library. "
-        "For papers NOT in the library, DEFAULT to search_online_literature (English/international: "
-        "OpenAlex/CrossRef/S2). "
-        "Call search_cnki_literature ONLY when the user explicitly asks for Chinese literature — "
-        "e.g. 中文文献, 中文论文, 知网, CNKI, 核心期刊, 国内期刊, or 中英文/双语检索 (then call BOTH "
-        "search_online_literature and search_cnki_literature). "
-        "Do NOT call search_cnki_literature for generic online search, English-only requests, or "
-        "because the topic is written in Chinese. "
-        "CNKI MODULE IS DISABLED BY DEFAULT. If a CNKI tool returns an error containing "
-        "'CNKI search is disabled', DO NOT retry — instead tell the user CNKI needs to be enabled "
-        "and show them the setup steps: (1) uv pip install -e \".[cnki]\" && playwright install chromium, "
-        "(2) start Chrome with --remote-debugging-port=9222, (3) log in to CNKI in that Chrome, "
-        "(4) set CNKI_ENABLED=true and CNKI_CDP_URL=http://127.0.0.1:9222 in .env, (5) restart MCP. "
-        "Never call multiple search tools for the same intent except the explicit 中英文/bilingual case. "
-        "RELATED PAPER DISCOVERY: when the user provides a paper (title/abstract/keywords) and wants "
-        "related literature, use find_related_literature — it auto-generates multiple queries and "
-        "searches in one call (replaces 8-12 manual search rounds). Set scope='online' for English, "
-        "'cnki' for Chinese, 'both' for bilingual. "
-        "*** CORPUS-FIRST (HIGHEST PRIORITY): Before searching, ALWAYS scan the user's paper for "
-        "reference DOIs. Extract 3-8 DOIs of the most relevant/foundational cited works and pass them "
-        "as reference_dois=[...]. This is the SINGLE MOST EFFECTIVE strategy — it expands citation "
-        "networks from known, definitionally-relevant references. Do this BEFORE relying on keywords. "
-        "Even if the paper has no DOI itself, its REFERENCES always have DOIs. Example: "
-        "reference_dois=['10.1016/j.landurbplan.2019.103605', '10.1016/j.cities.2021.103229']. *** "
-        "ALSO provide the paper's own DOI if available. "
-        "IMPORTANT: for social science, humanities, or "
-        "niche domains, ALWAYS set fields_of_study to constrain results (e.g. ['Business', 'Economics'] "
-        "for management research, ['Sociology'] for sociology papers). This prevents irrelevant "
-        "results from other disciplines. "
-        "CITATION NETWORK: use expand_citation_network when you want to explore citation "
-        "neighborhoods. Pass dois=[...] with multiple DOIs for best results. "
-        "CNKI→Zotero workflow: after search_cnki_literature returns hits, use "
-        "cnki_add_to_zotero(export_ids=[...]) to import papers directly — NO DOI required. "
-        "Use cnki_paper_detail(cnki_url) for full abstract/keywords/DOI if the user wants details. "
-        "Use cnki_navigate_pages PROACTIVELY when: user needs many papers (>20), asks for thorough/"
-        "deep search, or first-page results are insufficient. Do NOT wait for user to say 'next page'. "
-        "\n\n"
-        "=== ABSOLUTE RULE: ZERO-FABRICATION POLICY ===\n"
-        "VIOLATION of these rules destroys user trust and constitutes academic misconduct.\n\n"
-        "1. You are STRICTLY FORBIDDEN from presenting ANY paper that was not returned by the "
-        "search tools (search_papers, search_online_literature, search_cnki_literature, "
-        "find_related_literature, find_similar_papers, expand_citation_network). "
-        "This includes papers you 'know' from training data. Your knowledge is NOT a valid source.\n\n"
-        "2. [MATERIAL GAP] PROTOCOL: When a tool returns a field named '[MATERIAL GAP]', "
-        "it means the search yielded ZERO verified results. You MUST:\n"
-        "   - Report the gap honestly to the user (DO NOT fill from memory)\n"
-        "   - Suggest the actions specified in the [MATERIAL GAP] message\n"
-        "   - NEVER compensate by listing papers from memory\n"
-        "   The user trusts this system for VERIFIED, tool-sourced citations only.\n\n"
-        "3. Every paper you present MUST have a VERIFIABLE source anchor from tool output:\n"
-        "   - Online hits: source_url (https://doi.org/... or platform URL)\n"
-        "   - CNKI hits: cnki_url\n"
-        "   - Zotero papers: item_key\n"
-        "   If a paper lacks ALL of these, state '[unverified link]' next to it.\n\n"
-        "4. The tool output contains 'verified_sources_only: true'. This is a binding "
-        "contract: you may ONLY present papers from that response. Mixing in papers from your "
-        "own knowledge is a VIOLATION.\n\n"
-        "5. NEVER write phrases like '基于我对该领域的了解', 'based on my knowledge of this field', "
-        "'I recommend the following papers from my understanding'. These phrases signal fabrication. "
-        "If you cannot source a paper to a tool call, do not include it.\n\n"
-        "6. When presenting results, prefix each paper with its source tool in brackets: "
-        "[OpenAlex], [Semantic Scholar], [CNKI], [Zotero], [Citation Network], [Corpus-First]. "
-        "This makes provenance visible and auditable.\n\n"
-        "7. CORPUS-FIRST STRATEGY: When analyzing a user's paper, ALWAYS try to extract "
-        "3-8 DOIs from its reference list and pass them as reference_dois to find_related_literature. "
-        "This yields the most relevant results by leveraging the paper's own intellectual network.\n"
-        "=== END ZERO-FABRICATION POLICY ===\n\n"
+        "Help researchers discover, read, cite, and manage papers in their Zotero library.\n\n"
+        "TOOL ROUTING:\n"
+        "- Local library → search_papers\n"
+        "- Online English → search_online_literature\n"
+        "- Chinese/知网/CNKI → search_cnki_literature (only when explicitly requested)\n"
+        "- Related to a paper → find_related_literature (ONE call replaces many searches)\n"
+        "- Citation neighborhood → expand_citation_network\n\n"
+        "CORPUS-FIRST STRATEGY (highest priority for related paper discovery):\n"
+        "When analyzing a user's paper, ALWAYS extract 3-8 DOIs from its reference list "
+        "and pass as reference_dois to find_related_literature. This is the most effective "
+        "strategy. Also provide the paper's own DOI and set fields_of_study for niche domains.\n\n"
+        "CNKI is DISABLED by default. If it returns 'CNKI search is disabled', tell the user "
+        "to enable it (install cnki extras, start Chrome with --remote-debugging-port=9222, "
+        "log in to CNKI, set CNKI_ENABLED=true in .env, restart MCP).\n\n"
+        "ZERO-FABRICATION POLICY:\n"
+        "- NEVER present papers not returned by tools. Your training knowledge is NOT a valid source.\n"
+        "- When '[MATERIAL GAP]' appears in output: report the gap honestly, suggest next steps, "
+        "NEVER fill from memory.\n"
+        "- Every paper must have a verifiable anchor (source_url, cnki_url, or item_key).\n"
+        "- Prefix each paper with source: [OpenAlex], [S2], [CNKI], [Zotero], [Citation Network].\n"
+        "- NEVER say '基于我的了解' or 'based on my knowledge'. If unsourced, don't include it.\n\n"
         + _WRITE_CONFIRMATION_POLICY
-        + " Tools with a confirm parameter: add_note, edit_tags, manage_collections, add_paper, "
+        + " Tools with confirm: add_note, edit_tags, manage_collections, add_paper, "
         "merge_duplicates, create_annotation."
     ),
     lifespan=_lifespan,
@@ -333,47 +285,19 @@ def search_online_literature(
     sort_by: Literal["relevance", "citations"] = "relevance",
     fields_of_study: list[str] | None = None,
 ) -> dict:
-    """Search external literature databases (OpenAlex + Semantic Scholar + CrossRef).
+    """Search OpenAlex + Semantic Scholar + CrossRef for English/international papers.
 
-    DEFAULT tool for discovering papers outside the user's Zotero library. Covers
-    English and international literature (Elsevier, Springer, IEEE, etc.).
-
-    Use for generic online search — e.g. "search online for LLM agent papers",
-    "find papers on X from 2023–2025", "高引英文文献", or any request that does NOT
-    explicitly mention Chinese/中文/知网/CNKI/核心期刊/国内期刊.
-
-    Do NOT call search_cnki_literature alongside this unless the user explicitly asks
-    for bilingual/中英文 coverage (then call both, separately).
-
-    Queries OpenAlex, Semantic Scholar, and CrossRef in parallel (including a targeted
-    Elsevier CrossRef pass) and merges results for broader publisher coverage.
-
-    For literature surveys or "highly cited" / "高引" requests, set sort_by="citations"
-    (often together with year_from) so landmark papers surface instead of only the most
-    keyword-relevant recent preprints.
-
-    Results include DOI, source_url (verifiable link), abstract snippet, publisher,
-    citation count, open-access status, and whether the paper is in the user's library.
-    To import a hit, chain with add_paper(identifier=doi, confirm=false) for preview.
-
-    When NOT to use:
-    - User wants papers already in their Zotero library → use search_papers.
-    - User already has a DOI and wants to add it → use add_paper directly.
-    - User wants similar papers to one they already have → use find_similar_papers.
-    - User explicitly wants Chinese/CNKI/知网/核心期刊 → use search_cnki_literature (not this tool alone).
+    Default for online search. Use sort_by="citations" for high-impact surveys.
+    Set fields_of_study to constrain to a discipline (e.g. ['Sociology', 'Geography']).
 
     Args:
-        query: Topic, keywords, or natural-language search string (required).
-        year_from/year_to: Publication year window (inclusive). Optional.
-        limit: Max merged results (default 15).
-        sort_by: "relevance" (default) for topic matching; "citations" for high-impact surveys.
-        fields_of_study: Optional discipline filter to improve precision. Valid values:
-            Business, Economics, Sociology, Psychology, Computer Science, Medicine,
-            Environmental Science, Geography, Education, Political Science, Engineering.
-
-    Returns:
-        List of online hits with title, authors, year, doi, source_url, abstract, venue,
-        publisher, citation_count, is_open_access, oa_pdf_url, sources, score, in_local_library.
+        query: Keywords or natural-language search string.
+        year_from/year_to: Publication year window.
+        limit: Max results (default 15).
+        sort_by: "relevance" or "citations".
+        fields_of_study: Discipline filter (Business, Economics, Sociology, Psychology,
+            Computer Science, Medicine, Environmental Science, Geography, Education,
+            Political Science, Engineering, Tourism, Marketing, Law).
     """
     hits = _search_online_literature(
         query=query,
@@ -412,52 +336,20 @@ def search_cnki_literature(
     limit: int = 20,
     sort_by: Literal["relevance", "citations"] = "relevance",
 ) -> dict:
-    """Search CNKI (中国知网) for Chinese journal papers via browser automation.
+    """Search CNKI (中国知网) for Chinese journal papers. Disabled by default.
 
-    ONLY call this when the user EXPLICITLY requests Chinese literature retrieval.
-    Trigger phrases include: 中文文献, 中文论文, 知网, CNKI, 核心期刊, CSSCI, 北大核心,
-    国内期刊, 中国期刊, or combined 中英文/双语检索.
-
-    Do NOT call for:
-    - Generic "search online" / "find papers" without Chinese scope
-    - English-only or international literature requests
-    - Topics written in Chinese but user did not ask for CNKI/中文文献
-      (use search_online_literature instead — it still accepts Chinese query strings)
-
-    For 中英文/双语检索: call search_online_literature AND this tool (two calls).
-
-    CNKI is DISABLED by default. If this tool returns an error about "CNKI search is
-    disabled", tell the user they need to enable CNKI first and show them the setup steps:
-    1. Install: uv pip install -e ".[cnki]" && playwright install chromium
-    2. Start Chrome with --remote-debugging-port=9222
-    3. Log in to CNKI in that Chrome window (institutional VPN may be required)
-    4. Set in .env: CNKI_ENABLED=true and CNKI_CDP_URL=http://127.0.0.1:9222
-    5. Restart the MCP server
-
-    Automatically uses CNKI advanced search when year filters, author, journal, or
-    source_categories (SCI/EI/CSSCI/北大核心/CSCD) are provided.
-
-    For "高引" / highly-cited surveys, set sort_by="citations".
-
-    When NOT to use:
-    - User wants papers already in local Zotero → search_papers.
-    - User wants English/international online search only → search_online_literature (default).
-    - User did not mention 中文/知网/CNKI/核心期刊 → do NOT call this tool.
-    - CNKI is not configured → explain setup instead of retrying endlessly.
+    ONLY call when user explicitly requests Chinese literature (中文文献, 知网, CNKI, 核心期刊).
+    For bilingual requests: call both search_online_literature AND this tool.
 
     Args:
         query: Keywords (Chinese or English).
-        year_from/year_to: Publication year window. Triggers advanced search when set.
+        year_from/year_to: Publication year window.
         search_field: SU=主题, TI=篇名, KY=关键词, AB=摘要 (default SU).
-        author: Author filter (advanced search).
-        journal: Journal/source filter (advanced search).
+        author: Author filter.
+        journal: Journal filter.
         source_categories: e.g. ["CSSCI", "北大核心", "SCI"].
-        limit: Max hits from current results page (default 20).
-        sort_by: "relevance" or "citations" (CNKI 被引次数).
-
-    Returns:
-        Dict with query, total, page, mode, and hits (title, authors, year, venue,
-        citation_count, download_count, cnki_url, in_local_library, ...).
+        limit: Max hits (default 20).
+        sort_by: "relevance" or "citations".
     """
     result = _search_cnki_literature(
         query=query,
@@ -501,63 +393,28 @@ def find_related_literature(
     limit: int = 30,
     sort_by: Literal["relevance", "citations"] = "relevance",
 ) -> dict:
-    """Find literature related to a known paper — Corpus-First + multi-strategy.
+    """Find related literature — ONE call, 5 parallel strategies, verified results.
 
-    PREFERRED tool when the user provides a paper (or its metadata) and wants
-    to find related/similar literature.
+    PREFERRED tool when user provides a paper and wants related literature.
+    Runs in parallel: Corpus-First, keyword search, citation network,
+    S2 recommendations, and OpenAlex Related Works. Results are deduplicated
+    and verified against 3 bibliographic indices.
 
-    === CORPUS-FIRST MODE (highest priority) ===
-    When reference_dois is provided (DOIs from the paper's own reference list),
-    the system expands citation networks FROM those known references. This is
-    the MOST EFFECTIVE strategy because:
-    - Known references are definitionally relevant
-    - Papers citing them form the paper's intellectual neighborhood
-    - No keyword ambiguity or recall issues
-
-    HOW TO USE: When analyzing a user's paper, extract 3-8 DOIs from its
-    reference list (pick the most relevant/foundational ones) and pass them
-    as reference_dois. The system handles the rest.
-
-    === SUPPLEMENTARY STRATEGIES (run in parallel) ===
-    - Keyword search: auto-generates pairwise queries from title/keywords
-    - Citation network: forward+backward citations of the seed paper DOI
-    - S2 recommendations: Semantic Scholar's ML-based paper similarity
-
-    Replaces 8-12 manual search calls with a SINGLE invocation. Use whenever:
-    - User says "find papers related to this paper"
-    - User uploads/describes a paper and wants similar literature
-    - User asks for comprehensive literature around a topic
-    - User says "帮我找相关文献", "类似的论文", "相关研究"
-
-    Scope selection:
-    - "online" (default): searches OpenAlex + Semantic Scholar + CrossRef
-    - "cnki": searches CNKI (中国知网) — only for Chinese literature requests
-    - "both": searches both (for 中英文/双语 requests)
+    CORPUS-FIRST (most effective): pass reference_dois with 3-8 DOIs from the
+    paper's reference list. Always try to extract these when reading a paper.
 
     Args:
-        scope: "online", "cnki", or "both".
-        title: Paper title (at least title or keywords required if no reference_dois).
-        abstract: Paper abstract (optional, helps generate better queries).
-        keywords: Paper keywords list (most effective for query generation).
-        doi: DOI of the seed paper. Enables citation network expansion.
-            STRONGLY RECOMMENDED when available.
-        reference_dois: DOIs extracted from the paper's reference list. Triggers
-            Corpus-First mode. Pass 3-8 DOIs of the paper's most important/relevant
-            cited works for best results. THIS IS THE MOST EFFECTIVE WAY to find
-            related literature and should be provided whenever possible.
-        fields_of_study: Optional discipline filter. Valid values: Business, Economics,
-            Sociology, Psychology, Computer Science, Medicine, Environmental Science,
-            Geography, Education, Political Science, Engineering, Tourism, Marketing, Law.
-        source_categories: CNKI filter: ["CSSCI", "北大核心", "SCI", ...].
+        scope: "online" (default), "cnki", or "both".
+        title: Paper title.
+        abstract: Paper abstract (helps query generation).
+        keywords: Paper keywords (most effective for queries).
+        doi: Seed paper DOI (enables citation network + S2 + related works).
+        reference_dois: 3-8 DOIs from paper's references (triggers Corpus-First).
+        fields_of_study: Discipline filter (Business, Economics, Sociology, etc.).
+        source_categories: CNKI filter: ["CSSCI", "北大核心", "SCI"].
         year_from/year_to: Publication year window.
         limit: Max results per scope (default 30).
         sort_by: "relevance" or "citations".
-
-    Returns:
-        {queries_generated, scope, online_hits, online_count, cnki_hits, cnki_count,
-         corpus_first_used (bool), corpus_first_count (int),
-         citation_network_used (bool), s2_recommendations_used (bool)}.
-        Each hit includes source_url (DOI link or platform URL) for verification.
     """
     result = _find_related_literature(
         scope=scope,
@@ -604,41 +461,18 @@ def expand_citation_network(
     year_to: int | None = None,
     limit: int = 30,
 ) -> dict:
-    """Find papers via citation relationships (forward & backward citations).
+    """Explore citation neighborhood: papers that cite or are cited by seed paper(s).
 
-    Given one or more seed papers (by DOI or title), finds papers that CITE them
-    and papers they REFERENCE using OpenAlex's citation graph. This is especially
-    powerful for niche topics where keyword search fails — citation networks
-    capture intellectual lineage regardless of terminology differences.
-
-    Use this tool when:
-    - find_related_literature returned too few results for a specific paper
-    - User has a DOI and wants to explore its citation neighborhood
-    - User wants to find papers in a specific intellectual lineage
-    - Topic uses inconsistent terminology across the literature
-    - The user's paper is too recent to have a DOI in OpenAlex — in that case,
-      use DOIs of its KEY REFERENCES as seeds (e.g. pass dois=["10.1287/orsc.2013.0856",
-      "10.1016/j.ijhm.2016.07.001"] for Kovacs 2014 and Kim & Jang 2016)
-
-    STRATEGY: If the user's own paper has no DOI, extract 2-4 DOIs of its most
-    important cited references and pass them in the `dois` list. This finds the
-    citation neighborhood of the paper's intellectual ancestors.
+    Useful when keyword search fails for niche topics. If the paper has no DOI,
+    use DOIs of its key references as seeds.
 
     Args:
-        dois: List of DOIs for multiple seed papers. Use when expanding from
-            several key references. Takes priority over single doi/title.
-        doi: DOI of a single seed paper (for backward compat).
-        title: Paper title (fallback if DOI unavailable).
-        fields_of_study: Optional discipline filter. Valid values: Business, Economics,
-            Sociology, Psychology, Computer Science, Medicine, Environmental Science,
-            Geography, Education, Political Science, Engineering, Tourism, Marketing, Law.
-        year_from/year_to: Publication year window for results.
-        limit: Max total results (split between citing and referenced papers).
-
-    Returns:
-        {seeds_resolved, citing_papers, referenced_papers, citing_count, references_count}.
-        Each paper includes: title, authors, year, doi, venue, citation_count,
-        is_open_access, oa_pdf_url, source_url.
+        dois: List of seed DOIs (preferred for multi-seed expansion).
+        doi: Single seed DOI.
+        title: Paper title (fallback if no DOI).
+        fields_of_study: Discipline filter.
+        year_from/year_to: Publication year window.
+        limit: Max total results (default 30).
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
