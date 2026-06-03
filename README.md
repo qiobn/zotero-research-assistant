@@ -4,11 +4,25 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)](https://modelcontextprotocol.io/)
 
-Connect your [Zotero](https://www.zotero.org/) library to AI assistants via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). Search papers by meaning, read PDF passages with page numbers, suggest citations for your drafts, add papers by DOI/URL, and manage tags and collections — all through natural language.
+> **Turn your Zotero library into an AI-powered research engine.**
+>
+> Search by meaning, discover related papers across 200M+ works, get personalized reading recommendations, and manage your entire academic workflow — all through natural language.
 
 Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI Codex CLI**, and any MCP-compatible client.
 
-**25 MCP tools**, one intent each, designed so LLMs always pick the right tool.
+### Highlights
+
+| | |
+|---|---|
+| **25 MCP Tools** | One intent per tool — LLMs always pick the right one |
+| **Hybrid RAG Search** | Keyword + semantic (bge-m3, 100+ languages) + cross-encoder reranking |
+| **Multi-Source Discovery** | OpenAlex + CrossRef + Semantic Scholar in parallel, Three-Index Verification to prevent fabricated citations |
+| **Citation Network Expansion** | Corpus-First strategy + forward/backward citations + OpenAlex Related Works |
+| **Anti-Hallucination** | Zero-fabrication policy with `[MATERIAL GAP]` structural tags; every paper has a verifiable source link |
+| **Personalized Recommendations** | Learns from your reading activity and annotations to suggest what to read next |
+| **CNKI Integration** | Optional Chinese literature search with journal-level tags (CSSCI/PKU Core/CSCD) |
+| **OA PDF Waterfall** | arXiv → Unpaywall → OpenAlex → S2 → CORE → PMC automatic full-text retrieval |
+| **Write Safety** | All destructive operations require explicit user approval (dry-run by default) |
 
 ---
 
