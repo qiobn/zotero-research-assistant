@@ -445,6 +445,47 @@ def _run_s2_recommendations(
     return hits
 
 
+def _run_related_works(
+    *,
+    doi: str,
+    title: str,
+    year_from: int | None,
+    year_to: int | None,
+    fields_of_study: list[str] | None,
+    limit: int,
+    zot: ZoteroClient | None,
+) -> list[OnlinePaperHit]:
+    """Get semantically related papers via OpenAlex's Related Works algorithm.
+
+    Similar to Google Scholar's "Related articles" but via a stable, free API.
+    Based on shared concepts between papers.
+    """
+    from research_core.sources.openalex import get_related_works, resolve_openalex_id
+
+    oa_id = resolve_openalex_id(doi=doi, title=title)
+    if not oa_id:
+        logger.debug(f"Related works: could not resolve OpenAlex ID for doi={doi}, title={title[:50]}")
+        return []
+
+    papers = get_related_works(
+        oa_id,
+        year_from=year_from,
+        year_to=year_to,
+        fields_of_study=fields_of_study,
+        limit=limit,
+    )
+    if not papers:
+        return []
+
+    source_lists: list[tuple[str, list]] = [("openalex_related", papers)]
+    hits = _merge_papers(source_lists, limit=limit, sort_by="citations")
+    hits = hits[:limit]
+
+    if zot is not None:
+        _mark_local_online(hits, zot)
+    return hits
+
+
 def _run_corpus_first_expansion(
     *,
     reference_dois: list[str],
@@ -572,7 +613,7 @@ def find_related_literature(
         s2_rec_hits: list[OnlinePaperHit] = []
         corpus_hits: list[OnlinePaperHit] = []
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=5) as pool:
             # Corpus-First: expand from known reference DOIs (PRIMARY strategy)
             corpus_future = None
             if reference_dois:
@@ -625,6 +666,20 @@ def find_related_literature(
                     zot=zot,
                 )
 
+            # OpenAlex Related Works (semantic similarity)
+            related_works_future = None
+            if doi or title:
+                related_works_future = pool.submit(
+                    _run_related_works,
+                    doi=doi,
+                    title=title,
+                    year_from=year_from,
+                    year_to=year_to,
+                    fields_of_study=fields_of_study,
+                    limit=limit,
+                    zot=zot,
+                )
+
             # Gather corpus-first results (highest priority)
             if corpus_future:
                 try:
@@ -650,6 +705,13 @@ def find_related_literature(
                 except Exception as exc:
                     logger.debug(f"S2 recommendations failed: {exc}")
 
+            related_works_hits: list[OnlinePaperHit] = []
+            if related_works_future:
+                try:
+                    related_works_hits = related_works_future.result()
+                except Exception as exc:
+                    logger.debug(f"OpenAlex related works failed: {exc}")
+
         # Merge all sources; corpus-first gets priority ordering
         # Start with corpus hits (most relevant due to known reference expansion)
         merged: list[OnlinePaperHit] = list(corpus_hits)
@@ -674,6 +736,15 @@ def find_related_literature(
                 merged.append(h)
                 existing_keys.add(h.doi.lower() if h.doi else "")
             result["s2_recommendations_used"] = True
+
+        # Then OpenAlex Related Works (semantic similarity)
+        if related_works_hits:
+            for h in related_works_hits:
+                if h.doi and h.doi.lower() in existing_keys:
+                    continue
+                merged.append(h)
+                existing_keys.add(h.doi.lower() if h.doi else "")
+            result["related_works_used"] = True
 
         # Then citation network
         if citation_hits:

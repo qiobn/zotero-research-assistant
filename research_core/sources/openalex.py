@@ -337,3 +337,56 @@ def get_references(
         return []
 
     return [_work_to_paper(w) for w in results[:fetch_count]]
+
+
+def get_related_works(
+    openalex_id: str,
+    *,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    fields_of_study: list[str] | None = None,
+    limit: int = 20,
+) -> list[ExternalPaper]:
+    """Get semantically related works via OpenAlex's related_to filter.
+
+    Uses OpenAlex's algorithmic similarity (shared concepts in recent papers),
+    equivalent to Google Scholar's "Related articles" but via a stable API.
+    """
+    filters = [f"related_to:{openalex_id}"]
+    if year_from is not None:
+        filters.append(f"from_publication_date:{year_from}-01-01")
+    if year_to is not None:
+        filters.append(f"until_publication_date:{year_to}-12-31")
+    if fields_of_study:
+        field_ids = list({
+            _OPENALEX_FIELD_IDS[f.lower()]
+            for f in fields_of_study
+            if f.lower() in _OPENALEX_FIELD_IDS
+        })
+        if field_ids:
+            filters.append(f"topics.field.id:{'|'.join(str(fid) for fid in field_ids)}")
+
+    fetch_count = min(limit, 50)
+    params: dict = {
+        "filter": ",".join(filters),
+        "per-page": fetch_count,
+        "sort": "cited_by_count:desc",
+        "mailto": _mailto(),
+    }
+
+    try:
+        r = httpx.get(
+            f"{_OPENALEX_BASE}/works",
+            params=params,
+            headers={"User-Agent": _USER_AGENT},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            logger.debug(f"OpenAlex related_works failed: {r.status_code}")
+            return []
+        results = r.json().get("results") or []
+    except Exception as e:
+        logger.debug(f"OpenAlex related_works error: {e}")
+        return []
+
+    return [_work_to_paper(w) for w in results[:fetch_count]]
