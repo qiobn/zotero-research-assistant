@@ -38,6 +38,9 @@ htmlcov/
 # Docs (internal guides, not for distribution)
 docs/
 
+# Development progress / roadmap (internal)
+DEVELOPMENT.md
+
 # OS
 .DS_Store
 Thumbs.db

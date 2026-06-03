@@ -39,7 +39,7 @@ def cnki_page():
 
     sync_playwright = _require_playwright()
     cdp_url = os.getenv("CNKI_CDP_URL", "").strip()
-    timeout_ms = int(os.getenv("CNKI_TIMEOUT_MS", "45000"))
+    timeout_ms = int(os.getenv("CNKI_TIMEOUT_MS", "60000"))
 
     with sync_playwright() as playwright:
         browser: Browser

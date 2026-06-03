@@ -67,7 +67,7 @@ async (params) => {
     let n = 0;
     const c = () => {
       if (document.querySelector('input.search-input')) r();
-      else if (++n > 30) j('timeout');
+      else if (++n > 20) j('timeout: search input not found');
       else setTimeout(c, 500);
     };
     c();
@@ -85,7 +85,7 @@ async (params) => {
     let n = 0;
     const c = () => {
       if (document.body.innerText.includes('条结果')) r();
-      else if (++n > 40) j('timeout');
+      else if (++n > 20) j('timeout: results not loaded');
       else setTimeout(c, 500);
     };
     setTimeout(c, 1000);
@@ -167,7 +167,7 @@ async (cfg) => {
     let n = 0;
     const c = () => {
       if (document.querySelector('#txt_1_value1')) r();
-      else if (n++ > 30) j('timeout');
+      else if (n++ > 20) j('timeout: advanced form not found');
       else setTimeout(c, 500);
     };
     c();
@@ -228,10 +228,10 @@ async (cfg) => {
     let n = 0;
     const c = () => {
       if (document.body.innerText.includes('条结果')) r();
-      else if (n++ > 40) j('timeout');
+      else if (n++ > 20) j('timeout: adv results not loaded');
       else setTimeout(c, 500);
     };
-    setTimeout(c, 2000);
+    setTimeout(c, 1500);
   });
 
   const cap2 = document.querySelector('#tcaptcha_transform_dy');

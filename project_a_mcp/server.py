@@ -157,35 +157,56 @@ mcp = FastMCP(
         "RELATED PAPER DISCOVERY: when the user provides a paper (title/abstract/keywords) and wants "
         "related literature, use find_related_literature — it auto-generates multiple queries and "
         "searches in one call (replaces 8-12 manual search rounds). Set scope='online' for English, "
-        "'cnki' for Chinese, 'both' for bilingual. IMPORTANT: for social science, humanities, or "
+        "'cnki' for Chinese, 'both' for bilingual. "
+        "*** CORPUS-FIRST (HIGHEST PRIORITY): Before searching, ALWAYS scan the user's paper for "
+        "reference DOIs. Extract 3-8 DOIs of the most relevant/foundational cited works and pass them "
+        "as reference_dois=[...]. This is the SINGLE MOST EFFECTIVE strategy — it expands citation "
+        "networks from known, definitionally-relevant references. Do this BEFORE relying on keywords. "
+        "Even if the paper has no DOI itself, its REFERENCES always have DOIs. Example: "
+        "reference_dois=['10.1016/j.landurbplan.2019.103605', '10.1016/j.cities.2021.103229']. *** "
+        "ALSO provide the paper's own DOI if available. "
+        "IMPORTANT: for social science, humanities, or "
         "niche domains, ALWAYS set fields_of_study to constrain results (e.g. ['Business', 'Economics'] "
         "for management research, ['Sociology'] for sociology papers). This prevents irrelevant "
         "results from other disciplines. "
+        "CITATION NETWORK: use expand_citation_network when you want to explore citation "
+        "neighborhoods. Pass dois=[...] with multiple DOIs for best results. "
         "CNKI→Zotero workflow: after search_cnki_literature returns hits, use "
         "cnki_add_to_zotero(export_ids=[...]) to import papers directly — NO DOI required. "
         "Use cnki_paper_detail(cnki_url) for full abstract/keywords/DOI if the user wants details. "
         "Use cnki_navigate_pages PROACTIVELY when: user needs many papers (>20), asks for thorough/"
         "deep search, or first-page results are insufficient. Do NOT wait for user to say 'next page'. "
         "\n\n"
-        "=== CRITICAL: ANTI-HALLUCINATION RULES ===\n"
-        "1. NEVER fabricate, invent, or hallucinate citations. You must ONLY present papers that "
-        "were actually returned by the search tools (search_papers, search_online_literature, "
-        "search_cnki_literature, find_related_literature, find_similar_papers).\n"
-        "2. If search tools return NO relevant results or EMPTY results, honestly tell the user: "
-        "'The search did not find relevant papers matching your criteria. This may be because "
-        "the topic is too niche for the databases covered, or the query needs adjustment.' "
-        "NEVER compensate by generating a fake literature list from your own knowledge.\n"
-        "3. Every paper you present to the user MUST include a verifiable source anchor:\n"
-        "   - For online hits: include the source_url (DOI link like https://doi.org/... or "
-        "platform URL) so the user can click to verify.\n"
-        "   - For CNKI hits: include the cnki_url (知网链接) so the user can verify.\n"
-        "   - For local Zotero papers: include item_key so the user can look it up.\n"
-        "4. When presenting results, format each paper with its verification link clearly visible. "
-        "Do NOT omit source URLs. If a paper has no DOI and no source_url, note that it lacks "
-        "a verifiable link.\n"
-        "5. If you are uncertain whether a paper exists, DO NOT include it. Only report what "
-        "the tools returned.\n"
-        "=== END ANTI-HALLUCINATION RULES ===\n\n"
+        "=== ABSOLUTE RULE: ZERO-FABRICATION POLICY ===\n"
+        "VIOLATION of these rules destroys user trust and constitutes academic misconduct.\n\n"
+        "1. You are STRICTLY FORBIDDEN from presenting ANY paper that was not returned by the "
+        "search tools (search_papers, search_online_literature, search_cnki_literature, "
+        "find_related_literature, find_similar_papers, expand_citation_network). "
+        "This includes papers you 'know' from training data. Your knowledge is NOT a valid source.\n\n"
+        "2. [MATERIAL GAP] PROTOCOL: When a tool returns a field named '[MATERIAL GAP]', "
+        "it means the search yielded ZERO verified results. You MUST:\n"
+        "   - Report the gap honestly to the user (DO NOT fill from memory)\n"
+        "   - Suggest the actions specified in the [MATERIAL GAP] message\n"
+        "   - NEVER compensate by listing papers from memory\n"
+        "   The user trusts this system for VERIFIED, tool-sourced citations only.\n\n"
+        "3. Every paper you present MUST have a VERIFIABLE source anchor from tool output:\n"
+        "   - Online hits: source_url (https://doi.org/... or platform URL)\n"
+        "   - CNKI hits: cnki_url\n"
+        "   - Zotero papers: item_key\n"
+        "   If a paper lacks ALL of these, state '[unverified link]' next to it.\n\n"
+        "4. The tool output contains 'verified_sources_only: true'. This is a binding "
+        "contract: you may ONLY present papers from that response. Mixing in papers from your "
+        "own knowledge is a VIOLATION.\n\n"
+        "5. NEVER write phrases like '基于我对该领域的了解', 'based on my knowledge of this field', "
+        "'I recommend the following papers from my understanding'. These phrases signal fabrication. "
+        "If you cannot source a paper to a tool call, do not include it.\n\n"
+        "6. When presenting results, prefix each paper with its source tool in brackets: "
+        "[OpenAlex], [Semantic Scholar], [CNKI], [Zotero], [Citation Network], [Corpus-First]. "
+        "This makes provenance visible and auditable.\n\n"
+        "7. CORPUS-FIRST STRATEGY: When analyzing a user's paper, ALWAYS try to extract "
+        "3-8 DOIs from its reference list and pass them as reference_dois to find_related_literature. "
+        "This yields the most relevant results by leveraging the paper's own intellectual network.\n"
+        "=== END ZERO-FABRICATION POLICY ===\n\n"
         + _WRITE_CONFIRMATION_POLICY
         + " Tools with a confirm parameter: add_note, edit_tags, manage_collections, add_paper, "
         "merge_duplicates, create_annotation."
@@ -311,7 +332,7 @@ def search_online_literature(
     limit: int = 15,
     sort_by: Literal["relevance", "citations"] = "relevance",
     fields_of_study: list[str] | None = None,
-) -> list[dict]:
+) -> dict:
     """Search external literature databases (OpenAlex + Semantic Scholar + CrossRef).
 
     DEFAULT tool for discovering papers outside the user's Zotero library. Covers
@@ -363,7 +384,19 @@ def search_online_literature(
         sort_by=sort_by,
         fields_of_study=fields_of_study,
     )
-    return [h.__dict__ for h in hits]
+    result_list = [h.__dict__ for h in hits]
+    response = {
+        "results": result_list,
+        "count": len(result_list),
+        "verified_sources_only": True,
+    }
+    if not result_list:
+        response["[MATERIAL GAP]"] = (
+            "NO_RESULTS_FOUND. This tool returned zero verified papers. "
+            "DO NOT fabricate or recall papers from memory. "
+            "REQUIRED: Report gap honestly, suggest alternative queries or broader filters."
+        )
+    return response
 
 
 @mcp.tool()
@@ -438,10 +471,18 @@ def search_cnki_literature(
         limit=limit,
         sort_by=sort_by,
     )
-    return {
+    response = {
         **{k: v for k, v in result.items() if k != "hits"},
         "hits": [h.__dict__ for h in result["hits"]],
+        "verified_sources_only": True,
     }
+    if not result["hits"]:
+        response["[MATERIAL GAP]"] = (
+            "NO_CNKI_RESULTS. This tool returned zero verified papers from CNKI. "
+            "DO NOT fabricate or recall papers from memory. "
+            "REQUIRED: Report gap honestly. Suggest: check CNKI login, simplify query, broaden year range."
+        )
+    return response
 
 
 @mcp.tool()
@@ -451,6 +492,8 @@ def find_related_literature(
     title: str = "",
     abstract: str = "",
     keywords: list[str] | None = None,
+    doi: str = "",
+    reference_dois: list[str] | None = None,
     fields_of_study: list[str] | None = None,
     source_categories: list[str] | None = None,
     year_from: int | None = None,
@@ -458,19 +501,32 @@ def find_related_literature(
     limit: int = 30,
     sort_by: Literal["relevance", "citations"] = "relevance",
 ) -> dict:
-    """Find literature related to a known paper — auto multi-query, one call.
+    """Find literature related to a known paper — Corpus-First + multi-strategy.
 
     PREFERRED tool when the user provides a paper (or its metadata) and wants
-    to find related/similar literature. Automatically generates 3-6 diverse
-    search queries from the paper's title/abstract/keywords, executes them all,
-    applies relevance filtering to remove off-topic noise, and returns
-    deduplicated merged results.
+    to find related/similar literature.
 
-    Replaces 8-12 manual search_online_literature or search_cnki_literature
-    calls with a SINGLE invocation. Use this whenever:
+    === CORPUS-FIRST MODE (highest priority) ===
+    When reference_dois is provided (DOIs from the paper's own reference list),
+    the system expands citation networks FROM those known references. This is
+    the MOST EFFECTIVE strategy because:
+    - Known references are definitionally relevant
+    - Papers citing them form the paper's intellectual neighborhood
+    - No keyword ambiguity or recall issues
+
+    HOW TO USE: When analyzing a user's paper, extract 3-8 DOIs from its
+    reference list (pick the most relevant/foundational ones) and pass them
+    as reference_dois. The system handles the rest.
+
+    === SUPPLEMENTARY STRATEGIES (run in parallel) ===
+    - Keyword search: auto-generates pairwise queries from title/keywords
+    - Citation network: forward+backward citations of the seed paper DOI
+    - S2 recommendations: Semantic Scholar's ML-based paper similarity
+
+    Replaces 8-12 manual search calls with a SINGLE invocation. Use whenever:
     - User says "find papers related to this paper"
     - User uploads/describes a paper and wants similar literature
-    - User asks for comprehensive literature around a topic described by keywords
+    - User asks for comprehensive literature around a topic
     - User says "帮我找相关文献", "类似的论文", "相关研究"
 
     Scope selection:
@@ -478,39 +534,38 @@ def find_related_literature(
     - "cnki": searches CNKI (中国知网) — only for Chinese literature requests
     - "both": searches both (for 中英文/双语 requests)
 
-    When NOT to use:
-    - User provides a SPECIFIC query string to search → use search_online_literature
-      or search_cnki_literature directly.
-    - User wants papers from their local Zotero library → use search_papers.
-    - User wants papers similar to a paper already IN their library (by key) →
-      use find_similar_papers.
-
     Args:
         scope: "online", "cnki", or "both".
-        title: Paper title (at least title or keywords required).
+        title: Paper title (at least title or keywords required if no reference_dois).
         abstract: Paper abstract (optional, helps generate better queries).
         keywords: Paper keywords list (most effective for query generation).
+        doi: DOI of the seed paper. Enables citation network expansion.
+            STRONGLY RECOMMENDED when available.
+        reference_dois: DOIs extracted from the paper's reference list. Triggers
+            Corpus-First mode. Pass 3-8 DOIs of the paper's most important/relevant
+            cited works for best results. THIS IS THE MOST EFFECTIVE WAY to find
+            related literature and should be provided whenever possible.
         fields_of_study: Optional discipline filter. Valid values: Business, Economics,
             Sociology, Psychology, Computer Science, Medicine, Environmental Science,
             Geography, Education, Political Science, Engineering, Tourism, Marketing, Law.
-            STRONGLY RECOMMENDED for social science / humanities papers to avoid
-            retrieving irrelevant results from other fields.
         source_categories: CNKI filter: ["CSSCI", "北大核心", "SCI", ...].
         year_from/year_to: Publication year window.
         limit: Max results per scope (default 30).
         sort_by: "relevance" or "citations".
 
     Returns:
-        {queries_generated, scope, online_hits, online_count, cnki_hits, cnki_count}.
+        {queries_generated, scope, online_hits, online_count, cnki_hits, cnki_count,
+         corpus_first_used (bool), corpus_first_count (int),
+         citation_network_used (bool), s2_recommendations_used (bool)}.
         Each hit includes source_url (DOI link or platform URL) for verification.
-        online_hits: list of OnlinePaperHit dicts.
-        cnki_hits: list of CnkiPaperHit dicts (with cnki_url and journal_level).
     """
     result = _find_related_literature(
         scope=scope,
         title=title,
         abstract=abstract,
         keywords=normalize_list(keywords, "keywords"),
+        doi=doi,
+        reference_dois=normalize_list(reference_dois, "reference_dois"),
         fields_of_study=normalize_list(fields_of_study, "fields_of_study"),
         source_categories=normalize_list(source_categories, "source_categories"),
         year_from=year_from,
@@ -523,7 +578,177 @@ def find_related_literature(
         result["online_hits"] = [h.__dict__ for h in result["online_hits"]]
     if "cnki_hits" in result:
         result["cnki_hits"] = [h.__dict__ for h in result["cnki_hits"]]
+
+    # Structural anti-hallucination markers
+    result["verified_sources_only"] = True
+    total_hits = result.get("online_count", 0) + result.get("cnki_count", 0)
+    if total_hits == 0:
+        result["[MATERIAL GAP]"] = (
+            "NO_RESULTS_FOUND. This tool returned zero verified papers. "
+            "DO NOT fabricate or recall papers from memory. "
+            "REQUIRED ACTIONS: (1) Report gap honestly to user, "
+            "(2) Suggest: provide reference_dois from paper's bibliography for Corpus-First search, "
+            "(3) Or try different keywords / broaden year range / remove field filter."
+        )
     return result
+
+
+@mcp.tool()
+@_safe_tool
+def expand_citation_network(
+    dois: list[str] | None = None,
+    doi: str = "",
+    title: str = "",
+    fields_of_study: list[str] | None = None,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    limit: int = 30,
+) -> dict:
+    """Find papers via citation relationships (forward & backward citations).
+
+    Given one or more seed papers (by DOI or title), finds papers that CITE them
+    and papers they REFERENCE using OpenAlex's citation graph. This is especially
+    powerful for niche topics where keyword search fails — citation networks
+    capture intellectual lineage regardless of terminology differences.
+
+    Use this tool when:
+    - find_related_literature returned too few results for a specific paper
+    - User has a DOI and wants to explore its citation neighborhood
+    - User wants to find papers in a specific intellectual lineage
+    - Topic uses inconsistent terminology across the literature
+    - The user's paper is too recent to have a DOI in OpenAlex — in that case,
+      use DOIs of its KEY REFERENCES as seeds (e.g. pass dois=["10.1287/orsc.2013.0856",
+      "10.1016/j.ijhm.2016.07.001"] for Kovacs 2014 and Kim & Jang 2016)
+
+    STRATEGY: If the user's own paper has no DOI, extract 2-4 DOIs of its most
+    important cited references and pass them in the `dois` list. This finds the
+    citation neighborhood of the paper's intellectual ancestors.
+
+    Args:
+        dois: List of DOIs for multiple seed papers. Use when expanding from
+            several key references. Takes priority over single doi/title.
+        doi: DOI of a single seed paper (for backward compat).
+        title: Paper title (fallback if DOI unavailable).
+        fields_of_study: Optional discipline filter. Valid values: Business, Economics,
+            Sociology, Psychology, Computer Science, Medicine, Environmental Science,
+            Geography, Education, Political Science, Engineering, Tourism, Marketing, Law.
+        year_from/year_to: Publication year window for results.
+        limit: Max total results (split between citing and referenced papers).
+
+    Returns:
+        {seeds_resolved, citing_papers, referenced_papers, citing_count, references_count}.
+        Each paper includes: title, authors, year, doi, venue, citation_count,
+        is_open_access, oa_pdf_url, source_url.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from research_core.sources.openalex import (
+        get_cited_by,
+        get_references,
+        resolve_openalex_id,
+    )
+
+    # Normalize input: support both single doi and multi-doi
+    seed_dois = normalize_list(dois, "dois") or []
+    if not seed_dois and doi:
+        seed_dois = [doi]
+    if not seed_dois and not title:
+        return {"error": "Provide at least doi, dois, or title to identify seed paper(s)."}
+
+    # Resolve all seeds to OpenAlex IDs
+    resolved_ids: list[str] = []
+    failed_seeds: list[str] = []
+
+    for d in seed_dois:
+        oa_id = resolve_openalex_id(doi=d.strip())
+        if oa_id:
+            resolved_ids.append(oa_id)
+        else:
+            failed_seeds.append(d)
+
+    if not resolved_ids and title:
+        oa_id = resolve_openalex_id(title=title)
+        if oa_id:
+            resolved_ids.append(oa_id)
+
+    if not resolved_ids:
+        return {
+            "error": "Could not find any seed paper(s) in OpenAlex. Verify the DOIs are correct.",
+            "failed_dois": failed_seeds,
+            "title_provided": title[:80] if title else "",
+        }
+
+    norm_fields = normalize_list(fields_of_study, "fields_of_study")
+    per_seed_limit = max(limit // len(resolved_ids), 10)
+    half = max(per_seed_limit // 2, 5)
+
+    all_citing: list = []
+    all_refs: list = []
+
+    with ThreadPoolExecutor(max_workers=min(len(resolved_ids) * 2, 8)) as pool:
+        futures = {}
+        for oa_id in resolved_ids:
+            futures[pool.submit(get_cited_by, oa_id, year_from=year_from, year_to=year_to,
+                                fields_of_study=norm_fields, limit=half)] = ("citing", oa_id)
+            futures[pool.submit(get_references, oa_id, year_from=year_from, year_to=year_to,
+                                fields_of_study=norm_fields, limit=half)] = ("refs", oa_id)
+
+        for future in as_completed(futures):
+            kind, _ = futures[future]
+            try:
+                papers = future.result()
+                if kind == "citing":
+                    all_citing.extend(papers)
+                else:
+                    all_refs.extend(papers)
+            except Exception:
+                pass
+
+    # Deduplicate by DOI
+    def _dedup(papers: list) -> list:
+        seen: set[str] = set()
+        unique = []
+        for p in papers:
+            key = p.doi.lower() if p.doi else p.title.lower()[:50]
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(p)
+        return unique
+
+    all_citing = _dedup(all_citing)
+    all_refs = _dedup(all_refs)
+    all_citing.sort(key=lambda p: p.citation_count, reverse=True)
+    all_refs.sort(key=lambda p: p.citation_count, reverse=True)
+    all_citing = all_citing[:limit]
+    all_refs = all_refs[:limit]
+
+    def _paper_to_dict(p) -> dict:
+        d = p.__dict__ if hasattr(p, "__dict__") else dict(p)
+        if p.doi:
+            d["source_url"] = f"https://doi.org/{p.doi}"
+        elif p.source_id:
+            d["source_url"] = p.source_id
+        else:
+            d["source_url"] = ""
+        return d
+
+    response = {
+        "seeds_resolved": len(resolved_ids),
+        "failed_seeds": failed_seeds if failed_seeds else None,
+        "citing_papers": [_paper_to_dict(p) for p in all_citing],
+        "citing_count": len(all_citing),
+        "referenced_papers": [_paper_to_dict(p) for p in all_refs],
+        "references_count": len(all_refs),
+        "verified_sources_only": True,
+    }
+    if not all_citing and not all_refs:
+        response["[MATERIAL GAP]"] = (
+            "NO_CITATION_NETWORK_RESULTS. Forward and backward citations both empty. "
+            "DO NOT fabricate or recall papers from memory. "
+            "REQUIRED: Report gap honestly. The DOI may not be indexed in OpenAlex."
+        )
+    return response
 
 
 @mcp.tool()
