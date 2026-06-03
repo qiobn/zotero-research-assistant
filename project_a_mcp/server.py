@@ -1,6 +1,6 @@
 """Zotero Research Assistant — MCP server.
 
-22 tools, one intent each, designed to compose via `item_key`.
+25 tools, one intent each, designed to compose via `item_key`.
 
 Categories:
   DISCOVER   search_papers, search_online_literature, search_cnki_literature,
@@ -9,6 +9,7 @@ Categories:
   READ       get_paper, get_paper_content, search_annotations, create_annotation
   WRITE      suggest_citations, export_bibliography, add_paper, cnki_add_to_zotero
   MANAGE     add_note, edit_tags, manage_collections
+  INSIGHT    reading_status, recommend_papers
   ADMIN      sync_index
 """
 
@@ -93,6 +94,8 @@ from research_core.tools import (
 from research_core.tools import (
     sync_index as _sync_index,
 )
+from research_core.tools.reading_status import get_reading_status as _get_reading_status
+from research_core.tools.recommend import recommend_papers as _recommend_papers
 from research_core.utils import normalize_list
 from research_core.zotero.client import ZoteroClient
 
@@ -144,7 +147,9 @@ mcp = FastMCP(
         "- Online English → search_online_literature\n"
         "- Chinese/知网/CNKI → search_cnki_literature (only when explicitly requested)\n"
         "- Related to a paper → find_related_literature (ONE call replaces many searches)\n"
-        "- Citation neighborhood → expand_citation_network\n\n"
+        "- Citation neighborhood → expand_citation_network\n"
+        "- Reading progress / what's unread → reading_status\n"
+        "- 'What should I read next?' → recommend_papers\n\n"
         "CORPUS-FIRST STRATEGY (highest priority for related paper discovery):\n"
         "When analyzing a user's paper, ALWAYS extract 3-8 DOIs from its reference list "
         "and pass as reference_dois to find_related_literature. This is the most effective "
@@ -1238,6 +1243,72 @@ def sync_index(force_rebuild: bool = False) -> dict:
         force_rebuild=force_rebuild,
     )
     return report.__dict__
+
+
+# ── INSIGHT ──────────────────────────────────────────────────────
+
+
+@mcp.tool()
+@_safe_tool
+def reading_status(
+    item_keys: list[str] | None = None,
+    scope: Literal["all", "unread", "deep_read", "browsed"] = "all",
+    days_recent: int = 30,
+    limit: int = 30,
+) -> dict:
+    """Analyze reading status of papers in the library using engagement heuristics.
+
+    Classification rules:
+    - deep_read: ≥3 annotations OR ≥1 note attached
+    - browsed: 1-2 annotations OR PDF opened in Zotero reader within days_recent
+    - unread: no annotations, no notes, PDF never opened recently
+
+    Detection: uses PDF attachment's dateModified as proxy for "opened in reader"
+    (Zotero 7 saves reading position on close, updating the attachment timestamp).
+
+    Args:
+        item_keys: Check specific papers. If omitted, scans recent library items.
+        scope: Filter by status ("all" | "unread" | "deep_read" | "browsed").
+        days_recent: Window for "recently opened PDF" detection (default 30 days).
+        limit: Max results.
+    """
+    results = _get_reading_status(
+        zot=_get_zot(),
+        item_keys=normalize_list(item_keys, "item_keys"),
+        scope=scope,
+        days_recent=days_recent,
+        limit=limit,
+    )
+    counts = {"deep_read": 0, "browsed": 0, "unread": 0}
+    for r in results:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    return {"items": results, "count": len(results), "summary": counts}
+
+
+@mcp.tool()
+@_safe_tool
+def recommend_papers(
+    days: int = 60,
+    max_seeds: int = 5,
+    limit: int = 15,
+) -> dict:
+    """Personalized paper recommendations based on your recent reading activity.
+
+    Algorithm: identifies your most-engaged papers (by annotations, notes, recency)
+    → queries OpenAlex Related Works + S2 Recommendations for each → merges,
+    deduplicates, removes already-in-library papers → ranks by cross-seed frequency.
+
+    Args:
+        days: Look-back window for activity detection (default 60 days).
+        max_seeds: Max seed papers to base recommendations on.
+        limit: Max recommendations to return.
+    """
+    return _recommend_papers(
+        zot=_get_zot(),
+        days=days,
+        max_seeds=max_seeds,
+        limit=limit,
+    )
 
 
 def main():

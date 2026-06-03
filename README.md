@@ -8,7 +8,7 @@ Connect your [Zotero](https://www.zotero.org/) library to AI assistants via the 
 
 Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI Codex CLI**, and any MCP-compatible client.
 
-**23 MCP tools**, one intent each, designed so LLMs always pick the right tool.
+**25 MCP tools**, one intent each, designed so LLMs always pick the right tool.
 
 ---
 
@@ -25,7 +25,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
   - [OpenAI Codex CLI](#openai-codex-cli)
   - [Other MCP Clients](#other-mcp-clients)
 - [Example Prompts](#example-prompts)
-- [MCP Tools (23)](#mcp-tools-23)
+- [MCP Tools (25)](#mcp-tools-25)
 - [Configuration](#configuration)
 - [CNKI Setup (Optional)](#cnki-setup-optional)
 - [Updating](#updating)
@@ -66,6 +66,12 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 - **Direct Zotero import** — export papers from CNKI to Zotero without manual DOI lookup
 - **Paper detail extraction** — full metadata (abstract, keywords, DOI, affiliations) from CNKI detail pages
 - **Smart pagination** — AI proactively fetches more results when thorough coverage is needed
+
+### Reading Insight & Recommendations
+
+- **Reading status detection** — heuristic classification (deep_read / browsed / unread) based on annotation count, notes, and PDF open history (Zotero 7 reader saves reading position, updating attachment timestamps)
+- **Personalized recommendations** — identifies your most-engaged papers → queries OpenAlex Related Works + S2 Recommendations in parallel → deduplicates, excludes already-in-library → ranks by cross-seed frequency
+- **Focus topic extraction** — surfaces your active research themes from recent reading tags
 
 ### Library Management
 
@@ -404,7 +410,7 @@ Sync my index — I just added new PDFs
 
 ---
 
-## MCP Tools (23)
+## MCP Tools (25)
 
 | Category | Tools |
 |----------|-------|
@@ -412,6 +418,7 @@ Sync my index — I just added new PDFs
 | **Read** | `get_paper`, `get_paper_content`, `search_annotations`, `create_annotation` |
 | **Write** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **Manage** | `add_note`, `edit_tags`, `manage_collections` |
+| **Insight** | `reading_status`, `recommend_papers` |
 | **Admin** | `sync_index` |
 
 <details>
@@ -441,6 +448,10 @@ Sync my index — I just added new PDFs
 - **`add_paper`** — Import by DOI / arXiv / ISBN / BibTeX / URL (dry-run by default).
 - **`cnki_add_to_zotero`** — Import CNKI papers directly (no DOI needed). Uses CNKI export API + Zotero Connector.
 - **`add_note`**, **`edit_tags`**, **`manage_collections`** — Library organization (dry-run by default).
+
+### Insight
+- **`reading_status`** — Analyze reading progress. Classifies papers as `deep_read` (≥3 annotations or notes), `browsed` (PDF opened recently in Zotero reader), or `unread`. Filter by scope.
+- **`recommend_papers`** — Personalized recommendations. Identifies your most-engaged papers, finds related literature via OpenAlex + S2, deduplicates, and excludes already-in-library papers.
 
 ### Admin
 - **`sync_index`** — Incremental vector index sync. Also runs automatically on MCP startup.
