@@ -98,79 +98,51 @@ def _extract_english_terms(text: str) -> list[str]:
     return meaningful
 
 
-def _quote_phrase(phrase: str) -> str:
-    """Wrap multi-word phrases in quotes for exact matching in search APIs."""
-    if " " in phrase.strip() and not phrase.startswith('"'):
-        return f'"{phrase.strip()}"'
-    return phrase.strip()
-
-
 def _generate_queries(
     title: str = "",
     abstract: str = "",
     keywords: list[str] | None = None,
 ) -> list[str]:
-    """Generate 3-5 search queries from paper metadata (pure rules, no LLM).
+    """Generate tiered search queries from paper metadata (pure rules, no LLM).
 
-    Strategy:
-    1. Use keyword combinations with quoted multi-word phrases
-    2. Use title core terms as disambiguating context
-    3. Combine keywords with title domain words for cross-context queries
+    Strategy (from specific to broad):
+    Tier 1: Pairwise keyword combinations (no quotes — broader matching)
+    Tier 2: Single most-distinctive keywords
+    Tier 3: Title-derived terms as last resort
+
+    No quoted phrases — APIs handle multi-word terms better without exact-match
+    constraints, and quoting drastically reduces recall for niche topics.
     """
     queries: list[str] = []
     kw_list = [k.strip() for k in (keywords or []) if k.strip()]
 
-    if kw_list:
-        quoted_kws = [_quote_phrase(k) for k in kw_list]
-        if len(kw_list) >= 3:
-            for combo in itertools.combinations(quoted_kws[:6], 2):
-                queries.append(" ".join(combo))
-        if len(kw_list) >= 4:
-            for combo in itertools.combinations(quoted_kws[:5], 3):
-                queries.append(" ".join(combo))
-        if len(kw_list) <= 4:
-            queries.append(" ".join(quoted_kws))
+    # Tier 1: Pairwise keyword combinations (best balance of precision/recall)
+    if len(kw_list) >= 2:
+        for combo in itertools.combinations(kw_list[:5], 2):
+            queries.append(" ".join(combo))
 
+    # Tier 2: Single keywords (broadest, catch-all)
+    for kw in kw_list[:4]:
+        if len(kw.split()) >= 2:
+            queries.append(kw)
+
+    # Tier 3: Title-derived query
     if title.strip():
         title_clean = re.sub(r"[——\-—–:：].*$", "", title.strip())
         if _is_chinese(title_clean):
             terms = _extract_chinese_terms(title_clean)
             if len(terms) >= 2:
-                queries.append(" ".join(terms[:4]))
+                queries.append(" ".join(terms[:3]))
         else:
             terms = _extract_english_terms(title_clean)
             if len(terms) >= 2:
-                queries.append(" ".join(terms[:5]))
-
-    if title.strip() and kw_list:
-        title_clean = re.sub(r"[——\-—–:：].*$", "", title.strip())
-        if _is_chinese(title_clean):
-            title_terms = _extract_chinese_terms(title_clean)
-        else:
-            title_terms = _extract_english_terms(title_clean)
-        if title_terms and kw_list:
-            domain_word = title_terms[0] if title_terms else ""
-            if domain_word:
-                for kw in kw_list[:2]:
-                    combo_q = f"{_quote_phrase(kw)} {domain_word}"
-                    queries.append(combo_q)
-
-    if abstract and len(queries) < 4:
-        abs_text = abstract[:300]
-        if _is_chinese(abs_text):
-            terms = _extract_chinese_terms(abs_text)
-            if terms:
                 queries.append(" ".join(terms[:4]))
-        else:
-            terms = _extract_english_terms(abs_text)
-            if terms:
-                queries.append(" ".join(terms[:5]))
 
     seen: list[str] = []
     for q in queries:
         if q and q not in seen:
             seen.append(q)
-    return seen[:6]
+    return seen[:8]
 
 
 def _build_relevance_terms(
@@ -438,6 +410,41 @@ def _run_citation_network(
     return hits
 
 
+def _run_s2_recommendations(
+    *,
+    doi: str,
+    limit: int,
+    relevance_terms: set[str],
+    zot: ZoteroClient | None,
+) -> list[OnlinePaperHit]:
+    """Get recommended papers from Semantic Scholar's recommendation engine.
+
+    Note: S2's DOI resolution can be unreliable for some domains. If it fails
+    or returns irrelevant results, this gracefully returns empty.
+    """
+    from research_core.sources.semantic_scholar import get_s2_recommendations
+
+    if not doi:
+        return []
+
+    # Try both DOI formats (S2 DOI resolution can be inconsistent)
+    papers = get_s2_recommendations([f"DOI:{doi}"], limit=limit)
+    if not papers:
+        logger.debug(f"S2 recommendations: no results for DOI:{doi}")
+        return []
+
+    # Convert ExternalPaper to OnlinePaperHit via merge pipeline
+    source_lists: list[tuple[str, list]] = [("s2_recommendations", papers)]
+    hits = _merge_papers(source_lists, limit=limit, sort_by="citations")
+    # Light relevance filter — S2 recommendations are already semantically similar
+    hits = _filter_irrelevant(hits, relevance_terms, min_score=0.05)
+    hits = hits[:limit]
+
+    if zot is not None:
+        _mark_local_online(hits, zot)
+    return hits
+
+
 def find_related_literature(
     scope: Scope = "online",
     title: str = "",
@@ -479,11 +486,12 @@ def find_related_literature(
     result: dict = {"queries_generated": queries, "scope": scope}
 
     if scope in ("online", "both"):
-        # Run keyword search and citation network IN PARALLEL
+        # Run keyword search, citation network, AND S2 recommendations IN PARALLEL
         online_hits: list[OnlinePaperHit] = []
         citation_hits: list[OnlinePaperHit] = []
+        s2_rec_hits: list[OnlinePaperHit] = []
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             kw_future = pool.submit(
                 _run_online_related,
                 queries,
@@ -510,6 +518,16 @@ def find_related_literature(
                     zot=zot,
                 )
 
+            s2_rec_future = None
+            if doi:
+                s2_rec_future = pool.submit(
+                    _run_s2_recommendations,
+                    doi=doi,
+                    limit=limit,
+                    relevance_terms=relevance_terms,
+                    zot=zot,
+                )
+
             try:
                 online_hits = kw_future.result()
             except Exception as exc:
@@ -521,17 +539,32 @@ def find_related_literature(
                 except Exception as exc:
                     logger.debug(f"Citation network failed: {exc}")
 
-        # Merge: always combine citation network results with keyword results
+            if s2_rec_future:
+                try:
+                    s2_rec_hits = s2_rec_future.result()
+                except Exception as exc:
+                    logger.debug(f"S2 recommendations failed: {exc}")
+
+        # Merge all sources, deduplicating by DOI
+        existing_keys = {h.doi.lower() for h in online_hits if h.doi}
+
+        if s2_rec_hits:
+            for h in s2_rec_hits:
+                if h.doi and h.doi.lower() in existing_keys:
+                    continue
+                online_hits.append(h)
+                existing_keys.add(h.doi.lower() if h.doi else "")
+            result["s2_recommendations_used"] = True
+
         if citation_hits:
-            existing_keys = {h.doi.lower() for h in online_hits if h.doi}
             for ch in citation_hits:
                 if ch.doi and ch.doi.lower() in existing_keys:
                     continue
                 online_hits.append(ch)
                 existing_keys.add(ch.doi.lower() if ch.doi else "")
-            online_hits = online_hits[:limit]
             result["citation_network_used"] = True
 
+        online_hits = online_hits[:limit]
         result["online_hits"] = online_hits
         result["online_count"] = len(online_hits)
 

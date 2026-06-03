@@ -153,14 +153,16 @@ class TestQueryGeneration:
         qs = _generate_queries(keywords=["A", "B"])
         assert len(qs) == len(set(qs))
 
-    def test_max_6_queries(self):
+    def test_max_8_queries(self):
         qs = _generate_queries(keywords=["a", "b", "c", "d", "e", "f", "g"])
-        assert len(qs) <= 6
+        assert len(qs) <= 8
 
-    def test_quoted_phrases_in_queries(self):
+    def test_pairwise_combos_in_queries(self):
         qs = _generate_queries(keywords=["social norms", "online reviews", "restaurant performance"])
-        has_quoted = any('"' in q for q in qs)
-        assert has_quoted, f"Expected quoted phrases in queries: {qs}"
+        # Should have pairwise combinations without quotes
+        assert any("social norms" in q and "online reviews" in q for q in qs)
+        # No quoted phrases in the new approach
+        assert not any('"' in q for q in qs), f"No quotes expected: {qs}"
 
     def test_relevance_filter_removes_irrelevant(self):
         terms = _build_relevance_terms(
@@ -211,7 +213,8 @@ class TestCitationNetwork:
 
     def test_resolve_openalex_id_title_validation(self):
         """Title-based resolution should reject mismatches."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from research_core.sources.openalex import resolve_openalex_id
 
         mock_resp = MagicMock()
@@ -229,7 +232,8 @@ class TestCitationNetwork:
 
     def test_resolve_openalex_id_title_match(self):
         """Title-based resolution should accept close matches."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from research_core.sources.openalex import resolve_openalex_id
 
         mock_resp = MagicMock()
@@ -249,9 +253,10 @@ class TestCitationNetwork:
 
     def test_citation_network_fallback_in_find_related(self):
         """find_related_literature should trigger citation fallback when keyword search is empty."""
-        from unittest.mock import patch, MagicMock
-        from research_core.tools.find_related import find_related_literature
+        from unittest.mock import patch
+
         from research_core.sources.models import ExternalPaper
+        from research_core.tools.find_related import find_related_literature
 
         mock_paper = ExternalPaper(
             title="Citing Paper About Restaurant Authenticity",

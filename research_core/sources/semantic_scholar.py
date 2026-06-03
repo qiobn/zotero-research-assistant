@@ -125,3 +125,123 @@ def search_semantic_scholar(
     if sort_by == "citations":
         papers.sort(key=lambda p: p.citation_count, reverse=True)
     return papers
+
+
+# ── Recommendations API ──
+
+_S2_REC_BASE = "https://api.semanticscholar.org/recommendations/v1"
+_REC_FIELDS = (
+    "paperId,title,authors,year,abstract,externalIds,"
+    "isOpenAccess,openAccessPdf,citationCount,journal,publicationVenue"
+)
+
+
+def get_s2_recommendations(
+    paper_ids: list[str],
+    *,
+    limit: int = 30,
+) -> list[ExternalPaper]:
+    """Get recommended papers from Semantic Scholar based on seed paper(s).
+
+    Uses S2's recommendation engine which considers citation patterns,
+    co-citation, and content similarity. Much more effective than keyword
+    search for finding related papers in a specific intellectual lineage.
+
+    Args:
+        paper_ids: List of S2 paper IDs, DOIs (prefixed with "DOI:"), or
+            other supported identifiers.
+        limit: Max recommendations to return (max 500).
+    """
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    if api_key:
+        headers["x-api-key"] = api_key
+
+    fetch_count = min(limit, 100)
+
+    # Use POST multi-paper endpoint for multiple seeds, GET for single
+    try:
+        if len(paper_ids) == 1:
+            r = httpx.get(
+                f"{_S2_REC_BASE}/papers/forpaper/{paper_ids[0]}",
+                params={"fields": _REC_FIELDS, "limit": fetch_count, "from": "recent"},
+                headers=headers,
+                timeout=20,
+            )
+        else:
+            r = httpx.post(
+                f"{_S2_REC_BASE}/papers",
+                params={"fields": _REC_FIELDS, "limit": fetch_count},
+                json={"positivePaperIds": paper_ids, "negativePaperIds": []},
+                headers=headers,
+                timeout=20,
+            )
+
+        if r.status_code == 429:
+            time.sleep(2)
+            # Retry once
+            if len(paper_ids) == 1:
+                r = httpx.get(
+                    f"{_S2_REC_BASE}/papers/forpaper/{paper_ids[0]}",
+                    params={"fields": _REC_FIELDS, "limit": fetch_count, "from": "recent"},
+                    headers=headers,
+                    timeout=20,
+                )
+            else:
+                r = httpx.post(
+                    f"{_S2_REC_BASE}/papers",
+                    params={"fields": _REC_FIELDS, "limit": fetch_count},
+                    json={"positivePaperIds": paper_ids, "negativePaperIds": []},
+                    headers=headers,
+                    timeout=20,
+                )
+
+        if r.status_code != 200:
+            logger.debug(f"S2 recommendations failed: {r.status_code} - {r.text[:200]}")
+            return []
+
+        data = r.json().get("recommendedPapers") or []
+    except Exception as e:
+        logger.debug(f"S2 recommendations error: {e}")
+        return []
+
+    papers: list[ExternalPaper] = []
+    for item in data:
+        if not item:
+            continue
+        ext = item.get("externalIds") or {}
+        doi = ext.get("DOI") or ""
+        oa = item.get("openAccessPdf") or {}
+        oa_url = oa.get("url") or ""
+        journal = item.get("journal") or {}
+        venue_obj = item.get("publicationVenue") or {}
+        venue = journal.get("name") or venue_obj.get("name") or ""
+        publisher = venue_obj.get("name") or ""
+
+        authors = [
+            a.get("name", "")
+            for a in item.get("authors") or []
+            if a.get("name")
+        ]
+
+        papers.append(
+            ExternalPaper(
+                title=item.get("title") or "",
+                authors=authors,
+                year=item.get("year") or 0,
+                doi=doi,
+                abstract=item.get("abstract") or "",
+                venue=venue,
+                publisher=publisher,
+                citation_count=item.get("citationCount") or 0,
+                is_open_access=bool(item.get("isOpenAccess")),
+                oa_pdf_url=oa_url,
+                source="semantic_scholar",
+                source_id=item.get("paperId") or "",
+            )
+        )
+        if len(papers) >= fetch_count:
+            break
+
+    papers.sort(key=lambda p: p.citation_count, reverse=True)
+    return papers
