@@ -8,7 +8,7 @@ Connect your [Zotero](https://www.zotero.org/) library to AI assistants via the 
 
 Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI Codex CLI**, and any MCP-compatible client.
 
-**22 MCP tools**, one intent each, designed so LLMs always pick the right tool.
+**23 MCP tools**, one intent each, designed so LLMs always pick the right tool.
 
 ---
 
@@ -25,7 +25,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
   - [OpenAI Codex CLI](#openai-codex-cli)
   - [Other MCP Clients](#other-mcp-clients)
 - [Example Prompts](#example-prompts)
-- [MCP Tools (22)](#mcp-tools-22)
+- [MCP Tools (23)](#mcp-tools-23)
 - [Configuration](#configuration)
 - [CNKI Setup (Optional)](#cnki-setup-optional)
 - [Updating](#updating)
@@ -52,10 +52,12 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 ### Online Literature Discovery
 
 - **Multi-source search** — queries OpenAlex, CrossRef, and Semantic Scholar in parallel with publisher-diverse ranking
+- **Corpus-First strategy** — when a paper's reference list is available, the system expands citation networks from those known references as the PRIMARY search strategy, yielding the most relevant results
 - **Discipline filtering** — optional `fields_of_study` parameter constrains results to relevant academic fields (Business, Economics, Sociology, etc.), preventing cross-domain noise
-- **Related paper discovery** — provide a paper's title/abstract/keywords → automatically generates 3-6 diverse queries → searches all sources → post-filters irrelevant results → returns deduplicated hits in a single call
+- **Related paper discovery** — provide a paper's title/abstract/keywords → automatically generates tiered pairwise queries → searches all sources → post-filters irrelevant results → returns deduplicated hits in a single call
+- **Three-Index Verification** — every result with a DOI is cross-checked against CrossRef, OpenAlex, and Semantic Scholar; papers not findable in ANY index are filtered out to prevent fabricated citations
 - **Source verification** — every returned paper includes a verifiable link (DOI URL, Semantic Scholar URL, or CNKI link) so users can independently check authenticity
-- **Anti-hallucination guardrails** — the AI is instructed to never fabricate citations; only papers actually returned by search tools are presented to the user
+- **Anti-hallucination guardrails** — structural `[MATERIAL GAP]` tags in tool outputs when search returns zero results; the AI is instructed to never fabricate citations and must report gaps honestly
 
 ### CNKI (Chinese Literature)
 
@@ -402,11 +404,11 @@ Sync my index — I just added new PDFs
 
 ---
 
-## MCP Tools (22)
+## MCP Tools (23)
 
 | Category | Tools |
 |----------|-------|
-| **Discover** | `search_papers`, `search_online_literature`, `search_cnki_literature`, `find_related_literature`, `cnki_paper_detail`, `cnki_navigate_pages`, `find_similar_papers`, `browse_library`, `find_duplicates`, `merge_duplicates` |
+| **Discover** | `search_papers`, `search_online_literature`, `search_cnki_literature`, `find_related_literature`, `expand_citation_network`, `cnki_paper_detail`, `cnki_navigate_pages`, `find_similar_papers`, `browse_library`, `find_duplicates`, `merge_duplicates` |
 | **Read** | `get_paper`, `get_paper_content`, `search_annotations`, `create_annotation` |
 | **Write** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **Manage** | `add_note`, `edit_tags`, `manage_collections` |
@@ -419,7 +421,8 @@ Sync my index — I just added new PDFs
 - **`search_papers`** — Primary search in your local library. Hybrid keyword + semantic. Use `query=""` with `year_from` / tags for filter-only listing.
 - **`search_online_literature`** — Online discovery (English/international: OpenAlex, CrossRef, Semantic Scholar). Supports `fields_of_study` for discipline filtering. Default for online search unless user explicitly requests Chinese literature.
 - **`search_cnki_literature`** — CNKI Chinese journal search (optional module, disabled by default). Only triggered when user explicitly requests Chinese papers / 中文文献 / CNKI. Returns journal-level tags (CSSCI, PKU Core, etc.).
-- **`find_related_literature`** — Auto multi-query related paper search. Provide a paper's title/abstract/keywords → generates 3-6 diverse queries with quoted phrases → searches all sources (online/CNKI/both) with discipline filtering → post-filters irrelevant results → returns deduplicated hits in one call. Supports `fields_of_study` and `scope` parameters.
+- **`find_related_literature`** — Multi-strategy related paper search. Supports Corpus-First mode (`reference_dois` parameter), keyword search, citation network expansion, and Semantic Scholar recommendations — all in parallel. Provide a paper's metadata → get deduplicated, Three-Index-Verified results in one call.
+- **`expand_citation_network`** — Find papers via citation relationships (forward & backward citations via OpenAlex). Accepts multiple DOIs for multi-seed expansion.
 - **`cnki_paper_detail`** — Full metadata (abstract, keywords, DOI, affiliations) from a CNKI paper page.
 - **`cnki_navigate_pages`** — Pagination & re-sorting for CNKI results. Used proactively when user needs many papers or deeper search.
 - **`find_similar_papers`** — Similar papers to a known item (by `item_key`).
@@ -531,6 +534,21 @@ If results appear (with title, authors, journal, citations, and journal level ta
 - **Compliance:** Requires legitimate institutional CNKI access.
 - **Before each session:** Ensure the Chrome window from Step 2 is still running and the CNKI login is active.
 
+### Known Issues & Limitations
+
+> ⚠️ **The CNKI module is currently unstable and disabled by default.** It relies on browser automation which is inherently fragile. Known issues include:
+
+| Issue | Cause | Workaround |
+|-------|-------|------------|
+| **Timeout on search** | CNKI pages load slowly; anti-bot throttling | Simplify your query (fewer characters); retry after a few seconds |
+| **Chrome connection refused** | Chrome was not started with `--remote-debugging-port`, or an existing session conflicted | Close ALL Chrome windows, then restart with `--remote-debugging-port=9222 --user-data-dir="/tmp/chrome-debug-profile"` |
+| **Stale login session** | CNKI sessions expire after ~30 min of inactivity | Re-login in the Chrome window before retrying |
+| **Consecutive timeouts** | Rate limiting by CNKI (>3 queries in quick succession) | The tool auto-aborts after 2 consecutive timeouts; wait 30s and retry |
+| **Export to Zotero fails** | Zotero desktop not running or Connector API port changed | Ensure Zotero is running; verify http://localhost:23119/api/ responds |
+| **`incorrect profile type` errors in Chrome log** | Normal Chrome warning when using a temporary `--user-data-dir` | Harmless — does not affect functionality |
+
+If CNKI consistently fails, fall back to the English-language online search (`search_online_literature` / `find_related_literature`) which is stable and does not require browser automation.
+
 ---
 
 ## Updating
@@ -596,8 +614,6 @@ Run CNKI integration tests (requires active CNKI session):
 CNKI_ENABLED=true CNKI_CDP_URL=http://127.0.0.1:9222 pytest tests/mcp/test_cnki.py -v
 ```
 
-See [DEVELOPMENT.md](./DEVELOPMENT.md) for the roadmap and contribution guidelines.
-
 ---
 
 ## Acknowledgments
@@ -606,6 +622,8 @@ This project was inspired by and built upon ideas from:
 
 - **[zotero-mcp](https://github.com/54yyyu/zotero-mcp)** — Pioneering work on connecting Zotero with AI assistants via MCP.
 - **[cnki-skills](https://github.com/cookjohn/cnki-skills)** — Elegant approach to CNKI browser automation via Chrome DevTools Protocol.
+- **[academic-research-skills](https://github.com/Imbad0202/academic-research-skills)** — Inspiration for the Corpus-First search strategy and structured anti-hallucination patterns (`[MATERIAL GAP]` tagging).
+- **[nature-skills](https://github.com/Yuan1z0825/nature-skills)** — Inspiration for the Three-Index Verification approach (cross-checking citations against multiple bibliographic databases).
 
 Thank you to the authors of these projects for sharing their work with the community.
 
