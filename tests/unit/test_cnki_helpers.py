@@ -278,6 +278,7 @@ class TestCitationNetwork:
             patch("research_core.sources.openalex.resolve_openalex_id", return_value="https://openalex.org/W100"),
             patch("research_core.sources.openalex.get_cited_by", return_value=[mock_paper]),
             patch("research_core.sources.openalex.get_references", return_value=[]),
+            patch("research_core.sources.verify.verify_batch", side_effect=lambda hits, **kw: hits),
         ):
             result = find_related_literature(
                 scope="online",

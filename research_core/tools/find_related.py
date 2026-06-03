@@ -445,12 +445,88 @@ def _run_s2_recommendations(
     return hits
 
 
+def _run_corpus_first_expansion(
+    *,
+    reference_dois: list[str],
+    year_from: int | None,
+    year_to: int | None,
+    fields_of_study: list[str] | None,
+    limit: int,
+    zot: ZoteroClient | None,
+) -> list[OnlinePaperHit]:
+    """Corpus-First strategy: expand citation network from known reference DOIs.
+
+    This is the most effective strategy when the user's paper provides a reference
+    list. The known references are definitionally relevant, and papers that cite
+    them (or that they cite) form the most targeted intellectual neighborhood.
+    """
+    from research_core.sources.openalex import (
+        get_cited_by,
+        resolve_openalex_id,
+    )
+
+    # Resolve DOIs to OpenAlex IDs (in parallel)
+    resolved: list[str] = []
+    with ThreadPoolExecutor(max_workers=min(len(reference_dois), 6)) as pool:
+        futures = {pool.submit(resolve_openalex_id, doi=d.strip()): d for d in reference_dois}
+        for future in as_completed(futures):
+            try:
+                oa_id = future.result()
+                if oa_id:
+                    resolved.append(oa_id)
+            except Exception:
+                pass
+
+    if not resolved:
+        logger.debug(f"Corpus-first: none of {len(reference_dois)} DOIs resolved")
+        return []
+
+    logger.info(f"Corpus-first: resolved {len(resolved)}/{len(reference_dois)} seed DOIs")
+
+    # Get papers citing each seed (forward citations are most useful for discovery)
+    per_seed = max(limit // len(resolved), 5)
+    all_papers: list = []
+
+    with ThreadPoolExecutor(max_workers=min(len(resolved), 4)) as pool:
+        futures = [
+            pool.submit(
+                get_cited_by, oa_id,
+                year_from=year_from, year_to=year_to,
+                fields_of_study=fields_of_study, limit=per_seed,
+            )
+            for oa_id in resolved
+        ]
+        for future in as_completed(futures):
+            try:
+                papers = future.result()
+                all_papers.extend(papers)
+            except Exception:
+                pass
+
+    if not all_papers:
+        return []
+
+    # Deduplicate and merge
+    source_lists: list[tuple[str, list]] = [("corpus_expansion", all_papers)]
+    hits = _merge_papers(source_lists, limit=limit * 2, sort_by="citations")
+
+    # Deduplicate against seed DOIs themselves
+    seed_doi_set = {d.strip().lower() for d in reference_dois}
+    hits = [h for h in hits if not (h.doi and h.doi.lower() in seed_doi_set)]
+    hits = hits[:limit]
+
+    if zot is not None:
+        _mark_local_online(hits, zot)
+    return hits
+
+
 def find_related_literature(
     scope: Scope = "online",
     title: str = "",
     abstract: str = "",
     keywords: list[str] | None = None,
     doi: str = "",
+    reference_dois: list[str] | None = None,
     fields_of_study: list[str] | None = None,
     source_categories: list[str] | None = None,
     year_from: int | None = None,
@@ -462,47 +538,68 @@ def find_related_literature(
     """Find literature related to a known paper by auto-generating multiple queries.
 
     Accepts paper metadata (title, abstract, keywords) and automatically:
-    1. Generates 3-6 diverse search queries from the metadata
-    2. Executes all queries (online / CNKI / both) with optional field filtering
-    3. Post-filters irrelevant results via keyword overlap scoring
-    4. Deduplicates and merges results
-    5. If keyword search yields few results, falls back to citation network
-       expansion (papers that cite or are cited by the seed paper via OpenAlex)
+    1. (Corpus-First) If reference_dois provided, expands citation network from
+       those known references — this is the PRIMARY strategy when a paper's
+       reference list is available
+    2. Generates tiered search queries from the metadata (pairwise keywords)
+    3. Executes queries (online / CNKI / both) with optional field filtering
+    4. Runs citation network expansion from the seed paper DOI
+    5. Deduplicates, merges, and post-filters results
 
     Args:
-        doi: Optional DOI of the seed paper. Enables citation network expansion
-            as a fallback when keyword search returns insufficient results.
+        doi: Optional DOI of the seed paper. Enables citation network expansion.
+        reference_dois: DOIs from the paper's reference list. When provided,
+            triggers Corpus-First mode: the system expands citation networks from
+            these known references as the PRIMARY search strategy. Provide 3-8
+            DOIs of the paper's most important cited works for best results.
         fields_of_study: Optional discipline filter to improve precision.
             Valid values: Business, Economics, Sociology, Psychology,
             Computer Science, Medicine, Environmental Science, Geography,
             Education, Political Science, Engineering, Tourism, Marketing, Law.
     """
     queries = _generate_queries(title=title, abstract=abstract, keywords=keywords)
-    if not queries:
-        return {"error": "Provide at least title or keywords to generate queries.", "queries": []}
+    if not queries and not reference_dois and not doi:
+        return {"error": "Provide at least title, keywords, doi, or reference_dois.", "queries": []}
 
     relevance_terms = _build_relevance_terms(title=title, keywords=keywords)
 
-    result: dict = {"queries_generated": queries, "scope": scope}
+    result: dict = {"queries_generated": queries or [], "scope": scope}
 
     if scope in ("online", "both"):
-        # Run keyword search, citation network, AND S2 recommendations IN PARALLEL
+        # Run ALL strategies IN PARALLEL: corpus-first, keyword, citation network, S2
         online_hits: list[OnlinePaperHit] = []
         citation_hits: list[OnlinePaperHit] = []
         s2_rec_hits: list[OnlinePaperHit] = []
+        corpus_hits: list[OnlinePaperHit] = []
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            kw_future = pool.submit(
-                _run_online_related,
-                queries,
-                year_from=year_from,
-                year_to=year_to,
-                limit=limit,
-                sort_by=sort_by,
-                fields_of_study=fields_of_study,
-                relevance_terms=relevance_terms,
-                zot=zot,
-            )
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            # Corpus-First: expand from known reference DOIs (PRIMARY strategy)
+            corpus_future = None
+            if reference_dois:
+                corpus_future = pool.submit(
+                    _run_corpus_first_expansion,
+                    reference_dois=reference_dois,
+                    year_from=year_from,
+                    year_to=year_to,
+                    fields_of_study=fields_of_study,
+                    limit=limit,
+                    zot=zot,
+                )
+
+            # Keyword search (SUPPLEMENTARY when corpus-first is active)
+            kw_future = None
+            if queries:
+                kw_future = pool.submit(
+                    _run_online_related,
+                    queries,
+                    year_from=year_from,
+                    year_to=year_to,
+                    limit=limit,
+                    sort_by=sort_by,
+                    fields_of_study=fields_of_study,
+                    relevance_terms=relevance_terms,
+                    zot=zot,
+                )
 
             cite_future = None
             if doi or title:
@@ -528,10 +625,18 @@ def find_related_literature(
                     zot=zot,
                 )
 
-            try:
-                online_hits = kw_future.result()
-            except Exception as exc:
-                logger.debug(f"Keyword search failed: {exc}")
+            # Gather corpus-first results (highest priority)
+            if corpus_future:
+                try:
+                    corpus_hits = corpus_future.result()
+                except Exception as exc:
+                    logger.debug(f"Corpus-first expansion failed: {exc}")
+
+            if kw_future:
+                try:
+                    online_hits = kw_future.result()
+                except Exception as exc:
+                    logger.debug(f"Keyword search failed: {exc}")
 
             if cite_future:
                 try:
@@ -545,28 +650,55 @@ def find_related_literature(
                 except Exception as exc:
                     logger.debug(f"S2 recommendations failed: {exc}")
 
-        # Merge all sources, deduplicating by DOI
-        existing_keys = {h.doi.lower() for h in online_hits if h.doi}
+        # Merge all sources; corpus-first gets priority ordering
+        # Start with corpus hits (most relevant due to known reference expansion)
+        merged: list[OnlinePaperHit] = list(corpus_hits)
+        existing_keys = {h.doi.lower() for h in merged if h.doi}
 
+        if corpus_hits:
+            result["corpus_first_used"] = True
+            result["corpus_first_count"] = len(corpus_hits)
+
+        # Then keyword search results
+        for h in online_hits:
+            if h.doi and h.doi.lower() in existing_keys:
+                continue
+            merged.append(h)
+            existing_keys.add(h.doi.lower() if h.doi else "")
+
+        # Then S2 recommendations
         if s2_rec_hits:
             for h in s2_rec_hits:
                 if h.doi and h.doi.lower() in existing_keys:
                     continue
-                online_hits.append(h)
+                merged.append(h)
                 existing_keys.add(h.doi.lower() if h.doi else "")
             result["s2_recommendations_used"] = True
 
+        # Then citation network
         if citation_hits:
             for ch in citation_hits:
                 if ch.doi and ch.doi.lower() in existing_keys:
                     continue
-                online_hits.append(ch)
+                merged.append(ch)
                 existing_keys.add(ch.doi.lower() if ch.doi else "")
             result["citation_network_used"] = True
 
-        online_hits = online_hits[:limit]
-        result["online_hits"] = online_hits
-        result["online_count"] = len(online_hits)
+        merged = merged[:limit]
+
+        # P2: Three-Index Verification — filter out unverifiable citations
+        pre_verify_count = len(merged)
+        try:
+            from research_core.sources.verify import verify_batch
+            merged = verify_batch(merged, max_workers=6)
+            rejected = pre_verify_count - len(merged)
+            if rejected > 0:
+                result["verification_filtered"] = rejected
+        except Exception as exc:
+            logger.debug(f"Three-index verification skipped: {exc}")
+
+        result["online_hits"] = merged
+        result["online_count"] = len(merged)
 
     if scope in ("cnki", "both"):
         cnki_hits = _run_cnki_related(
