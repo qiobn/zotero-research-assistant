@@ -115,17 +115,30 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 | **Disk** | ~2.5 GB for embedding model (`bge-m3`) on first run |
 | **Git** | To clone this repository |
 
-> **Path tip:** Install in a short path without spaces or non-ASCII characters, e.g. `~/zotero-research-agent` (macOS/Linux) or `C:\Dev\zotero-research-agent` (Windows).
+> **Path tip:** Install in a short path without spaces or non-ASCII characters, e.g. `~/zotero-research-assistant` (macOS/Linux) or `C:\Dev\zotero-research-assistant` (Windows).
 
 ---
 
 ## Quick Start
 
-### 1. Clone the repository
+### Option A: Install via pip (recommended)
 
 ```bash
-git clone https://github.com/qiobn/zotero-research-agent.git
-cd zotero-research-agent
+pip install zotero-research-assistant
+```
+
+With CNKI support:
+```bash
+pip install "zotero-research-assistant[cnki]"
+```
+
+After installing, run `zra-mcp` to start the MCP server.
+
+### Option B: Clone the repository (for development)
+
+```bash
+git clone https://github.com/qiobn/zotero-research-assistant.git
+cd zotero-research-assistant
 ```
 
 ### 2. Install dependencies
@@ -222,7 +235,7 @@ All clients use the same MCP server entry point. You need two paths:
 | **Python binary** | `<project>/.venv/bin/python` | `<project>\.venv\Scripts\python.exe` |
 | **Working directory** | `<project>` (full path) | `<project>` (full path) |
 
-Replace `<project>` with your clone path (e.g. `/Users/you/zotero-research-agent` or `C:\Dev\zotero-research-agent`).
+Replace `<project>` with your clone path (e.g. `/Users/you/zotero-research-assistant` or `C:\Dev\zotero-research-assistant`).
 
 Quick path helper (run inside the project folder):
 ```bash
@@ -251,9 +264,9 @@ Or add to `.cursor/mcp.json` in your workspace:
 {
   "mcpServers": {
     "zra-mcp": {
-      "command": "/Users/you/zotero-research-agent/.venv/bin/python",
+      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
       "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/Users/you/zotero-research-agent"
+      "cwd": "/Users/you/zotero-research-assistant"
     }
   }
 }
@@ -264,9 +277,9 @@ Windows variant:
 {
   "mcpServers": {
     "zra-mcp": {
-      "command": "C:\\Dev\\zotero-research-agent\\.venv\\Scripts\\python.exe",
+      "command": "C:\\Dev\\zotero-research-assistant\\.venv\\Scripts\\python.exe",
       "args": ["-m", "project_a_mcp.server"],
-      "cwd": "C:\\Dev\\zotero-research-agent"
+      "cwd": "C:\\Dev\\zotero-research-assistant"
     }
   }
 }
@@ -287,9 +300,9 @@ Edit `claude_desktop_config.json`:
 {
   "mcpServers": {
     "zra-mcp": {
-      "command": "/Users/you/zotero-research-agent/.venv/bin/python",
+      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
       "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/Users/you/zotero-research-agent"
+      "cwd": "/Users/you/zotero-research-assistant"
     }
   }
 }
@@ -310,9 +323,9 @@ Restart Claude Desktop. You should see the MCP tools icon (hammer) in the chat i
       "name": "zra-mcp",
       "type": "stdio",
       "isActive": true,
-      "command": "/Users/you/zotero-research-agent/.venv/bin/python",
+      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
       "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/Users/you/zotero-research-agent"
+      "cwd": "/Users/you/zotero-research-assistant"
     }
   }
 }
@@ -326,9 +339,9 @@ Windows:
       "name": "zra-mcp",
       "type": "stdio",
       "isActive": true,
-      "command": "C:\\Dev\\zotero-research-agent\\.venv\\Scripts\\python.exe",
+      "command": "C:\\Dev\\zotero-research-assistant\\.venv\\Scripts\\python.exe",
       "args": ["-m", "project_a_mcp.server"],
-      "cwd": "C:\\Dev\\zotero-research-agent"
+      "cwd": "C:\\Dev\\zotero-research-assistant"
     }
   }
 }
@@ -360,9 +373,9 @@ Or add to your Trae MCP configuration file (`.trae/mcp.json` in your workspace o
 {
   "mcpServers": {
     "zra-mcp": {
-      "command": "/Users/you/zotero-research-agent/.venv/bin/python",
+      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
       "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/Users/you/zotero-research-agent"
+      "cwd": "/Users/you/zotero-research-assistant"
     }
   }
 }
@@ -380,9 +393,9 @@ Restart Trae after configuration. MCP tools become available in AI chat (Agent m
 {
   "mcpServers": {
     "zra-mcp": {
-      "command": "/Users/you/zotero-research-agent/.venv/bin/python",
+      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
       "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/Users/you/zotero-research-agent"
+      "cwd": "/Users/you/zotero-research-assistant"
     }
   }
 }
@@ -633,7 +646,7 @@ If CNKI consistently fails, fall back to the English-language online search (`se
 ## Updating
 
 ```bash
-cd ~/zotero-research-agent       # or your clone path
+cd ~/zotero-research-assistant       # or your clone path
 git pull
 uv pip install -e .              # if dependencies changed
 ```

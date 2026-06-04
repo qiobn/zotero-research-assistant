@@ -513,7 +513,7 @@ def _download_pdf_from_url(url: str) -> str | None:
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (compatible; ZoteroResearchAssistant/0.1; "
-                    "+https://github.com/qiobn/zotero-research-agent)"
+                    "+https://github.com/qiobn/zotero-research-assistant)"
                 ),
                 "Accept": "application/pdf,*/*",
             },

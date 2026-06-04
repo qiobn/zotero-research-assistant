@@ -54,8 +54,8 @@ macOS：打开"终端"（在启动台搜索"终端"），输入：
 你需要替换成自己的。
 
 推荐安装位置：
-  Windows :  C:\Users\zhangsan\zotero-research-agent
-  macOS   :  /Users/zhangsan/zotero-research-agent
+  Windows :  C:\Users\zhangsan\zotero-research-assistant
+  macOS   :  /Users/zhangsan/zotero-research-assistant
 
 路径注意事项：安装路径不能包含中文、空格或特殊符号（如"我的文档"、
 "Program Files"），否则会导致运行出错。
@@ -161,17 +161,17 @@ HF_ENDPOINT 镜像就行。如果 GitHub 也访问不了，让能访问的人帮
 
 macOS（终端中运行）：
     cd ~
-    git clone https://github.com/qiobn/zotero-research-agent.git
-    cd zotero-research-agent
+    git clone https://github.com/qiobn/zotero-research-assistant.git
+    cd zotero-research-assistant
 
-    项目会下载到 /Users/zhangsan/zotero-research-agent
+    项目会下载到 /Users/zhangsan/zotero-research-assistant
 
 Windows（cmd 中运行）：
     cd %USERPROFILE%
-    git clone https://github.com/qiobn/zotero-research-agent.git
-    cd zotero-research-agent
+    git clone https://github.com/qiobn/zotero-research-assistant.git
+    cd zotero-research-assistant
 
-    项目会下载到 C:\Users\zhangsan\zotero-research-agent
+    项目会下载到 C:\Users\zhangsan\zotero-research-assistant
 
 
 -------- 2.2 创建虚拟环境并安装依赖 --------
@@ -239,17 +239,17 @@ Windows:
 -------- 3.3 创建配置文件 --------
 
 macOS / Linux：
-    cd ~/zotero-research-agent
+    cd ~/zotero-research-assistant
     cp .env.example .env
 
 Windows：
-    cd %USERPROFILE%\zotero-research-agent
+    cd %USERPROFILE%\zotero-research-assistant
     copy .env.example .env
 
 然后用文本编辑器打开 .env 文件：
-  Windows：在文件管理器中找到 C:\Users\zhangsan\zotero-research-agent 文件夹，
+  Windows：在文件管理器中找到 C:\Users\zhangsan\zotero-research-assistant 文件夹，
            右键 .env 文件 -- 打开方式 -- 记事本
-  macOS：终端运行 open -e ~/zotero-research-agent/.env
+  macOS：终端运行 open -e ~/zotero-research-assistant/.env
 
 找到以下几行，修改为你的信息：
 
@@ -275,12 +275,12 @@ Windows：
 确保 Zotero 桌面端正在运行，然后：
 
 macOS / Linux：
-    cd ~/zotero-research-agent
+    cd ~/zotero-research-assistant
     source .venv/bin/activate
     python scripts/index_library.py
 
 Windows：
-    cd %USERPROFILE%\zotero-research-agent
+    cd %USERPROFILE%\zotero-research-assistant
     .venv\Scripts\activate
     python scripts/index_library.py
 
@@ -330,9 +330,9 @@ macOS 示例：
     {
       "mcpServers": {
         "zra-mcp": {
-          "command": "/Users/zhangsan/zotero-research-agent/.venv/bin/python",
+          "command": "/Users/zhangsan/zotero-research-assistant/.venv/bin/python",
           "args": ["-m", "project_a_mcp.server"],
-          "cwd": "/Users/zhangsan/zotero-research-agent"
+          "cwd": "/Users/zhangsan/zotero-research-assistant"
         }
       }
     }
@@ -342,9 +342,9 @@ Windows 示例：
     {
       "mcpServers": {
         "zra-mcp": {
-          "command": "C:\\Users\\zhangsan\\zotero-research-agent\\.venv\\Scripts\\python.exe",
+          "command": "C:\\Users\\zhangsan\\zotero-research-assistant\\.venv\\Scripts\\python.exe",
           "args": ["-m", "project_a_mcp.server"],
-          "cwd": "C:\\Users\\zhangsan\\zotero-research-agent"
+          "cwd": "C:\\Users\\zhangsan\\zotero-research-assistant"
         }
       }
     }
@@ -352,8 +352,8 @@ Windows 示例：
 !! 必须修改的地方：把 zhangsan 替换为你自己的用户名 !!
 
 路径验证（粘贴前先确认 command 指向的 python 文件存在）：
-  macOS:   终端运行  ls /Users/zhangsan/zotero-research-agent/.venv/bin/python
-  Windows: cmd 运行  dir C:\Users\zhangsan\zotero-research-agent\.venv\Scripts\python.exe
+  macOS:   终端运行  ls /Users/zhangsan/zotero-research-assistant/.venv/bin/python
+  Windows: cmd 运行  dir C:\Users\zhangsan\zotero-research-assistant\.venv\Scripts\python.exe
 
 如果显示文件信息则路径正确。如果提示"没有那个文件"，说明项目安装位置不同。
 
@@ -540,8 +540,8 @@ A: 检查：
 
 Q: 师兄/师姐更新了代码，我怎么同步？
 A: 在项目目录下拉取最新代码即可：
-   macOS:   cd ~/zotero-research-agent && git pull
-   Windows: cd %USERPROFILE%\zotero-research-agent && git pull
+   macOS:   cd ~/zotero-research-assistant && git pull
+   Windows: cd %USERPROFILE%\zotero-research-assistant && git pull
    然后重启 Cherry Studio 的对话即可生效。
    如果更新后提示缺少依赖，额外运行一次：
    macOS:   .venv/bin/pip install -e .
