@@ -4,6 +4,18 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)](https://modelcontextprotocol.io/)
 
+## Preface / 写在前面
+
+This project was built to help graduate students and researchers — especially those without a computer science background — leverage AI-enhanced Zotero for more efficient academic workflows. The documentation is deliberately detailed and step-by-step. Cherry Studio was chosen as the primary interaction interface because it provides a user-friendly GUI that doesn't require any terminal expertise. We believe powerful research tools should be accessible to everyone, not just developers.
+
+**If you have no programming experience**, go directly to [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md) and follow the instructions step by step. Try to complete it independently — if you get stuck at any point, paste the error message to any AI chatbot (ChatGPT, DeepSeek, Kimi, etc.) and ask for help. Consider this your first step into the world of programming and AI tools. It's easier than you think.
+
+本项目的出发点是帮助没有太多计算机操作基础的学生和科研工作者，让他们也能利用 AI 增强的 Zotero 来提升学术研究效率。因此文档会写得尽量详细、步骤尽量清晰，并且选择了 Cherry Studio 作为主要的交互界面——它提供了友好的图形化操作，不需要使用终端命令行。我们相信，强大的科研工具应该让每个人都能用上，而不只是程序员。
+
+**如果你没有编程基础**，请直接阅读 [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md)，跟着里面的步骤一步步操作即可。尽量独立完成——如果遇到问题，把报错信息复制给任意一个 AI 对话工具（ChatGPT、DeepSeek、Kimi 等）寻求帮助。把这次配置当作你接触程序和 AI 工具的第一步，比你想象的简单。
+
+---
+
 > **Turn your Zotero library into an AI-powered research engine.**
 >
 > Search by meaning, discover related papers across 200M+ works, get personalized reading recommendations, and manage your entire academic workflow — all through natural language.
@@ -41,7 +53,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
   - [Trae](#trae)
   - [OpenAI Codex CLI](#openai-codex-cli)
   - [Other MCP Clients](#other-mcp-clients)
-- [Example Prompts](#example-prompts)
+- [Example Workflows](#example-workflows)
 - [MCP Tools (29)](#mcp-tools-29)
 - [Configuration](#configuration)
 - [CNKI Setup (Optional)](#cnki-setup-optional)
@@ -231,7 +243,11 @@ If you see your collections, setup is complete.
 
 ## Client Setup
 
-All clients use the same MCP server entry point. You need two paths:
+All clients use stdio transport to connect to the MCP server.
+
+**If you installed via pip (Option A):** use `zra-mcp` as the command directly — no path configuration needed.
+
+**If you cloned from source (Option B):** you need the full path to the Python binary:
 
 | Value | macOS / Linux | Windows |
 |-------|--------------|---------|
@@ -249,20 +265,26 @@ echo "$(pwd)/.venv/bin/python"
 echo "$PWD\.venv\Scripts\python.exe"
 ```
 
+> The examples below show **both** pip and source configurations. Use whichever matches your install method.
+
 ---
 
 ### Cursor
 
-**Settings → MCP → Add new MCP server**
+**Settings → MCP → Add new MCP server**, or add to `.cursor/mcp.json`:
 
-| Field | Value |
-|-------|-------|
-| Name | `zra-mcp` |
-| Type | `command` (stdio) |
-| Command | `<project>/.venv/bin/python -m project_a_mcp.server` |
+**pip install users:**
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "command": "zra-mcp"
+    }
+  }
+}
+```
 
-Or add to `.cursor/mcp.json` in your workspace:
-
+**Source install users (macOS/Linux):**
 ```json
 {
   "mcpServers": {
@@ -275,7 +297,7 @@ Or add to `.cursor/mcp.json` in your workspace:
 }
 ```
 
-Windows variant:
+**Source install users (Windows):**
 ```json
 {
   "mcpServers": {
@@ -648,6 +670,12 @@ If CNKI consistently fails, fall back to the English-language online search (`se
 
 ## Updating
 
+**pip users:**
+```bash
+pip install --upgrade zotero-research-assistant
+```
+
+**Source install users:**
 ```bash
 cd ~/zotero-research-assistant       # or your clone path
 git pull
@@ -732,7 +760,11 @@ Thank you to the authors of these projects for sharing their work with the commu
 
 2. **For learning and research purposes only.** This project is open-source and intended solely for personal academic research and educational use. It is not commercialized and no profit is derived from it. If any content or functionality inadvertently infringes on intellectual property or terms of service of third-party platforms (CNKI, publishers, etc.), please open an issue and we will address it promptly.
 
-3. **Why this project exists.** The original motivation is to help graduate students and researchers — especially those without extensive computer science backgrounds — leverage AI-enhanced Zotero for more efficient academic workflows. That is why the documentation is deliberately detailed, step-by-step, and why Cherry Studio was chosen as the primary interaction interface: it provides a user-friendly GUI that doesn't require terminal expertise. We believe powerful research tools should be accessible to everyone, not just developers.
+3. **CNKI module compliance.** The CNKI browser automation module is provided for convenience only. Users must have legitimate institutional access to CNKI. Automated access may violate CNKI's Terms of Service — use at your own risk and responsibility. This module is disabled by default for this reason.
+
+4. **Data privacy.** All processing happens locally by default. Your PDFs are parsed and embedded on your machine (`.chroma_db/`). However, if you configure a cloud-based embedding model or connect to a cloud LLM, paper content (text chunks, queries) will be sent to those external services. Users working with sensitive or unpublished research should be aware of this.
+
+5. **Trademark notice.** "Zotero" is a registered trademark of the Corporation for Digital Scholarship. This project is an independent community tool and is not affiliated with, endorsed by, or officially connected to Zotero or the Corporation for Digital Scholarship.
 
 ### 中文
 
@@ -740,7 +772,11 @@ Thank you to the authors of these projects for sharing their work with the commu
 
 2. **仅供学习交流使用。** 本项目为开源项目，仅用于个人学术研究和学习交流，不作任何商业用途，不从中获取利润。如本项目的任何内容或功能无意中侵犯了第三方平台（知网、出版商等）的知识产权或服务条款，请通过 Issue 及时告知，我们会第一时间处理。
 
-3. **项目初衷。** 本项目的出发点是帮助没有太多计算机操作基础的研究生和科研工作者，也能利用 AI 增强的 Zotero 来提升学术研究效率。因此文档会写得尽量详细、步骤尽量清晰，并且选择了 Cherry Studio 作为主要的交互界面——它提供了友好的图形化操作，不需要使用终端命令行。我们相信，强大的科研工具应该让每个人都能用上，而不只是程序员。
+3. **知网模块合规性。** 知网浏览器自动化模块仅为便利性而提供。用户必须拥有合法的机构知网访问权限。自动化访问可能违反知网的服务条款——使用风险和责任由用户自行承担。该模块默认关闭正是出于此原因。
+
+4. **数据隐私。** 默认情况下所有处理均在本地完成。你的 PDF 在本机上被解析和向量化（存储在 `.chroma_db/`）。但如果你配置了云端嵌入模型或连接了云端大语言模型，论文内容（文本片段、查询）将被发送至相应的外部服务。处理敏感或未发表研究的用户请注意这一点。
+
+5. **商标声明。** "Zotero" 是 Corporation for Digital Scholarship 的注册商标。本项目是独立的社区工具，与 Zotero 或 Corporation for Digital Scholarship 没有任何关联、背书或官方联系。
 
 ---
 
