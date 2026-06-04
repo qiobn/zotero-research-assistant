@@ -1,6 +1,6 @@
 """Zotero Research Assistant — MCP server.
 
-27 tools, one intent each, designed to compose via `item_key`.
+28 tools, one intent each, designed to compose via `item_key`.
 
 Categories:
   DISCOVER   search_papers, search_online_literature, search_cnki_literature,
@@ -9,7 +9,8 @@ Categories:
   READ       get_paper, get_paper_content, search_annotations, create_annotation
   WRITE      suggest_citations, export_bibliography, add_paper, cnki_add_to_zotero
   MANAGE     add_note, edit_tags, manage_collections
-  INSIGHT    reading_status, recommend_papers, generate_review_note, suggest_tags
+  INSIGHT    reading_status, recommend_papers, generate_review_note, suggest_tags,
+             find_arguments
   ADMIN      sync_index
 """
 
@@ -94,6 +95,7 @@ from research_core.tools import (
 from research_core.tools import (
     sync_index as _sync_index,
 )
+from research_core.tools.arguments import find_arguments as _find_arguments
 from research_core.tools.reading_status import get_reading_status as _get_reading_status
 from research_core.tools.recommend import recommend_papers as _recommend_papers
 from research_core.tools.review import generate_review_note as _generate_review_note
@@ -153,7 +155,8 @@ mcp = FastMCP(
         "- Reading progress / what's unread → reading_status\n"
         "- 'What should I read next?' → recommend_papers\n"
         "- 'Summarize/review these papers' → generate_review_note\n"
-        "- 'Suggest tags for papers' → suggest_tags (suggest only, never auto-apply)\n\n"
+        "- 'Suggest tags for papers' → suggest_tags (suggest only, never auto-apply)\n"
+        "- 'Find evidence for/against my argument' → find_arguments\n\n"
         "CORPUS-FIRST STRATEGY (highest priority for related paper discovery):\n"
         "When analyzing a user's paper, ALWAYS extract 3-8 DOIs from its reference list "
         "and pass as reference_dois to find_related_literature. This is the most effective "
@@ -1368,6 +1371,36 @@ def suggest_tags(
     return _suggest_tags(
         item_keys=normalize_list(item_keys, "item_keys") or [],
         zot=_get_zot(),
+    )
+
+
+@mcp.tool()
+@_safe_tool
+def find_arguments(
+    claim: str,
+    item_keys: list[str] | None = None,
+    top_k: int = 10,
+) -> dict:
+    """Find supporting and opposing evidence for a claim from your library.
+
+    Searches for passages relevant to the user's thesis/argument, then
+    classifies each by stance (support/oppose/neutral) using textual signals.
+    Returns evidence grouped by stance with inline citations.
+
+    Use this when the user is writing a Discussion section and needs to know
+    which library papers support or challenge their argument.
+
+    Args:
+        claim: The thesis or argument to find evidence for/against.
+        item_keys: Optional — restrict search to specific papers.
+        top_k: Max total evidence passages (default 10).
+    """
+    return _find_arguments(
+        claim=claim,
+        retriever=_get_retriever(),
+        zot=_get_zot(),
+        top_k=top_k,
+        item_keys=normalize_list(item_keys, "item_keys"),
     )
 
 

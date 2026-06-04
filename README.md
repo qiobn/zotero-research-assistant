@@ -14,7 +14,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 
 | | |
 |---|---|
-| **27 MCP Tools** | One intent per tool — LLMs always pick the right one |
+| **28 MCP Tools** | One intent per tool — LLMs always pick the right one |
 | **Hybrid RAG Search** | Keyword + semantic (bge-m3, 100+ languages) + cross-encoder reranking |
 | **Multi-Source Discovery** | OpenAlex + CrossRef + Semantic Scholar in parallel, Three-Index Verification to prevent fabricated citations |
 | **Citation Network Expansion** | Corpus-First strategy + forward/backward citations + OpenAlex Related Works |
@@ -22,6 +22,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 | **Personalized Recommendations** | Learns from your reading activity and annotations to suggest what to read next |
 | **Literature Review Generator** | Select papers → extract evidence with citations → AI synthesizes thematic review |
 | **Smart Tag Suggestions** | Auto-analyze metadata to recommend methodology/domain/data tags (confirm before apply) |
+| **Argument Finder** | Find supporting & opposing evidence for your thesis from your library |
 | **CNKI Integration** | Optional Chinese literature search with journal-level tags (CSSCI/PKU Core/CSCD) |
 | **OA PDF Waterfall** | arXiv → Unpaywall → OpenAlex → S2 → CORE → PMC automatic full-text retrieval |
 | **Write Safety** | All destructive operations require explicit user approval (dry-run by default) |
@@ -41,7 +42,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
   - [OpenAI Codex CLI](#openai-codex-cli)
   - [Other MCP Clients](#other-mcp-clients)
 - [Example Prompts](#example-prompts)
-- [MCP Tools (27)](#mcp-tools-27)
+- [MCP Tools (28)](#mcp-tools-28)
 - [Configuration](#configuration)
 - [CNKI Setup (Optional)](#cnki-setup-optional)
 - [Updating](#updating)
@@ -90,6 +91,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 - **Focus topic extraction** — surfaces your active research themes from recent reading tags
 - **Literature review generation** — select multiple papers → extract relevant passages with page-level citations → structured output for AI to synthesize into a thematic review
 - **Smart tag suggestions** — analyzes title/abstract to recommend methodology, domain, and data-type tags; matches against existing library tags; suggest-only (never auto-applies)
+- **Argument finder** — given a thesis/claim, searches library for evidence grouped by stance (support/oppose/neutral); heuristic pre-classification with textual signals; designed for writing Discussion sections
 
 ### Library Management
 
@@ -428,7 +430,7 @@ Sync my index — I just added new PDFs
 
 ---
 
-## MCP Tools (27)
+## MCP Tools (28)
 
 | Category | Tools |
 |----------|-------|
@@ -436,7 +438,7 @@ Sync my index — I just added new PDFs
 | **Read** | `get_paper`, `get_paper_content`, `search_annotations`, `create_annotation` |
 | **Write** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **Manage** | `add_note`, `edit_tags`, `manage_collections` |
-| **Insight** | `reading_status`, `recommend_papers`, `generate_review_note`, `suggest_tags` |
+| **Insight** | `reading_status`, `recommend_papers`, `generate_review_note`, `suggest_tags`, `find_arguments` |
 | **Admin** | `sync_index` |
 
 <details>
@@ -472,6 +474,7 @@ Sync my index — I just added new PDFs
 - **`recommend_papers`** — Personalized recommendations. Identifies your most-engaged papers, finds related literature via OpenAlex + S2, deduplicates, and excludes already-in-library papers.
 - **`generate_review_note`** — Extract evidence from multiple papers for literature review. Provide item keys + optional focus topic → returns passages with inline citations (Author, Year, p.X) ready for AI synthesis.
 - **`suggest_tags`** — Analyze paper metadata to suggest methodology, domain, and data-type tags. Suggest-only — never auto-applies; user confirms via `edit_tags`.
+- **`find_arguments`** — Given a claim/thesis, find supporting and opposing evidence from your library. Classifies passages by stance (support/oppose/neutral) with citations. For writing Discussion sections.
 
 ### Admin
 - **`sync_index`** — Incremental vector index sync. Also runs automatically on MCP startup.
