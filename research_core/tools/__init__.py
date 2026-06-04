@@ -37,6 +37,8 @@ from research_core.tools.read import (
 )
 from research_core.tools.reading_status import get_reading_status
 from research_core.tools.recommend import recommend_papers
+from research_core.tools.review import generate_review_note
+from research_core.tools.suggest_tags import suggest_tags
 from research_core.tools.search import (
     BrowseResult,
     DuplicateGroup,
@@ -89,4 +91,6 @@ __all__ = [
     "sync_index",
     "get_reading_status",
     "recommend_papers",
+    "generate_review_note",
+    "suggest_tags",
 ]

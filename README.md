@@ -14,12 +14,14 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 
 | | |
 |---|---|
-| **25 MCP Tools** | One intent per tool — LLMs always pick the right one |
+| **27 MCP Tools** | One intent per tool — LLMs always pick the right one |
 | **Hybrid RAG Search** | Keyword + semantic (bge-m3, 100+ languages) + cross-encoder reranking |
 | **Multi-Source Discovery** | OpenAlex + CrossRef + Semantic Scholar in parallel, Three-Index Verification to prevent fabricated citations |
 | **Citation Network Expansion** | Corpus-First strategy + forward/backward citations + OpenAlex Related Works |
 | **Anti-Hallucination** | Zero-fabrication policy with `[MATERIAL GAP]` structural tags; every paper has a verifiable source link |
 | **Personalized Recommendations** | Learns from your reading activity and annotations to suggest what to read next |
+| **Literature Review Generator** | Select papers → extract evidence with citations → AI synthesizes thematic review |
+| **Smart Tag Suggestions** | Auto-analyze metadata to recommend methodology/domain/data tags (confirm before apply) |
 | **CNKI Integration** | Optional Chinese literature search with journal-level tags (CSSCI/PKU Core/CSCD) |
 | **OA PDF Waterfall** | arXiv → Unpaywall → OpenAlex → S2 → CORE → PMC automatic full-text retrieval |
 | **Write Safety** | All destructive operations require explicit user approval (dry-run by default) |
@@ -39,7 +41,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
   - [OpenAI Codex CLI](#openai-codex-cli)
   - [Other MCP Clients](#other-mcp-clients)
 - [Example Prompts](#example-prompts)
-- [MCP Tools (25)](#mcp-tools-25)
+- [MCP Tools (27)](#mcp-tools-27)
 - [Configuration](#configuration)
 - [CNKI Setup (Optional)](#cnki-setup-optional)
 - [Updating](#updating)
@@ -86,6 +88,8 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 - **Reading status detection** — heuristic classification (deep_read / browsed / unread) based on annotation count, notes, and PDF open history (Zotero 7 reader saves reading position, updating attachment timestamps)
 - **Personalized recommendations** — identifies your most-engaged papers → queries OpenAlex Related Works + S2 Recommendations in parallel → deduplicates, excludes already-in-library → ranks by cross-seed frequency
 - **Focus topic extraction** — surfaces your active research themes from recent reading tags
+- **Literature review generation** — select multiple papers → extract relevant passages with page-level citations → structured output for AI to synthesize into a thematic review
+- **Smart tag suggestions** — analyzes title/abstract to recommend methodology, domain, and data-type tags; matches against existing library tags; suggest-only (never auto-applies)
 
 ### Library Management
 
@@ -424,7 +428,7 @@ Sync my index — I just added new PDFs
 
 ---
 
-## MCP Tools (25)
+## MCP Tools (27)
 
 | Category | Tools |
 |----------|-------|
@@ -432,7 +436,7 @@ Sync my index — I just added new PDFs
 | **Read** | `get_paper`, `get_paper_content`, `search_annotations`, `create_annotation` |
 | **Write** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **Manage** | `add_note`, `edit_tags`, `manage_collections` |
-| **Insight** | `reading_status`, `recommend_papers` |
+| **Insight** | `reading_status`, `recommend_papers`, `generate_review_note`, `suggest_tags` |
 | **Admin** | `sync_index` |
 
 <details>
@@ -466,6 +470,8 @@ Sync my index — I just added new PDFs
 ### Insight
 - **`reading_status`** — Analyze reading progress. Classifies papers as `deep_read` (≥3 annotations or notes), `browsed` (PDF opened recently in Zotero reader), or `unread`. Filter by scope.
 - **`recommend_papers`** — Personalized recommendations. Identifies your most-engaged papers, finds related literature via OpenAlex + S2, deduplicates, and excludes already-in-library papers.
+- **`generate_review_note`** — Extract evidence from multiple papers for literature review. Provide item keys + optional focus topic → returns passages with inline citations (Author, Year, p.X) ready for AI synthesis.
+- **`suggest_tags`** — Analyze paper metadata to suggest methodology, domain, and data-type tags. Suggest-only — never auto-applies; user confirms via `edit_tags`.
 
 ### Admin
 - **`sync_index`** — Incremental vector index sync. Also runs automatically on MCP startup.

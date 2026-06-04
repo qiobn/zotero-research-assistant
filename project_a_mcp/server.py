@@ -1,6 +1,6 @@
 """Zotero Research Assistant — MCP server.
 
-25 tools, one intent each, designed to compose via `item_key`.
+27 tools, one intent each, designed to compose via `item_key`.
 
 Categories:
   DISCOVER   search_papers, search_online_literature, search_cnki_literature,
@@ -9,7 +9,7 @@ Categories:
   READ       get_paper, get_paper_content, search_annotations, create_annotation
   WRITE      suggest_citations, export_bibliography, add_paper, cnki_add_to_zotero
   MANAGE     add_note, edit_tags, manage_collections
-  INSIGHT    reading_status, recommend_papers
+  INSIGHT    reading_status, recommend_papers, generate_review_note, suggest_tags
   ADMIN      sync_index
 """
 
@@ -96,6 +96,8 @@ from research_core.tools import (
 )
 from research_core.tools.reading_status import get_reading_status as _get_reading_status
 from research_core.tools.recommend import recommend_papers as _recommend_papers
+from research_core.tools.review import generate_review_note as _generate_review_note
+from research_core.tools.suggest_tags import suggest_tags as _suggest_tags
 from research_core.utils import normalize_list
 from research_core.zotero.client import ZoteroClient
 
@@ -149,7 +151,9 @@ mcp = FastMCP(
         "- Related to a paper → find_related_literature (ONE call replaces many searches)\n"
         "- Citation neighborhood → expand_citation_network\n"
         "- Reading progress / what's unread → reading_status\n"
-        "- 'What should I read next?' → recommend_papers\n\n"
+        "- 'What should I read next?' → recommend_papers\n"
+        "- 'Summarize/review these papers' → generate_review_note\n"
+        "- 'Suggest tags for papers' → suggest_tags (suggest only, never auto-apply)\n\n"
         "CORPUS-FIRST STRATEGY (highest priority for related paper discovery):\n"
         "When analyzing a user's paper, ALWAYS extract 3-8 DOIs from its reference list "
         "and pass as reference_dois to find_related_literature. This is the most effective "
@@ -1308,6 +1312,58 @@ def recommend_papers(
         days=days,
         max_seeds=max_seeds,
         limit=limit,
+    )
+
+
+@mcp.tool()
+@_safe_tool
+def generate_review_note(
+    item_keys: list[str],
+    focus: str = "",
+    passages_per_paper: int = 5,
+) -> dict:
+    """Generate structured literature review material from multiple papers.
+
+    Extracts relevant passages from each paper (via vector index), organizes
+    them by paper with inline citations (Author, Year, p.X). The AI should
+    then synthesize these into a cohesive thematic review.
+
+    Workflow: user selects papers → this tool gathers evidence → AI writes review.
+
+    Args:
+        item_keys: Zotero item keys of papers to include in the review.
+        focus: Optional topic/question to focus extraction on. If empty,
+            returns the most important passages from each paper.
+        passages_per_paper: Max passages per paper (default 5).
+    """
+    return _generate_review_note(
+        item_keys=normalize_list(item_keys, "item_keys") or [],
+        retriever=_get_retriever(),
+        zot=_get_zot(),
+        focus=focus,
+        passages_per_paper=passages_per_paper,
+    )
+
+
+@mcp.tool()
+@_safe_tool
+def suggest_tags(
+    item_keys: list[str],
+) -> dict:
+    """Suggest tags for papers based on title/abstract/keyword analysis.
+
+    Recommends methodology tags (method:X), domain tags (domain:X), and
+    data type tags (data:X), plus matches against existing library tags.
+
+    IMPORTANT: This tool only SUGGESTS — it does NOT apply tags. After review,
+    use edit_tags with confirm=true to apply the user's chosen tags.
+
+    Args:
+        item_keys: Papers to analyze for tag suggestions.
+    """
+    return _suggest_tags(
+        item_keys=normalize_list(item_keys, "item_keys") or [],
+        zot=_get_zot(),
     )
 
 
