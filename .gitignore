@@ -36,7 +36,7 @@ htmlcov/
 .coverage
 
 # Docs (internal guides, not for distribution)
-docs/
+docs/internal/
 
 # Development progress / roadmap (internal)
 DEVELOPMENT.md
