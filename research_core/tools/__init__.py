@@ -36,6 +36,7 @@ from research_core.tools.read import (
     search_annotations,
 )
 from research_core.tools.arguments import find_arguments
+from research_core.tools.reading_note import generate_reading_note
 from research_core.tools.reading_status import get_reading_status
 from research_core.tools.recommend import recommend_papers
 from research_core.tools.review import generate_review_note
@@ -91,6 +92,7 @@ __all__ = [
     "suggest_citations",
     "sync_index",
     "find_arguments",
+    "generate_reading_note",
     "get_reading_status",
     "recommend_papers",
     "generate_review_note",

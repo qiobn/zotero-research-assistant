@@ -9,9 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from loguru import logger
-
-from research_core.rag.retriever import RetrievalResult, Retriever
+from research_core.rag.retriever import Retriever
 from research_core.zotero.client import ZoteroClient
 
 
@@ -141,12 +139,16 @@ def generate_review_note(
     all_years = [p["year"] for p in papers_list if p["year"]]
     year_range = f"{min(all_years)}–{max(all_years)}" if all_years else "unknown"
 
+    # Build formatted reference list
+    reference_list = _build_reference_list(papers_list)
+
     return {
         "focus": focus or "(general overview)",
         "paper_count": len(papers_list),
         "total_passages": len(evidence),
         "year_range": year_range,
         "papers": papers_list,
+        "reference_list": reference_list,
         "synthesis_instruction": (
             "WRITING GUIDELINES FOR ACADEMIC LITERATURE REVIEW:\n"
             "1. STRUCTURE BY THEME, NOT BY PAPER — Never write 'A studied X, B studied Y'. "
@@ -162,6 +164,29 @@ def generate_review_note(
             "sentences (e.g., 'This shift toward mixed-methods approaches (Smith, 2020, p.5; "
             "Lee et al., 2022, p.12) reflects a broader disciplinary trend...').\n"
             "6. MAINTAIN CRITICAL VOICE — Evaluate the strength of evidence, note sample "
-            "size limitations, geographic biases, or theoretical blind spots."
+            "size limitations, geographic biases, or theoretical blind spots.\n"
+            "7. ALWAYS APPEND REFERENCE LIST — End the review with a numbered '## References' "
+            "section listing all cited papers. Use the reference_list field provided below. "
+            "Every paper mentioned in the review MUST appear in the final reference list."
         ),
     }
+
+
+def _build_reference_list(papers: list[dict]) -> str:
+    """Build a formatted reference list from papers used in the review."""
+    lines: list[str] = []
+    for i, p in enumerate(papers, 1):
+        authors = p.get("authors", [])
+        year = p.get("year", "n.d.")
+        title = p.get("title", "Untitled")
+
+        if len(authors) > 3:
+            author_str = f"{authors[0]}, {authors[1]}, {authors[2]}, et al."
+        elif authors:
+            author_str = ", ".join(authors)
+        else:
+            author_str = "Unknown"
+
+        lines.append(f"[{i}] {author_str} ({year}). {title}.")
+
+    return "\n".join(lines)

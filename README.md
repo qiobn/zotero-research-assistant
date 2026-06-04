@@ -14,7 +14,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 
 | | |
 |---|---|
-| **28 MCP Tools** | One intent per tool — LLMs always pick the right one |
+| **29 MCP Tools** | One intent per tool — LLMs always pick the right one |
 | **Hybrid RAG Search** | Keyword + semantic (bge-m3, 100+ languages) + cross-encoder reranking |
 | **Multi-Source Discovery** | OpenAlex + CrossRef + Semantic Scholar in parallel, Three-Index Verification to prevent fabricated citations |
 | **Citation Network Expansion** | Corpus-First strategy + forward/backward citations + OpenAlex Related Works |
@@ -42,7 +42,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
   - [OpenAI Codex CLI](#openai-codex-cli)
   - [Other MCP Clients](#other-mcp-clients)
 - [Example Prompts](#example-prompts)
-- [MCP Tools (28)](#mcp-tools-28)
+- [MCP Tools (29)](#mcp-tools-29)
 - [Configuration](#configuration)
 - [CNKI Setup (Optional)](#cnki-setup-optional)
 - [Updating](#updating)
@@ -410,27 +410,71 @@ Any client that supports the [MCP stdio transport](https://modelcontextprotocol.
 
 ---
 
-## Example Prompts
+## Example Workflows
+
+### Research Discovery
 
 ```
-Find papers about 15-minute cities published after 2020
-List all papers in my library from 2024 onwards
-What does this paper say about the research methodology?
-Find papers similar to [paper title]
-I'm writing: "Walkability is a key indicator of urban quality..." — suggest citations
-Export BibTeX for the top 3 results
-Add this paper: 10.1016/j.cities.2025.105902
-Search online for recent studies on urban green infrastructure
-Find related papers (online + CNKI) for this paper: [title], keywords: [...]
-Tag these papers as "core reading"
-Sync my index — I just added new PDFs
+User: Find papers about 15-minute cities published after 2020
+  → search_papers (local library)
+
+User: Search online for recent studies on urban green infrastructure
+  → search_online_literature (OpenAlex + CrossRef + S2)
+
+User: I'm reading this paper [title, keywords]. Find me related literature.
+  → find_related_literature (5 parallel strategies, verified results)
+
+User: Show me who cites this paper and what it references
+  → expand_citation_network (forward + backward citations)
 ```
 
-**Write operations** (add paper, notes, tags, merge duplicates) always preview first. The assistant asks for confirmation before executing.
+### Reading & Analysis
+
+```
+User: What does this paper say about the research methodology?
+  → get_paper_content (semantic search within paper)
+
+User: Summarize these 5 papers into a literature review about "method evolution"
+  → generate_review_note → AI synthesizes thematic review with citations
+
+User: My thesis is "public services are unevenly distributed" — find evidence
+  → find_arguments (returns supporting + opposing passages with stance labels)
+
+User: What should I read next?
+  → recommend_papers (based on your annotation activity)
+```
+
+### Writing & Citing
+
+```
+User: I'm writing: "Walkability is a key indicator of urban quality..." — suggest citations
+  → suggest_citations (matches your draft to library evidence)
+
+User: Export BibTeX for the top 3 results
+  → export_bibliography
+
+User: Add this paper: 10.1016/j.cities.2025.105902
+  → add_paper (preview → confirm → auto-downloads OA PDF)
+```
+
+### Library Organization
+
+```
+User: Analyze these papers and suggest tags
+  → suggest_tags (methodology/domain/data classification, suggest-only)
+
+User: Tag these papers as "core reading"
+  → edit_tags (preview → confirm)
+
+User: Which papers have I actually read? Which are unread?
+  → reading_status (heuristic: annotations, notes, PDF open history)
+```
+
+> **Write safety**: all destructive operations (add paper, notes, tags, merge duplicates) always preview first. The assistant asks for explicit confirmation before executing.
 
 ---
 
-## MCP Tools (28)
+## MCP Tools (29)
 
 | Category | Tools |
 |----------|-------|
@@ -438,7 +482,7 @@ Sync my index — I just added new PDFs
 | **Read** | `get_paper`, `get_paper_content`, `search_annotations`, `create_annotation` |
 | **Write** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **Manage** | `add_note`, `edit_tags`, `manage_collections` |
-| **Insight** | `reading_status`, `recommend_papers`, `generate_review_note`, `suggest_tags`, `find_arguments` |
+| **Insight** | `reading_status`, `recommend_papers`, `generate_review_note`, `generate_reading_note`, `suggest_tags`, `find_arguments` |
 | **Admin** | `sync_index` |
 
 <details>
@@ -473,6 +517,7 @@ Sync my index — I just added new PDFs
 - **`reading_status`** — Analyze reading progress. Classifies papers as `deep_read` (≥3 annotations or notes), `browsed` (PDF opened recently in Zotero reader), or `unread`. Filter by scope.
 - **`recommend_papers`** — Personalized recommendations. Identifies your most-engaged papers, finds related literature via OpenAlex + S2, deduplicates, and excludes already-in-library papers.
 - **`generate_review_note`** — Extract evidence from multiple papers for literature review. Provide item keys + optional focus topic → returns passages with inline citations (Author, Year, p.X) ready for AI synthesis.
+- **`generate_reading_note`** — Structured reading note for ONE paper. Auto-extracts research question, methodology, data, findings, limitations, and contribution from the PDF. Produces a template the AI refines into a concise note.
 - **`suggest_tags`** — Analyze paper metadata to suggest methodology, domain, and data-type tags. Suggest-only — never auto-applies; user confirms via `edit_tags`.
 - **`find_arguments`** — Given a claim/thesis, find supporting and opposing evidence from your library. Classifies passages by stance (support/oppose/neutral) with citations. For writing Discussion sections.
 

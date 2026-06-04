@@ -1,6 +1,6 @@
 """Zotero Research Assistant — MCP server.
 
-28 tools, one intent each, designed to compose via `item_key`.
+29 tools, one intent each, designed to compose via `item_key`.
 
 Categories:
   DISCOVER   search_papers, search_online_literature, search_cnki_literature,
@@ -9,8 +9,8 @@ Categories:
   READ       get_paper, get_paper_content, search_annotations, create_annotation
   WRITE      suggest_citations, export_bibliography, add_paper, cnki_add_to_zotero
   MANAGE     add_note, edit_tags, manage_collections
-  INSIGHT    reading_status, recommend_papers, generate_review_note, suggest_tags,
-             find_arguments
+  INSIGHT    reading_status, recommend_papers, generate_review_note, generate_reading_note,
+             suggest_tags, find_arguments
   ADMIN      sync_index
 """
 
@@ -96,6 +96,7 @@ from research_core.tools import (
     sync_index as _sync_index,
 )
 from research_core.tools.arguments import find_arguments as _find_arguments
+from research_core.tools.reading_note import generate_reading_note as _generate_reading_note
 from research_core.tools.reading_status import get_reading_status as _get_reading_status
 from research_core.tools.recommend import recommend_papers as _recommend_papers
 from research_core.tools.review import generate_review_note as _generate_review_note
@@ -155,6 +156,7 @@ mcp = FastMCP(
         "- Reading progress / what's unread → reading_status\n"
         "- 'What should I read next?' → recommend_papers\n"
         "- 'Summarize/review these papers' → generate_review_note\n"
+        "- 'Analyze this ONE paper's structure' → generate_reading_note\n"
         "- 'Suggest tags for papers' → suggest_tags (suggest only, never auto-apply)\n"
         "- 'Find evidence for/against my argument' → find_arguments\n\n"
         "CORPUS-FIRST STRATEGY (highest priority for related paper discovery):\n"
@@ -301,6 +303,12 @@ def search_online_literature(
 
     Default for online search. Use sort_by="citations" for high-impact surveys.
     Set fields_of_study to constrain to a discipline (e.g. ['Sociology', 'Geography']).
+
+    When NOT to use:
+    - User wants papers already IN their library → use search_papers.
+    - User has a specific paper and wants related work → use find_related_literature.
+    - User wants Chinese/CNKI papers → use search_cnki_literature.
+    - User wants citation neighborhood of a known paper → use expand_citation_network.
 
     Args:
         query: Keywords or natural-language search string.
@@ -1273,6 +1281,10 @@ def reading_status(
     Detection: uses PDF attachment's dateModified as proxy for "opened in reader"
     (Zotero 7 saves reading position on close, updating the attachment timestamp).
 
+    When NOT to use:
+    - User wants to find papers by topic → use search_papers.
+    - User wants personalized recommendations → use recommend_papers.
+
     Args:
         item_keys: Check specific papers. If omitted, scans recent library items.
         scope: Filter by status ("all" | "unread" | "deep_read" | "browsed").
@@ -1305,6 +1317,11 @@ def recommend_papers(
     → queries OpenAlex Related Works + S2 Recommendations for each → merges,
     deduplicates, removes already-in-library papers → ranks by cross-seed frequency.
 
+    When NOT to use:
+    - User wants to search by specific topic → use search_online_literature.
+    - User has a paper and wants related work → use find_related_literature.
+    - User wants to check reading progress → use reading_status.
+
     Args:
         days: Look-back window for activity detection (default 60 days).
         max_seeds: Max seed papers to base recommendations on.
@@ -1334,8 +1351,15 @@ def generate_review_note(
     IMPORTANT: The AI must write a THEMATIC review (organized by intellectual
     themes and trends), NOT a paper-by-paper summary. Trace how ideas evolve,
     identify agreements/contradictions, and highlight research gaps.
+    ALWAYS end the review with a numbered "References" section (provided in
+    the `reference_list` field of the response).
 
     Workflow: user selects papers → this tool gathers evidence → AI synthesizes.
+
+    When NOT to use:
+    - User wants to find evidence for/against a specific argument → use find_arguments.
+    - User wants citations for their own draft text → use suggest_citations.
+    - User wants to read one paper's content → use get_paper_content.
 
     Args:
         item_keys: Zotero item keys of papers to include in the review.
@@ -1365,12 +1389,53 @@ def suggest_tags(
     IMPORTANT: This tool only SUGGESTS — it does NOT apply tags. After review,
     use edit_tags with confirm=true to apply the user's chosen tags.
 
+    When NOT to use:
+    - User already knows which tags to apply → use edit_tags directly.
+    - User wants to see existing tags → use browse_library(scope='tags').
+
     Args:
         item_keys: Papers to analyze for tag suggestions.
     """
     return _suggest_tags(
         item_keys=normalize_list(item_keys, "item_keys") or [],
         zot=_get_zot(),
+    )
+
+
+@mcp.tool()
+@_safe_tool
+def generate_reading_note(
+    item_key: str,
+    sections: list[str] | None = None,
+    passages_per_section: int = 2,
+) -> dict:
+    """Generate a structured reading note template for ONE paper.
+
+    Extracts key academic components (RQ, methodology, data, findings,
+    limitations, contribution) by querying the paper's indexed PDF content.
+    Returns structured evidence that the AI refines into a polished note.
+
+    Typical workflow: user opens a paper → this tool extracts structure →
+    AI writes a concise reading note → user saves via add_note.
+
+    When NOT to use:
+    - User wants a review across MULTIPLE papers → use generate_review_note.
+    - User wants to read raw content → use get_paper_content.
+    - User already has a note to write → use add_note directly.
+
+    Args:
+        item_key: The paper's Zotero item key.
+        sections: Which sections to extract. Default all:
+            ["research_question", "methodology", "data", "key_findings",
+             "limitations", "contribution"].
+        passages_per_section: Max passages per section (default 2).
+    """
+    return _generate_reading_note(
+        item_key=item_key,
+        retriever=_get_retriever(),
+        zot=_get_zot(),
+        sections=normalize_list(sections, "sections"),
+        passages_per_section=passages_per_section,
     )
 
 
@@ -1389,6 +1454,11 @@ def find_arguments(
 
     Use this when the user is writing a Discussion section and needs to know
     which library papers support or challenge their argument.
+
+    When NOT to use:
+    - User wants a literature review across papers → use generate_review_note.
+    - User wants citations for their draft text → use suggest_citations.
+    - User wants to search by topic (no specific claim) → use search_papers.
 
     Args:
         claim: The thesis or argument to find evidence for/against.
