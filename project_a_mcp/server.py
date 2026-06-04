@@ -1325,10 +1325,14 @@ def generate_review_note(
     """Generate structured literature review material from multiple papers.
 
     Extracts relevant passages from each paper (via vector index), organizes
-    them by paper with inline citations (Author, Year, p.X). The AI should
-    then synthesize these into a cohesive thematic review.
+    them with inline citations (Author, Year, p.X). Returns structured evidence
+    plus academic writing guidelines for synthesizing a thematic review.
 
-    Workflow: user selects papers → this tool gathers evidence → AI writes review.
+    IMPORTANT: The AI must write a THEMATIC review (organized by intellectual
+    themes and trends), NOT a paper-by-paper summary. Trace how ideas evolve,
+    identify agreements/contradictions, and highlight research gaps.
+
+    Workflow: user selects papers → this tool gathers evidence → AI synthesizes.
 
     Args:
         item_keys: Zotero item keys of papers to include in the review.

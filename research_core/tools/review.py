@@ -148,8 +148,20 @@ def generate_review_note(
         "year_range": year_range,
         "papers": papers_list,
         "synthesis_instruction": (
-            "Use the evidence above to write a cohesive literature review. "
-            "Group findings by theme, not by paper. Use the provided citations "
-            "in parenthetical format. Identify agreements, contradictions, and gaps."
+            "WRITING GUIDELINES FOR ACADEMIC LITERATURE REVIEW:\n"
+            "1. STRUCTURE BY THEME, NOT BY PAPER — Never write 'A studied X, B studied Y'. "
+            "Instead, identify cross-cutting themes (e.g., methodological evolution, "
+            "theoretical tensions, empirical consensus) and weave multiple sources into each theme.\n"
+            "2. TRACE INTELLECTUAL LINEAGE — Show how ideas evolved over time: "
+            "who built on whom, where the field shifted direction, what triggered new approaches.\n"
+            "3. SYNTHESIZE, DON'T SUMMARIZE — Highlight agreements, contradictions, "
+            "and unresolved debates across papers. Compare findings rather than listing them.\n"
+            "4. IDENTIFY GAPS — Explicitly state what remains unaddressed, what methodological "
+            "limitations persist, and where future research is needed.\n"
+            "5. USE CITATIONS AS EVIDENCE — Integrate citations naturally within analytical "
+            "sentences (e.g., 'This shift toward mixed-methods approaches (Smith, 2020, p.5; "
+            "Lee et al., 2022, p.12) reflects a broader disciplinary trend...').\n"
+            "6. MAINTAIN CRITICAL VOICE — Evaluate the strength of evidence, note sample "
+            "size limitations, geographic biases, or theoretical blind spots."
         ),
     }
