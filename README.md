@@ -50,6 +50,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 - [Architecture](#architecture)
 - [Development](#development)
 - [Acknowledgments](#acknowledgments)
+- [Disclaimer / 免责声明](#disclaimer--免责声明)
 - [License](#license)
 
 ---
@@ -113,7 +114,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 | **MCP client** | Cursor, Claude Desktop, Cherry Studio, Trae, Codex CLI, etc. |
 | **LLM** | Any model with tool/function calling (Claude, GPT-4o, DeepSeek, Qwen, Gemini, …) |
 | **Disk** | ~2.5 GB for embedding model (`bge-m3`) on first run |
-| **Git** | To clone this repository |
+| **Git** | Only needed for Option B (clone from source) |
 
 > **Path tip:** Install in a short path without spaces or non-ASCII characters, e.g. `~/zotero-research-assistant` (macOS/Linux) or `C:\Dev\zotero-research-assistant` (Windows).
 
@@ -121,27 +122,27 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 
 ## Quick Start
 
-### Option A: Install via pip (recommended)
+### 1. Install
+
+**Option A: pip install (recommended for most users)**
 
 ```bash
 pip install zotero-research-assistant
 ```
 
-With CNKI support:
+With CNKI (Chinese literature) support:
 ```bash
 pip install "zotero-research-assistant[cnki]"
 ```
 
-After installing, run `zra-mcp` to start the MCP server.
+After installing, run `zra-mcp` to start the MCP server. Skip to [Step 2](#2-configure-zotero).
 
-### Option B: Clone the repository (for development)
+**Option B: Clone from source (for development or customization)**
 
 ```bash
 git clone https://github.com/qiobn/zotero-research-assistant.git
 cd zotero-research-assistant
 ```
-
-### 2. Install dependencies
 
 Install [uv](https://github.com/astral-sh/uv) (fast Python package manager) if not already present:
 
@@ -174,7 +175,7 @@ python -c "from project_a_mcp.server import mcp; print('OK')"
 
 > First run downloads the embedding model (~2.3 GB). If download is slow, set `HF_ENDPOINT=https://hf-mirror.com` and retry.
 
-### 3. Configure Zotero
+### 2. Configure Zotero
 
 **Enable local API** (required):
 
@@ -182,11 +183,14 @@ python -c "from project_a_mcp.server import mcp; print('OK')"
 2. Check **"Allow other applications on this computer to communicate with Zotero"**
 3. Verify: http://localhost:23119/api/ should return JSON
 
-**Create `.env`:**
+**Set environment variables:**
 
+If you used Option B (clone), create a `.env` file in the project folder:
 ```bash
 cp .env.example .env
 ```
+
+If you used Option A (pip install), set environment variables in your shell or create a `.env` file in your working directory.
 
 Minimum for **read-only** mode (search, read, cite):
 ```ini
@@ -200,23 +204,22 @@ ZOTERO_LIBRARY_ID=12345678
 ZOTERO_API_KEY=your_api_key_here
 ```
 
-### 4. Build the vector index (first time)
+### 3. Build the vector index (first time)
 
-Ensure Zotero is running, then:
+The MCP server **auto-syncs on startup** (`ZRA_AUTO_SYNC=true` by default). On first launch it will parse all your PDFs and build the semantic index automatically.
+
+If you cloned from source and want to build the index manually:
 ```bash
 python scripts/index_library.py
 ```
 
-This parses PDFs and stores embeddings in `.chroma_db/` (local only, not committed to git).
-Typical time: ~3–5 min for 100 papers, ~10–15 min for 500 papers.
+The index is stored in `.chroma_db/` (local only). Typical time: ~3–5 min for 100 papers, ~10–15 min for 500 papers.
 
-After the first run, the server **auto-syncs incrementally** on startup (`ZRA_AUTO_SYNC=true`).
-
-### 5. Connect your AI client
+### 4. Connect your AI client
 
 See the [Client Setup](#client-setup) section below for your specific tool.
 
-### 6. Test the connection
+### 5. Test the connection
 
 1. Start **Zotero desktop**
 2. Open a **new chat** in your MCP client
@@ -718,6 +721,26 @@ This project was inspired by and built upon ideas from:
 - **[nature-skills](https://github.com/Yuan1z0825/nature-skills)** — Inspiration for the Three-Index Verification approach (cross-checking citations against multiple bibliographic databases).
 
 Thank you to the authors of these projects for sharing their work with the community.
+
+---
+
+## Disclaimer / 免责声明
+
+### English
+
+1. **AI output quality depends on the connected model.** Although this project implements multiple anti-hallucination mechanisms (Three-Index Verification, `[MATERIAL GAP]` tagging, source provenance), the final quality of literature reviews, summaries, and recommendations is ultimately determined by the LLM you connect. Always verify AI-generated citations against the original sources before using them in academic work. AI can and does fabricate references — treat all outputs as drafts requiring human verification.
+
+2. **For learning and research purposes only.** This project is open-source and intended solely for personal academic research and educational use. It is not commercialized and no profit is derived from it. If any content or functionality inadvertently infringes on intellectual property or terms of service of third-party platforms (CNKI, publishers, etc.), please open an issue and we will address it promptly.
+
+3. **Why this project exists.** The original motivation is to help graduate students and researchers — especially those without extensive computer science backgrounds — leverage AI-enhanced Zotero for more efficient academic workflows. That is why the documentation is deliberately detailed, step-by-step, and why Cherry Studio was chosen as the primary interaction interface: it provides a user-friendly GUI that doesn't require terminal expertise. We believe powerful research tools should be accessible to everyone, not just developers.
+
+### 中文
+
+1. **生成质量取决于接入的大语言模型。** 尽管本项目实现了多重防幻觉机制（三索引交叉验证、`[MATERIAL GAP]` 结构化标记、来源可溯），但文献综述、摘要和推荐的最终质量仍取决于你所使用的 AI 模型。请务必在正式引用前核实 AI 生成的文献是否真实存在。AI 有可能且确实会编造参考文献——请将所有输出视为需要人工核实的草稿。
+
+2. **仅供学习交流使用。** 本项目为开源项目，仅用于个人学术研究和学习交流，不作任何商业用途，不从中获取利润。如本项目的任何内容或功能无意中侵犯了第三方平台（知网、出版商等）的知识产权或服务条款，请通过 Issue 及时告知，我们会第一时间处理。
+
+3. **项目初衷。** 本项目的出发点是帮助没有太多计算机操作基础的研究生和科研工作者，也能利用 AI 增强的 Zotero 来提升学术研究效率。因此文档会写得尽量详细、步骤尽量清晰，并且选择了 Cherry Studio 作为主要的交互界面——它提供了友好的图形化操作，不需要使用终端命令行。我们相信，强大的科研工具应该让每个人都能用上，而不只是程序员。
 
 ---
 

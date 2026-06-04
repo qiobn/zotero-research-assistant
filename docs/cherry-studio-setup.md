@@ -157,7 +157,25 @@ HF_ENDPOINT 镜像就行。如果 GitHub 也访问不了，让能访问的人帮
 第 2 步：下载项目并安装依赖
 ========================================
 
--------- 2.1 下载项目 --------
+你有两种安装方式可以选择：
+
+-------- 方式 A：pip 直接安装（推荐普通用户） --------
+
+在终端/cmd 中运行：
+
+    pip install zotero-research-assistant
+
+如果需要知网检索功能（可选）：
+
+    pip install "zotero-research-assistant[cnki]"
+
+安装完成后，运行 zra-mcp 即可启动 MCP 服务。
+可以直接跳到「第 3 步：配置 Zotero」。
+
+注意：如果你的电脑上有多个 Python 版本，可能需要用 pip3 代替 pip。
+
+
+-------- 方式 B：从源码安装（适合开发者或需要自定义） --------
 
 macOS（终端中运行）：
     cd ~
@@ -174,9 +192,7 @@ Windows（cmd 中运行）：
     项目会下载到 C:\Users\zhangsan\zotero-research-assistant
 
 
--------- 2.2 创建虚拟环境并安装依赖 --------
-
-在上一步的终端中继续运行（不要关闭）：
+创建虚拟环境并安装依赖（在上一步的终端中继续运行）：
 
     uv venv .venv --python 3.13
 
