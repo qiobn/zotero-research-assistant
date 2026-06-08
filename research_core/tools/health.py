@@ -232,7 +232,7 @@ def _check_embedding_model() -> dict:
     name = "embedding_model"
     model_name = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
     try:
-        from research_core.rag.embeddings import get_embedding_function
+        from research_core.rag.embedding import get_embedding_function
         ef = get_embedding_function()
         # Try a minimal embedding to verify it works
         result = ef([" test"])

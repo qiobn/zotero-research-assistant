@@ -242,13 +242,13 @@ def _diagnose_error(error_msg: str, tool_name: str) -> str | None:
     """Provide a user-friendly diagnosis for common errors."""
     lower = error_msg.lower()
 
-    if "connection refused" in lower or "connect" in lower and "23119" in lower:
+    if "connection refused" in lower or ("connect" in lower and "23119" in lower):
         return (
             "可能原因 / Possible cause: Zotero 桌面版未启动或本地 API 未开启。\n"
             "建议 / Suggestion: 打开 Zotero → 设置 → 高级 → 启用本地 API。\n"
             "或调用 check_health 进行完整诊断。"
         )
-    if "no items" in lower or "empty" in lower and "index" in lower:
+    if "no items" in lower or ("empty" in lower and "index" in lower):
         return (
             "可能原因 / Possible cause: 向量索引为空，需要先构建索引。\n"
             "建议 / Suggestion: 对我说 \"sync index\" 来构建论文索引。"
