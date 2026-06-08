@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import chromadb
 
-from research_core.rag.embedding import get_embedding_function
+from research_core.rag.store import get_collection
 
 
 @dataclass
@@ -28,12 +28,10 @@ class Retriever:
         self,
         persist_dir: str = ".chroma_db",
         collection_name: str = "research_chunks",
+        collection: chromadb.Collection | None = None,
     ):
-        self._client = chromadb.PersistentClient(path=persist_dir)
-        self._collection = self._client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-            embedding_function=get_embedding_function(),
+        self._collection = collection or get_collection(
+            persist_dir, collection_name
         )
 
     def search(
@@ -77,7 +75,7 @@ class Retriever:
             query,
             n_results=n_results,
             where=where,
-            include_references=True,  # already handled above
+            include_references=True,
         )
 
     def get_item_chunks(
@@ -85,7 +83,7 @@ class Retriever:
         item_key: str,
         page: int | None = None,
     ) -> list[RetrievalResult]:
-        """Retrieve all chunks of one paper, optionally filtered by page number."""
+        """Retrieve all chunks of one paper, optionally filtered by page."""
         where: dict = {"item_key": item_key}
         if page is not None:
             where = {
@@ -95,7 +93,9 @@ class Retriever:
                     {"page_end": {"$gte": page}},
                 ]
             }
-        raw = self._collection.get(where=where, include=["documents", "metadatas"])
+        raw = self._collection.get(
+            where=where, include=["documents", "metadatas"]
+        )
         docs = raw.get("documents", []) or []
         metas = raw.get("metadatas", []) or []
         out: list[RetrievalResult] = []
@@ -149,7 +149,7 @@ class Retriever:
         return out
 
     def list_indexed_items(self) -> set[str]:
-        """Return the set of item_keys currently indexed in the vector store."""
+        """Return the set of item_keys currently indexed."""
         raw = self._collection.get(include=["metadatas"])
         metas = raw.get("metadatas", []) or []
         return {m.get("item_key", "") for m in metas if m.get("item_key")}
@@ -174,8 +174,16 @@ class Retriever:
         if not raw or not raw.get("documents"):
             return []
         docs = raw["documents"][0]
-        metas = raw["metadatas"][0] if raw.get("metadatas") else [{}] * len(docs)
-        dists = raw["distances"][0] if raw.get("distances") else [0.0] * len(docs)
+        metas = (
+            raw["metadatas"][0]
+            if raw.get("metadatas")
+            else [{}] * len(docs)
+        )
+        dists = (
+            raw["distances"][0]
+            if raw.get("distances")
+            else [0.0] * len(docs)
+        )
         out: list[RetrievalResult] = []
         for doc, meta, dist in zip(docs, metas, dists, strict=True):
             out.append(

@@ -26,14 +26,12 @@ def inspect_index(
 
 
 def _inspect_global(retriever: Retriever) -> dict:
-    """Aggregate index statistics and problem detection."""
-    raw = retriever._collection.get(
-        include=["documents", "metadatas"]
-    )
-    docs = raw.get("documents", []) or []
-    metas = raw.get("metadatas", []) or []
+    """Aggregate index statistics and problem detection.
 
-    if not docs:
+    Uses paginated reads to avoid loading entire index into memory.
+    """
+    total_count = retriever.count()
+    if total_count == 0:
         return {
             "status": "empty",
             "total_chunks": 0,
@@ -49,22 +47,37 @@ def _inspect_global(retriever: Retriever) -> dict:
     section_counts: Counter = Counter()
     chunk_lengths: list[int] = []
     issues: list[str] = []
-
     figure_table_count = 0
-    for doc, meta in zip(docs, metas, strict=True):
-        key = meta.get("item_key", "unknown")
-        papers.setdefault(key, []).append(len(doc))
-        chunk_lengths.append(len(doc))
-        section_counts[meta.get("section", "content")] += 1
-        if meta.get("has_figure_table"):
-            figure_table_count += 1
 
-        if len(doc) < 50:
-            issues.append(
-                f"{key}: chunk too short ({len(doc)} chars)"
-            )
-        if _is_garbled(doc):
-            issues.append(f"{key}: possible garbled text")
+    _PAGE_SIZE = 1000
+    offset = 0
+    while offset < total_count:
+        raw = retriever._collection.get(
+            include=["documents", "metadatas"],
+            limit=_PAGE_SIZE,
+            offset=offset,
+        )
+        docs = raw.get("documents", []) or []
+        metas = raw.get("metadatas", []) or []
+        if not docs:
+            break
+
+        for doc, meta in zip(docs, metas, strict=True):
+            key = meta.get("item_key", "unknown")
+            papers.setdefault(key, []).append(len(doc))
+            chunk_lengths.append(len(doc))
+            section_counts[meta.get("section", "content")] += 1
+            if meta.get("has_figure_table"):
+                figure_table_count += 1
+
+            if len(doc) < 50:
+                issues.append(
+                    f"{key}: chunk too short ({len(doc)} chars)"
+                )
+            if _is_garbled(doc):
+                issues.append(f"{key}: possible garbled text")
+
+        offset += len(docs)
 
     papers_with_few_chunks = [
         f"{k} ({len(v)} chunks)"
