@@ -7,7 +7,7 @@ access dates), then uses recent reading patterns to recommend related papers.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from research_core.zotero.client import ZoteroClient
 
@@ -31,7 +31,7 @@ def _parse_date(date_str: str) -> datetime | None:
         return None
     for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d"):
         try:
-            return datetime.strptime(date_str, fmt).replace(tzinfo=timezone.utc)
+            return datetime.strptime(date_str, fmt).replace(tzinfo=UTC)
         except ValueError:
             continue
     return None
@@ -73,7 +73,7 @@ def get_reading_status(
     Returns:
         List of paper status dicts with key, title, status, annotation_count, etc.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     recent_cutoff = now - timedelta(days=days_recent)
 
     if item_keys:

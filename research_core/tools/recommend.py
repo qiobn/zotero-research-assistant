@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 
@@ -26,7 +26,7 @@ def _extract_focus_papers(
     max_seeds: int = 5,
 ) -> list[dict]:
     """Identify recently active papers ranked by engagement (annotations > notes > modified)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff = now - timedelta(days=days)
 
     raw_items = zot._zot.items(

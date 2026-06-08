@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import re
 
-import httpx
+import httpx  # noqa: F401
 from loguru import logger
 
+from research_core.sources import http_client as _http
 from research_core.sources.models import ExternalPaper
 
 _CROSSREF_BASE = "https://api.crossref.org/works"
@@ -97,7 +98,7 @@ def search_crossref(
         params["order"] = "desc"
 
     try:
-        r = httpx.get(
+        r = _http.get(
             _CROSSREF_BASE,
             params=params,
             headers={"User-Agent": _USER_AGENT},
