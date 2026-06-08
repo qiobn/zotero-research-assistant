@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 
-import httpx
 from loguru import logger
 
+from research_core.sources import http_client as _http
 from research_core.sources.models import ExternalPaper
 
 _OPENALEX_BASE = "https://api.openalex.org"
@@ -122,7 +122,7 @@ def search_openalex(
         params["filter"] = ",".join(filters)
 
     try:
-        r = httpx.get(
+        r = _http.get(
             f"{_OPENALEX_BASE}/works",
             params=params,
             headers={"User-Agent": _USER_AGENT},
@@ -196,7 +196,7 @@ def resolve_openalex_id(doi: str = "", title: str = "") -> str | None:
     if doi:
         url = f"{_OPENALEX_BASE}/works/doi:{doi.strip()}"
         try:
-            r = httpx.get(
+            r = _http.get(
                 url,
                 params={"mailto": _mailto()},
                 headers={"User-Agent": _USER_AGENT},
@@ -209,7 +209,7 @@ def resolve_openalex_id(doi: str = "", title: str = "") -> str | None:
 
     if title:
         try:
-            r = httpx.get(
+            r = _http.get(
                 f"{_OPENALEX_BASE}/works",
                 params={
                     "search": title.strip(),
@@ -273,7 +273,7 @@ def get_cited_by(
     }
 
     try:
-        r = httpx.get(
+        r = _http.get(
             f"{_OPENALEX_BASE}/works",
             params=params,
             headers={"User-Agent": _USER_AGENT},
@@ -322,7 +322,7 @@ def get_references(
     }
 
     try:
-        r = httpx.get(
+        r = _http.get(
             f"{_OPENALEX_BASE}/works",
             params=params,
             headers={"User-Agent": _USER_AGENT},
@@ -375,7 +375,7 @@ def get_related_works(
     }
 
     try:
-        r = httpx.get(
+        r = _http.get(
             f"{_OPENALEX_BASE}/works",
             params=params,
             headers={"User-Agent": _USER_AGENT},

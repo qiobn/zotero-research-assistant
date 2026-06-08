@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import os
-import time
 
-import httpx
 from loguru import logger
 
+from research_core.sources import http_client as _http
 from research_core.sources.models import ExternalPaper
 
 _S2_BASE = "https://api.semanticscholar.org/graph/v1"
@@ -60,25 +59,20 @@ def search_semantic_scholar(
             params["fieldsOfStudy"] = ",".join(valid)
 
     data: list = []
-    for attempt in range(3):
-        try:
-            r = httpx.get(
-                f"{_S2_BASE}/paper/search",
-                params=params,
-                headers=headers,
-                timeout=20,
-            )
-            if r.status_code == 429:
-                time.sleep(2**attempt)
-                continue
-            if r.status_code != 200:
-                logger.debug(f"Semantic Scholar search failed: {r.status_code}")
-                return []
-            data = r.json().get("data") or []
-            break
-        except Exception as e:
-            logger.debug(f"Semantic Scholar search error: {e}")
+    try:
+        r = _http.get(
+            f"{_S2_BASE}/paper/search",
+            params=params,
+            headers=headers,
+            timeout=20,
+        )
+        if r.status_code != 200:
+            logger.debug(f"Semantic Scholar search failed: {r.status_code}")
             return []
+        data = r.json().get("data") or []
+    except Exception as e:
+        logger.debug(f"Semantic Scholar search error: {e}")
+        return []
 
     papers: list[ExternalPaper] = []
     for item in data:
@@ -159,42 +153,22 @@ def get_s2_recommendations(
 
     fetch_count = min(limit, 100)
 
-    # Use POST multi-paper endpoint for multiple seeds, GET for single
     try:
         if len(paper_ids) == 1:
-            r = httpx.get(
+            r = _http.get(
                 f"{_S2_REC_BASE}/papers/forpaper/{paper_ids[0]}",
                 params={"fields": _REC_FIELDS, "limit": fetch_count, "from": "recent"},
                 headers=headers,
                 timeout=20,
             )
         else:
-            r = httpx.post(
+            r = _http.post(
                 f"{_S2_REC_BASE}/papers",
                 params={"fields": _REC_FIELDS, "limit": fetch_count},
                 json={"positivePaperIds": paper_ids, "negativePaperIds": []},
                 headers=headers,
                 timeout=20,
             )
-
-        if r.status_code == 429:
-            time.sleep(2)
-            # Retry once
-            if len(paper_ids) == 1:
-                r = httpx.get(
-                    f"{_S2_REC_BASE}/papers/forpaper/{paper_ids[0]}",
-                    params={"fields": _REC_FIELDS, "limit": fetch_count, "from": "recent"},
-                    headers=headers,
-                    timeout=20,
-                )
-            else:
-                r = httpx.post(
-                    f"{_S2_REC_BASE}/papers",
-                    params={"fields": _REC_FIELDS, "limit": fetch_count},
-                    json={"positivePaperIds": paper_ids, "negativePaperIds": []},
-                    headers=headers,
-                    timeout=20,
-                )
 
         if r.status_code != 200:
             logger.debug(f"S2 recommendations failed: {r.status_code} - {r.text[:200]}")

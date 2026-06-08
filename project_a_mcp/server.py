@@ -216,11 +216,17 @@ mcp = FastMCP(
     lifespan=_lifespan,
 )
 
-_MAX_RESPONSE_CHARS = 50000
+_MAX_RESPONSE_CHARS = 80000
+_TRIM_TARGET_CHARS = 60000
 
 
 def _truncate_response(result):
-    """Cap tool response size to prevent LLM context overflow."""
+    """Cap tool response size to prevent LLM context overflow.
+
+    Strategy: trim verbose text fields FIRST (abstracts, passages, previews),
+    preserving the number of items. Only drop items as a last resort.
+    This ensures search results stay complete while individual entries get shorter.
+    """
     if result is None:
         return result
     import json
@@ -230,30 +236,89 @@ def _truncate_response(result):
         text = str(result)
     if len(text) <= _MAX_RESPONSE_CHARS:
         return result
-    if isinstance(result, dict):
-        result = dict(result)
-        result["_truncated"] = True
-        result["_truncated_note"] = (
-            f"Response exceeded {_MAX_RESPONSE_CHARS} chars and was "
-            "truncated. Ask for specific sections or use pagination."
-        )
-        for key in ("chunks", "passages", "items", "results",
-                    "hits", "fulltext", "text"):
-            if key in result and isinstance(result[key], (list, str)):
-                if isinstance(result[key], str):
-                    result[key] = (
-                        result[key][:_MAX_RESPONSE_CHARS // 2]
-                        + "\n\n[...TRUNCATED...]"
-                    )
-                elif isinstance(result[key], list) and len(result[key]) > 5:
-                    result[key] = result[key][:5]
-                    result[f"_{key}_total"] = "truncated"
-                break
-    elif isinstance(result, str) and len(result) > _MAX_RESPONSE_CHARS:
-        result = (
-            result[:_MAX_RESPONSE_CHARS]
+
+    if isinstance(result, str):
+        return (
+            result[:_TRIM_TARGET_CHARS]
             + "\n\n[...TRUNCATED — ask for specific pages or sections...]"
         )
+
+    if not isinstance(result, dict):
+        return result
+
+    result = dict(result)
+
+    # Phase 1: Trim long text fields within list items (keep all items)
+    _LIST_KEYS = (
+        "data", "chunks", "passages", "items", "results", "hits",
+    )
+    _TEXT_FIELDS = (
+        "text", "abstract", "passage", "preview", "matched_passage",
+        "evidence", "content", "fulltext",
+    )
+    for key in _LIST_KEYS:
+        if key not in result or not isinstance(result[key], list):
+            continue
+        for item in result[key]:
+            if not isinstance(item, dict):
+                continue
+            for tf in _TEXT_FIELDS:
+                if tf in item and isinstance(item[tf], str) and len(item[tf]) > 300:
+                    item[tf] = item[tf][:300] + "..."
+
+    # Phase 1b: Trim top-level long strings (fulltext, text)
+    for key in ("fulltext", "text"):
+        if key in result and isinstance(result[key], str):
+            if len(result[key]) > _TRIM_TARGET_CHARS:
+                result[key] = (
+                    result[key][:_TRIM_TARGET_CHARS]
+                    + "\n\n[...TRUNCATED...]"
+                )
+
+    # Re-check size after trimming text
+    try:
+        text = json.dumps(result, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        text = str(result)
+    if len(text) <= _MAX_RESPONSE_CHARS:
+        return result
+
+    # Phase 2: Still too large — trim list lengths (keep at least 15 items)
+    for key in _LIST_KEYS:
+        if key in result and isinstance(result[key], list):
+            total = len(result[key])
+            if total > 15:
+                result[key] = result[key][:15]
+                result["_truncated"] = True
+                result["_truncated_note"] = (
+                    f"{key}: showing 15/{total} items. "
+                    "Use a smaller limit or ask for specific items."
+                )
+                break
+
+    # Phase 3: Nuclear option — hard character cap
+    try:
+        text = json.dumps(result, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        text = str(result)
+    if len(text) > _MAX_RESPONSE_CHARS:
+        result["_truncated"] = True
+        result["_truncated_note"] = (
+            "Response still too large after trimming. "
+            "Please use a smaller limit or request specific sections."
+        )
+
+    return result
+
+
+def _normalize_response(result):
+    """Ensure tool responses have a consistent dict envelope.
+
+    Bare lists get wrapped as {data: [...], count: N} so the LLM always
+    receives a dict with predictable top-level keys.
+    """
+    if isinstance(result, list):
+        return {"data": result, "count": len(result)}
     return result
 
 
@@ -263,6 +328,7 @@ def _safe_tool(func):
     def wrapper(*args, **kwargs):
         try:
             result = func(*args, **kwargs)
+            result = _normalize_response(result)
             return _truncate_response(result)
         except Exception as exc:
             logger.error(f"Tool {func.__name__} failed: {exc}\n{traceback.format_exc()}")
@@ -634,115 +700,19 @@ def expand_citation_network(
         year_from/year_to: Publication year window.
         limit: Max total results (default 30).
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    from research_core.sources.openalex import (
-        get_cited_by,
-        get_references,
-        resolve_openalex_id,
+    from research_core.tools.citation_network import (
+        expand_citation_network as _expand_cn,
     )
 
-    # Normalize input: support both single doi and multi-doi
-    seed_dois = normalize_list(dois, "dois") or []
-    if not seed_dois and doi:
-        seed_dois = [doi]
-    if not seed_dois and not title:
-        return {"error": "Provide at least doi, dois, or title to identify seed paper(s)."}
-
-    # Resolve all seeds to OpenAlex IDs
-    resolved_ids: list[str] = []
-    failed_seeds: list[str] = []
-
-    for d in seed_dois:
-        oa_id = resolve_openalex_id(doi=d.strip())
-        if oa_id:
-            resolved_ids.append(oa_id)
-        else:
-            failed_seeds.append(d)
-
-    if not resolved_ids and title:
-        oa_id = resolve_openalex_id(title=title)
-        if oa_id:
-            resolved_ids.append(oa_id)
-
-    if not resolved_ids:
-        return {
-            "error": "Could not find any seed paper(s) in OpenAlex. Verify the DOIs are correct.",
-            "failed_dois": failed_seeds,
-            "title_provided": title[:80] if title else "",
-        }
-
-    norm_fields = normalize_list(fields_of_study, "fields_of_study")
-    per_seed_limit = max(limit // len(resolved_ids), 10)
-    half = max(per_seed_limit // 2, 5)
-
-    all_citing: list = []
-    all_refs: list = []
-
-    with ThreadPoolExecutor(max_workers=min(len(resolved_ids) * 2, 8)) as pool:
-        futures = {}
-        for oa_id in resolved_ids:
-            futures[pool.submit(get_cited_by, oa_id, year_from=year_from, year_to=year_to,
-                                fields_of_study=norm_fields, limit=half)] = ("citing", oa_id)
-            futures[pool.submit(get_references, oa_id, year_from=year_from, year_to=year_to,
-                                fields_of_study=norm_fields, limit=half)] = ("refs", oa_id)
-
-        for future in as_completed(futures):
-            kind, _ = futures[future]
-            try:
-                papers = future.result()
-                if kind == "citing":
-                    all_citing.extend(papers)
-                else:
-                    all_refs.extend(papers)
-            except Exception:
-                pass
-
-    # Deduplicate by DOI
-    def _dedup(papers: list) -> list:
-        seen: set[str] = set()
-        unique = []
-        for p in papers:
-            key = p.doi.lower() if p.doi else p.title.lower()[:50]
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(p)
-        return unique
-
-    all_citing = _dedup(all_citing)
-    all_refs = _dedup(all_refs)
-    all_citing.sort(key=lambda p: p.citation_count, reverse=True)
-    all_refs.sort(key=lambda p: p.citation_count, reverse=True)
-    all_citing = all_citing[:limit]
-    all_refs = all_refs[:limit]
-
-    def _paper_to_dict(p) -> dict:
-        d = p.__dict__ if hasattr(p, "__dict__") else dict(p)
-        if p.doi:
-            d["source_url"] = f"https://doi.org/{p.doi}"
-        elif p.source_id:
-            d["source_url"] = p.source_id
-        else:
-            d["source_url"] = ""
-        return d
-
-    response = {
-        "seeds_resolved": len(resolved_ids),
-        "failed_seeds": failed_seeds if failed_seeds else None,
-        "citing_papers": [_paper_to_dict(p) for p in all_citing],
-        "citing_count": len(all_citing),
-        "referenced_papers": [_paper_to_dict(p) for p in all_refs],
-        "references_count": len(all_refs),
-        "verified_sources_only": True,
-    }
-    if not all_citing and not all_refs:
-        response["[MATERIAL GAP]"] = (
-            "NO_CITATION_NETWORK_RESULTS. Forward and backward citations both empty. "
-            "DO NOT fabricate or recall papers from memory. "
-            "REQUIRED: Report gap honestly. The DOI may not be indexed in OpenAlex."
-        )
-    return response
+    return _expand_cn(
+        dois=normalize_list(dois, "dois"),
+        doi=doi,
+        title=title,
+        fields_of_study=normalize_list(fields_of_study, "fields_of_study"),
+        year_from=year_from,
+        year_to=year_to,
+        limit=limit,
+    )
 
 
 @mcp.tool()

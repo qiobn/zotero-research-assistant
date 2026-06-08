@@ -7,6 +7,8 @@ designed to compose via `item_key`.
 from research_core.sources.cnki.models import CnkiPaperHit
 from research_core.sources.models import OnlinePaperHit
 from research_core.tools.admin import SyncReport, sync_index
+from research_core.tools.arguments import find_arguments
+from research_core.tools.citation_network import expand_citation_network
 from research_core.tools.cite import (
     BibliographyExport,
     CitationSuggestion,
@@ -19,6 +21,8 @@ from research_core.tools.cnki_zotero import CnkiZoteroResult, cnki_add_to_zotero
 from research_core.tools.discover_cnki import search_cnki_literature
 from research_core.tools.discover_online import search_online_literature
 from research_core.tools.find_related import find_related_literature
+from research_core.tools.health import check_health
+from research_core.tools.inspect_index import inspect_index, test_recall
 from research_core.tools.manage import (
     AddPaperResult,
     WriteResult,
@@ -35,14 +39,10 @@ from research_core.tools.read import (
     get_paper_content,
     search_annotations,
 )
-from research_core.tools.arguments import find_arguments
-from research_core.tools.health import check_health
-from research_core.tools.inspect_index import inspect_index, test_recall
 from research_core.tools.reading_note import generate_reading_note
 from research_core.tools.reading_status import get_reading_status
 from research_core.tools.recommend import recommend_papers
 from research_core.tools.review import generate_review_note
-from research_core.tools.suggest_tags import suggest_tags
 from research_core.tools.search import (
     BrowseResult,
     DuplicateGroup,
@@ -54,6 +54,7 @@ from research_core.tools.search import (
     merge_duplicates,
     search_papers,
 )
+from research_core.tools.suggest_tags import suggest_tags
 
 __all__ = [
     "AddPaperResult",
@@ -78,6 +79,7 @@ __all__ = [
     "cnki_paper_detail",
     "create_annotation",
     "edit_tags",
+    "expand_citation_network",
     "export_bibliography",
     "find_duplicates",
     "find_related_literature",

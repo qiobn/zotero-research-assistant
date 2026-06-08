@@ -7,8 +7,6 @@ confirm via edit_tags before any changes are made.
 
 from __future__ import annotations
 
-from collections import Counter
-
 from loguru import logger
 
 from research_core.zotero.client import ZoteroClient

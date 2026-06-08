@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+import os
 import time
+from pathlib import Path
 
+from dotenv import load_dotenv
 from loguru import logger
-from research_core.rag.indexer import Indexer
-from research_core.rag.retriever import Retriever
-from research_core.tools.admin import sync_index
-from research_core.zotero.client import ZoteroClient
+
+# Load .env from project root so the script works standalone (not just via MCP)
+_project_root = Path(__file__).resolve().parent.parent
+load_dotenv(_project_root / ".env")
+
+from research_core.rag.indexer import Indexer  # noqa: E402
+from research_core.rag.retriever import Retriever  # noqa: E402
+from research_core.tools.admin import sync_index  # noqa: E402
+from research_core.zotero.client import ZoteroClient  # noqa: E402
 
 
 def main(force_rebuild: bool = False):
+    persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
     zot = ZoteroClient(library_id="0", local=True)
-    indexer = Indexer(persist_dir=".chroma_db")
-    retriever = Retriever(persist_dir=".chroma_db")
+    indexer = Indexer(persist_dir=persist_dir)
+    retriever = Retriever(persist_dir=persist_dir)
 
     t0 = time.time()
     report = sync_index(zot, indexer, retriever, force_rebuild=force_rebuild)

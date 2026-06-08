@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import httpx
+import httpx  # noqa: F401 - kept for type hints
 from loguru import logger
 
+from research_core.sources import http_client as _http
 from research_core.sources.models import OnlinePaperHit
 
 _CROSSREF_BASE = "https://api.crossref.org/works"
@@ -22,10 +23,9 @@ _TIMEOUT = 10
 def _check_crossref(doi: str) -> bool:
     """Verify DOI exists in CrossRef."""
     try:
-        r = httpx.head(
+        r = _http.head(
             f"{_CROSSREF_BASE}/{doi}",
             timeout=_TIMEOUT,
-            follow_redirects=True,
         )
         return r.status_code == 200
     except Exception:
@@ -35,7 +35,7 @@ def _check_crossref(doi: str) -> bool:
 def _check_openalex(doi: str) -> bool:
     """Verify DOI exists in OpenAlex."""
     try:
-        r = httpx.get(
+        r = _http.get(
             f"{_OPENALEX_BASE}/doi:{doi}",
             params={"select": "id"},
             timeout=_TIMEOUT,
@@ -48,7 +48,7 @@ def _check_openalex(doi: str) -> bool:
 def _check_s2(doi: str) -> bool:
     """Verify DOI exists in Semantic Scholar."""
     try:
-        r = httpx.get(
+        r = _http.get(
             f"{_S2_BASE}/DOI:{doi}",
             params={"fields": "paperId"},
             timeout=_TIMEOUT,

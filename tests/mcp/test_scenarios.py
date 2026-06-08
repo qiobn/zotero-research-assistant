@@ -23,7 +23,6 @@ import asyncio
 import os
 
 import pytest
-
 from project_a_mcp.server import mcp
 
 # ── Helpers ──────────────────────────────────────────────────────
