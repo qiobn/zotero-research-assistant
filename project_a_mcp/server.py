@@ -216,12 +216,54 @@ mcp = FastMCP(
     lifespan=_lifespan,
 )
 
+_MAX_RESPONSE_CHARS = 50000
+
+
+def _truncate_response(result):
+    """Cap tool response size to prevent LLM context overflow."""
+    if result is None:
+        return result
+    import json
+    try:
+        text = json.dumps(result, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        text = str(result)
+    if len(text) <= _MAX_RESPONSE_CHARS:
+        return result
+    if isinstance(result, dict):
+        result = dict(result)
+        result["_truncated"] = True
+        result["_truncated_note"] = (
+            f"Response exceeded {_MAX_RESPONSE_CHARS} chars and was "
+            "truncated. Ask for specific sections or use pagination."
+        )
+        for key in ("chunks", "passages", "items", "results",
+                    "hits", "fulltext", "text"):
+            if key in result and isinstance(result[key], (list, str)):
+                if isinstance(result[key], str):
+                    result[key] = (
+                        result[key][:_MAX_RESPONSE_CHARS // 2]
+                        + "\n\n[...TRUNCATED...]"
+                    )
+                elif isinstance(result[key], list) and len(result[key]) > 5:
+                    result[key] = result[key][:5]
+                    result[f"_{key}_total"] = "truncated"
+                break
+    elif isinstance(result, str) and len(result) > _MAX_RESPONSE_CHARS:
+        result = (
+            result[:_MAX_RESPONSE_CHARS]
+            + "\n\n[...TRUNCATED — ask for specific pages or sections...]"
+        )
+    return result
+
+
 def _safe_tool(func):
     """Wrap tool functions: catch exceptions, return structured diagnostics."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            return _truncate_response(result)
         except Exception as exc:
             logger.error(f"Tool {func.__name__} failed: {exc}\n{traceback.format_exc()}")
             error_msg = str(exc)
