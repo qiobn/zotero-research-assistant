@@ -2,6 +2,9 @@
 
 Tracks which items have been indexed and at what Zotero version,
 so subsequent syncs only process new or modified items.
+
+Also tracks chunking strategy version to force rebuild when the
+chunking algorithm is upgraded.
 """
 
 from __future__ import annotations
@@ -13,6 +16,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from research_core.parsers.chunker import CHUNKING_VERSION
+
 
 @dataclass
 class SyncState:
@@ -20,6 +25,7 @@ class SyncState:
 
     item_versions: dict[str, int] = field(default_factory=dict)
     embedding_model: str = ""
+    chunking_version: str = ""
 
     _path: str = field(default="", repr=False)
 
@@ -33,8 +39,13 @@ class SyncState:
                     data = json.load(f)
                 state.item_versions = data.get("item_versions", {})
                 state.embedding_model = data.get("embedding_model", "")
+                state.chunking_version = data.get(
+                    "chunking_version", ""
+                )
             except Exception as e:
-                logger.warning(f"Failed to load sync state, starting fresh: {e}")
+                logger.warning(
+                    f"Failed to load sync state, starting fresh: {e}"
+                )
         return state
 
     def save(self) -> None:
@@ -44,10 +55,31 @@ class SyncState:
                 {
                     "item_versions": self.item_versions,
                     "embedding_model": self.embedding_model,
+                    "chunking_version": self.chunking_version,
                 },
                 f,
                 indent=2,
             )
+
+    def needs_rebuild(self, embedding_model: str) -> str | None:
+        """Check if a full rebuild is needed. Returns reason or None."""
+        if (
+            self.embedding_model
+            and self.embedding_model != embedding_model
+        ):
+            return (
+                f"Embedding model changed "
+                f"({self.embedding_model} -> {embedding_model})"
+            )
+        if (
+            self.chunking_version
+            and self.chunking_version != CHUNKING_VERSION
+        ):
+            return (
+                f"Chunking strategy upgraded "
+                f"({self.chunking_version} -> {CHUNKING_VERSION})"
+            )
+        return None
 
     def diff(
         self, current_versions: dict[str, int]

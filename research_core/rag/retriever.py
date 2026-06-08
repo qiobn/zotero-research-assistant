@@ -41,11 +41,19 @@ class Retriever:
         query: str,
         n_results: int = 8,
         where: dict | None = None,
+        include_references: bool = False,
     ) -> list[RetrievalResult]:
-        """Semantic search across all indexed chunks (optionally filtered by metadata)."""
-        kwargs = {"query_texts": [query], "n_results": n_results}
-        if where:
-            kwargs["where"] = where
+        """Semantic search across all indexed chunks.
+
+        By default excludes reference/bibliography sections to reduce noise.
+        Set include_references=True to search across all sections.
+        """
+        effective_where = self._build_where(
+            where, include_references
+        )
+        kwargs: dict = {"query_texts": [query], "n_results": n_results}
+        if effective_where:
+            kwargs["where"] = effective_where
         results = self._collection.query(**kwargs)
         return self._to_results(results)
 
@@ -54,9 +62,23 @@ class Retriever:
         item_key: str,
         query: str,
         n_results: int = 5,
+        include_references: bool = False,
     ) -> list[RetrievalResult]:
         """Semantic search restricted to a single paper's chunks."""
-        return self.search(query, n_results=n_results, where={"item_key": item_key})
+        where: dict = {"item_key": item_key}
+        if not include_references:
+            where = {
+                "$and": [
+                    {"item_key": item_key},
+                    {"section": {"$ne": "references"}},
+                ]
+            }
+        return self.search(
+            query,
+            n_results=n_results,
+            where=where,
+            include_references=True,  # already handled above
+        )
 
     def get_item_chunks(
         self,
@@ -93,11 +115,56 @@ class Retriever:
         out.sort(key=lambda r: r.chunk_idx)
         return out
 
+    def get_figure_table_chunks(
+        self,
+        item_key: str,
+    ) -> list[RetrievalResult]:
+        """Retrieve chunks containing figure/table captions for a paper."""
+        where: dict = {
+            "$and": [
+                {"item_key": item_key},
+                {"has_figure_table": True},
+            ]
+        }
+        raw = self._collection.get(
+            where=where, include=["documents", "metadatas"]
+        )
+        docs = raw.get("documents", []) or []
+        metas = raw.get("metadatas", []) or []
+        out: list[RetrievalResult] = []
+        for doc, meta in zip(docs, metas, strict=True):
+            out.append(
+                RetrievalResult(
+                    text=doc,
+                    item_key=meta.get("item_key", ""),
+                    title=meta.get("title", ""),
+                    page_start=meta.get("page_start", 0),
+                    page_end=meta.get("page_end", 0),
+                    score=1.0,
+                    chunk_idx=meta.get("chunk_idx", 0),
+                    metadata=meta,
+                )
+            )
+        out.sort(key=lambda r: r.chunk_idx)
+        return out
+
     def list_indexed_items(self) -> set[str]:
         """Return the set of item_keys currently indexed in the vector store."""
         raw = self._collection.get(include=["metadatas"])
         metas = raw.get("metadatas", []) or []
         return {m.get("item_key", "") for m in metas if m.get("item_key")}
+
+    @staticmethod
+    def _build_where(
+        where: dict | None, include_references: bool
+    ) -> dict | None:
+        """Merge user-provided where filter with reference exclusion."""
+        if include_references:
+            return where
+        ref_filter = {"section": {"$ne": "references"}}
+        if where is None:
+            return ref_filter
+        return {"$and": [where, ref_filter]}
 
     def count(self) -> int:
         return self._collection.count()

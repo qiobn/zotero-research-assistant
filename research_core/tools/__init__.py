@@ -36,6 +36,8 @@ from research_core.tools.read import (
     search_annotations,
 )
 from research_core.tools.arguments import find_arguments
+from research_core.tools.health import check_health
+from research_core.tools.inspect_index import inspect_index, test_recall
 from research_core.tools.reading_note import generate_reading_note
 from research_core.tools.reading_status import get_reading_status
 from research_core.tools.recommend import recommend_papers
@@ -91,7 +93,10 @@ __all__ = [
     "search_papers",
     "suggest_citations",
     "sync_index",
+    "check_health",
     "find_arguments",
+    "inspect_index",
+    "test_recall",
     "generate_reading_note",
     "get_reading_status",
     "recommend_papers",

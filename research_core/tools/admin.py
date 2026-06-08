@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
-from research_core.parsers.chunker import chunk_text
+from research_core.parsers.chunker import CHUNKING_VERSION, chunk_text
 from research_core.parsers.pdf import extract_pdf_text
 from research_core.rag.indexer import Indexer
 from research_core.rag.retriever import Retriever
@@ -24,6 +24,8 @@ class SyncReport:
     failed: list[dict] = field(default_factory=list)
     total_chunks_after: int = 0
     incremental: bool = True
+    quality_summary: dict = field(default_factory=dict)
+    rebuild_reason: str = ""
 
 
 def sync_index(
@@ -39,6 +41,9 @@ def sync_index(
     Incremental by default: uses Zotero item versions to detect new, modified,
     and deleted items. Only changed items are re-parsed and re-indexed.
 
+    Auto-detects when chunking strategy or embedding model has been upgraded
+    and forces a full rebuild for better quality.
+
     force_rebuild=True drops ALL stored state and reindexes everything.
     """
     report = SyncReport(incremental=not force_rebuild)
@@ -47,13 +52,12 @@ def sync_index(
 
     state = SyncState.load(persist_dir)
 
-    if state.embedding_model and state.embedding_model != embedding_model:
-        logger.warning(
-            f"Embedding model changed ({state.embedding_model} → {embedding_model}), "
-            "forcing full rebuild"
-        )
+    rebuild_reason = state.needs_rebuild(embedding_model)
+    if rebuild_reason and not force_rebuild:
+        logger.warning(f"{rebuild_reason} — forcing full rebuild")
         force_rebuild = True
         report.incremental = False
+        report.rebuild_reason = rebuild_reason
 
     if force_rebuild:
         indexed_keys = retriever.list_indexed_items()
@@ -75,6 +79,7 @@ def sync_index(
         logger.info("No new or modified items to index")
         report.total_chunks_after = indexer.count()
         state.embedding_model = embedding_model
+        state.chunking_version = CHUNKING_VERSION
         state.save()
         for key in current_versions:
             if key not in keys_to_process and key not in deleted_keys:
@@ -82,11 +87,16 @@ def sync_index(
         return report
 
     logger.info(
-        f"Incremental sync: {len(new_keys)} new, {len(modified_keys)} modified, "
+        f"Incremental sync: {len(new_keys)} new, "
+        f"{len(modified_keys)} modified, "
         f"{len(deleted_keys)} deleted"
     )
 
     pdf_paths = zot.get_pdf_paths_for_keys(list(keys_to_process))
+
+    chunk_lengths: list[int] = []
+    chunks_per_paper: list[int] = []
+    issues: list[str] = []
 
     for key in keys_to_process:
         pdf_path = pdf_paths.get(key)
@@ -98,13 +108,38 @@ def sync_index(
         try:
             pages = extract_pdf_text(pdf_path)
             if not pages:
-                report.failed.append({"key": key, "error": "no text extracted"})
+                report.failed.append({
+                    "key": key,
+                    "error": "no text extracted",
+                    "hint": "Possibly scanned/encrypted PDF",
+                })
+                issues.append(
+                    f"{key}: no extractable text (scanned/encrypted?)"
+                )
                 continue
 
-            chunks = chunk_text(pages, chunk_size=chunk_size, overlap=chunk_overlap)
+            total_chars = sum(len(p.text) for p in pages)
+            if total_chars < 200:
+                issues.append(
+                    f"{key}: very short extraction ({total_chars} chars)"
+                )
+
+            chunks = chunk_text(pages)
             item = zot.get_item(key)
             year = ZoteroClient.parse_year(item.date)
-            indexer.index_chunks(chunks, item_key=key, title=item.title, year=year)
+            indexer.index_chunks(
+                chunks, item_key=key, title=item.title, year=year
+            )
+
+            chunks_per_paper.append(len(chunks))
+            for c in chunks:
+                chunk_lengths.append(len(c.text))
+
+            if len(chunks) <= 1 and total_chars > 500:
+                issues.append(
+                    f"{key}: only {len(chunks)} chunk(s) "
+                    f"from {total_chars} chars"
+                )
 
             if key in new_keys:
                 report.added.append(key)
@@ -121,6 +156,25 @@ def sync_index(
                 state.item_versions[key] = current_versions[key]
 
     state.embedding_model = embedding_model
+    state.chunking_version = CHUNKING_VERSION
     state.save()
     report.total_chunks_after = indexer.count()
+
+    if chunk_lengths:
+        report.quality_summary = {
+            "chunking_version": CHUNKING_VERSION,
+            "papers_processed": len(chunks_per_paper),
+            "total_chunks_created": sum(chunks_per_paper),
+            "avg_chunk_length": round(
+                sum(chunk_lengths) / len(chunk_lengths)
+            ),
+            "min_chunk_length": min(chunk_lengths),
+            "max_chunk_length": max(chunk_lengths),
+            "avg_chunks_per_paper": round(
+                sum(chunks_per_paper) / len(chunks_per_paper), 1
+            ),
+            "papers_with_issues": len(issues),
+            "issues": issues[:20],
+        }
+
     return report

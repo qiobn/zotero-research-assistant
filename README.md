@@ -4,15 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)](https://modelcontextprotocol.io/)
 
-## Preface / 写在前面
-
-This project was built to help graduate students and researchers — especially those without a computer science background — leverage AI-enhanced Zotero for more efficient academic workflows. The documentation is deliberately detailed and step-by-step. Cherry Studio was chosen as the primary interaction interface because it provides a user-friendly GUI that doesn't require any terminal expertise. We believe powerful research tools should be accessible to everyone, not just developers.
-
-**If you have no programming experience**, go directly to [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md) and follow the instructions step by step. Try to complete it independently — if you get stuck at any point, paste the error message to any AI chatbot (ChatGPT, DeepSeek, Kimi, etc.) and ask for help. Consider this your first step into the world of programming and AI tools. It's easier than you think.
-
-本项目的出发点是帮助没有太多计算机操作基础的学生和科研工作者，让他们也能利用 AI 增强的 Zotero 来提升学术研究效率。因此文档会写得尽量详细、步骤尽量清晰，并且选择了 Cherry Studio 作为主要的交互界面——它提供了友好的图形化操作，不需要使用终端命令行。我们相信，强大的科研工具应该让每个人都能用上，而不只是程序员。
-
-**如果你没有编程基础**，请直接阅读 [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md)，跟着里面的步骤一步步操作即可。尽量独立完成——如果遇到问题，把报错信息复制给任意一个 AI 对话工具（ChatGPT、DeepSeek、Kimi 等）寻求帮助。把这次配置当作你接触程序和 AI 工具的第一步，比你想象的简单。
+**[English](./README.md)** | **[中文](./README_zh.md)**
 
 ---
 
@@ -22,15 +14,25 @@ This project was built to help graduate students and researchers — especially 
 
 Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI Codex CLI**, and any MCP-compatible client.
 
+## Preface
+
+This project was built to help graduate students and researchers — especially those without a computer science background — leverage AI-enhanced Zotero for more efficient academic workflows. The documentation is deliberately detailed and step-by-step. Cherry Studio was chosen as the primary interaction interface because it provides a user-friendly GUI that doesn't require any terminal expertise. We believe powerful research tools should be accessible to everyone, not just developers.
+
+**If you have no programming experience**, go directly to [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md) and follow the instructions step by step. Try to complete it independently — if you get stuck at any point, paste the error message to any AI chatbot (ChatGPT, DeepSeek, Kimi, etc.) and ask for help. Consider this your first step into the world of programming and AI tools. It's easier than you think.
+
+---
+
 ### Highlights
 
 | | |
 |---|---|
-| **29 MCP Tools** | One intent per tool — LLMs always pick the right one |
+| **32 MCP Tools** | One intent per tool — LLMs always pick the right one |
 | **Hybrid RAG Search** | Keyword + semantic (bge-m3, 100+ languages) + cross-encoder reranking |
+| **Semantic Chunking** | Paragraph-aware splitting with section detection (references, figures/tables) |
 | **Multi-Source Discovery** | OpenAlex + CrossRef + Semantic Scholar in parallel, Three-Index Verification to prevent fabricated citations |
 | **Citation Network Expansion** | Corpus-First strategy + forward/backward citations + OpenAlex Related Works |
 | **Anti-Hallucination** | Zero-fabrication policy with `[MATERIAL GAP]` structural tags; every paper has a verifiable source link |
+| **RAG Diagnostics** | Built-in health check, index inspection, and recall testing |
 | **Personalized Recommendations** | Learns from your reading activity and annotations to suggest what to read next |
 | **Literature Review Generator** | Select papers → extract evidence with citations → AI synthesizes thematic review |
 | **Smart Tag Suggestions** | Auto-analyze metadata to recommend methodology/domain/data tags (confirm before apply) |
@@ -54,7 +56,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
   - [OpenAI Codex CLI](#openai-codex-cli)
   - [Other MCP Clients](#other-mcp-clients)
 - [Example Workflows](#example-workflows)
-- [MCP Tools (29)](#mcp-tools-29)
+- [MCP Tools (32)](#mcp-tools-32)
 - [Configuration](#configuration)
 - [CNKI Setup (Optional)](#cnki-setup-optional)
 - [Updating](#updating)
@@ -62,7 +64,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 - [Architecture](#architecture)
 - [Development](#development)
 - [Acknowledgments](#acknowledgments)
-- [Disclaimer / 免责声明](#disclaimer--免责声明)
+- [Disclaimer](#disclaimer)
 - [License](#license)
 
 ---
@@ -79,15 +81,25 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 - **Full-text & outline** — read complete paper text or PDF table of contents
 - **Incremental index sync** — version-based diff; auto-sync on MCP startup
 
+### Semantic RAG Pipeline
+
+- **Paragraph-aware chunking** — splits on natural boundaries (paragraphs → sentences), adaptive merging to target 600-char chunks
+- **Section detection** — automatically identifies and tags reference sections; excludes them from search by default
+- **Figure & table caption tagging** — detects `Figure/Fig./Table/图/表` captions and marks chunks for targeted retrieval
+- **Chunking versioning** — strategy changes auto-trigger full index rebuild; no stale data
+- **Index diagnostics** — `inspect_index` shows chunk statistics, quality issues, and garbled text detection
+- **Recall testing** — `test_recall` verifies a paper's own chunks appear in top-20 search results
+- **Health monitoring** — `check_health` diagnoses connections, index status, embedding model, and configuration
+
 ### Online Literature Discovery
 
 - **Multi-source search** — queries OpenAlex, CrossRef, and Semantic Scholar in parallel with publisher-diverse ranking
-- **Corpus-First strategy** — when a paper's reference list is available, the system expands citation networks from those known references as the PRIMARY search strategy, yielding the most relevant results
-- **Discipline filtering** — optional `fields_of_study` parameter constrains results to relevant academic fields (Business, Economics, Sociology, etc.), preventing cross-domain noise
-- **Related paper discovery** — provide a paper's title/abstract/keywords → automatically generates tiered pairwise queries → searches all sources → post-filters irrelevant results → returns deduplicated hits in a single call
-- **Three-Index Verification** — every result with a DOI is cross-checked against CrossRef, OpenAlex, and Semantic Scholar; papers not findable in ANY index are filtered out to prevent fabricated citations
-- **Source verification** — every returned paper includes a verifiable link (DOI URL, Semantic Scholar URL, or CNKI link) so users can independently check authenticity
-- **Anti-hallucination guardrails** — structural `[MATERIAL GAP]` tags in tool outputs when search returns zero results; the AI is instructed to never fabricate citations and must report gaps honestly
+- **Corpus-First strategy** — when a paper's reference list is available, the system expands citation networks from those known references as the PRIMARY search strategy
+- **Discipline filtering** — optional `fields_of_study` parameter constrains results to relevant academic fields
+- **Related paper discovery** — provide a paper's metadata → generates tiered pairwise queries → searches all sources → post-filters → returns deduplicated hits
+- **Three-Index Verification** — every result with a DOI is cross-checked against CrossRef, OpenAlex, and Semantic Scholar; unverifiable papers are filtered out
+- **Source verification** — every returned paper includes a verifiable link (DOI URL, Semantic Scholar URL, or CNKI link)
+- **Anti-hallucination guardrails** — structural `[MATERIAL GAP]` tags when search returns zero results
 
 ### CNKI (Chinese Literature)
 
@@ -99,12 +111,12 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 
 ### Reading Insight & Recommendations
 
-- **Reading status detection** — heuristic classification (deep_read / browsed / unread) based on annotation count, notes, and PDF open history (Zotero 7 reader saves reading position, updating attachment timestamps)
-- **Personalized recommendations** — identifies your most-engaged papers → queries OpenAlex Related Works + S2 Recommendations in parallel → deduplicates, excludes already-in-library → ranks by cross-seed frequency
+- **Reading status detection** — heuristic classification (deep_read / browsed / unread) based on annotation count, notes, and PDF open history
+- **Personalized recommendations** — identifies your most-engaged papers → queries OpenAlex Related Works + S2 Recommendations in parallel → ranks by cross-seed frequency
 - **Focus topic extraction** — surfaces your active research themes from recent reading tags
-- **Literature review generation** — select multiple papers → extract relevant passages with page-level citations → structured output for AI to synthesize into a thematic review
-- **Smart tag suggestions** — analyzes title/abstract to recommend methodology, domain, and data-type tags; matches against existing library tags; suggest-only (never auto-applies)
-- **Argument finder** — given a thesis/claim, searches library for evidence grouped by stance (support/oppose/neutral); heuristic pre-classification with textual signals; designed for writing Discussion sections
+- **Literature review generation** — select papers → extract relevant passages with page-level citations → structured output for AI synthesis
+- **Smart tag suggestions** — analyzes title/abstract to recommend methodology, domain, and data-type tags; suggest-only (never auto-applies)
+- **Argument finder** — given a thesis/claim, searches library for evidence grouped by stance (support/oppose/neutral)
 
 ### Library Management
 
@@ -480,6 +492,9 @@ User: My thesis is "public services are unevenly distributed" — find evidence
 
 User: What should I read next?
   → recommend_papers (based on your annotation activity)
+
+User: Show me all figures and tables mentioned in this paper
+  → get_paper_content (filtered to figure/table chunks)
 ```
 
 ### Writing & Citing
@@ -508,11 +523,24 @@ User: Which papers have I actually read? Which are unread?
   → reading_status (heuristic: annotations, notes, PDF open history)
 ```
 
+### System Diagnostics
+
+```
+User: Is everything working correctly?
+  → check_health (connection, index, embedding, configuration)
+
+User: How good is my index quality?
+  → inspect_index (chunk stats, section breakdown, figure/table counts)
+
+User: Can this paper be retrieved properly?
+  → test_recall (searches by title, checks if own chunks appear in top-20)
+```
+
 > **Write safety**: all destructive operations (add paper, notes, tags, merge duplicates) always preview first. The assistant asks for explicit confirmation before executing.
 
 ---
 
-## MCP Tools (29)
+## MCP Tools (32)
 
 | Category | Tools |
 |----------|-------|
@@ -521,19 +549,19 @@ User: Which papers have I actually read? Which are unread?
 | **Write** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **Manage** | `add_note`, `edit_tags`, `manage_collections` |
 | **Insight** | `reading_status`, `recommend_papers`, `generate_review_note`, `generate_reading_note`, `suggest_tags`, `find_arguments` |
-| **Admin** | `sync_index` |
+| **Admin** | `sync_index`, `check_health`, `inspect_index`, `test_recall` |
 
 <details>
 <summary>Expand tool details</summary>
 
 ### Discover
 - **`search_papers`** — Primary search in your local library. Hybrid keyword + semantic. Use `query=""` with `year_from` / tags for filter-only listing.
-- **`search_online_literature`** — Online discovery (English/international: OpenAlex, CrossRef, Semantic Scholar). Supports `fields_of_study` for discipline filtering. Default for online search unless user explicitly requests Chinese literature.
-- **`search_cnki_literature`** — CNKI Chinese journal search (optional module, disabled by default). Only triggered when user explicitly requests Chinese papers / 中文文献 / CNKI. Returns journal-level tags (CSSCI, PKU Core, etc.).
-- **`find_related_literature`** — Multi-strategy related paper search. Supports Corpus-First mode (`reference_dois` parameter), keyword search, citation network expansion, and Semantic Scholar recommendations — all in parallel. Provide a paper's metadata → get deduplicated, Three-Index-Verified results in one call.
-- **`expand_citation_network`** — Find papers via citation relationships (forward & backward citations via OpenAlex). Accepts multiple DOIs for multi-seed expansion.
-- **`cnki_paper_detail`** — Full metadata (abstract, keywords, DOI, affiliations) from a CNKI paper page.
-- **`cnki_navigate_pages`** — Pagination & re-sorting for CNKI results. Used proactively when user needs many papers or deeper search.
+- **`search_online_literature`** — Online discovery (English/international: OpenAlex, CrossRef, Semantic Scholar). Supports `fields_of_study` for discipline filtering.
+- **`search_cnki_literature`** — CNKI Chinese journal search (optional module, disabled by default). Only triggered when user explicitly requests Chinese papers.
+- **`find_related_literature`** — Multi-strategy related paper search. Supports Corpus-First mode, keyword search, citation network expansion, and Semantic Scholar recommendations — all in parallel.
+- **`expand_citation_network`** — Find papers via citation relationships (forward & backward via OpenAlex). Accepts multiple DOIs for multi-seed expansion.
+- **`cnki_paper_detail`** — Full metadata from a CNKI paper page.
+- **`cnki_navigate_pages`** — Pagination & re-sorting for CNKI results.
 - **`find_similar_papers`** — Similar papers to a known item (by `item_key`).
 - **`browse_library`** — Collections, tags, recent items.
 - **`find_duplicates`** / **`merge_duplicates`** — Detect and merge duplicates (dry-run by default).
@@ -548,19 +576,22 @@ User: Which papers have I actually read? Which are unread?
 - **`suggest_citations`** — Match your draft text to library evidence.
 - **`export_bibliography`** — BibTeX or formatted citations.
 - **`add_paper`** — Import by DOI / arXiv / ISBN / BibTeX / URL (dry-run by default).
-- **`cnki_add_to_zotero`** — Import CNKI papers directly (no DOI needed). Uses CNKI export API + Zotero Connector.
+- **`cnki_add_to_zotero`** — Import CNKI papers directly (no DOI needed).
 - **`add_note`**, **`edit_tags`**, **`manage_collections`** — Library organization (dry-run by default).
 
 ### Insight
-- **`reading_status`** — Analyze reading progress. Classifies papers as `deep_read` (≥3 annotations or notes), `browsed` (PDF opened recently in Zotero reader), or `unread`. Filter by scope.
-- **`recommend_papers`** — Personalized recommendations. Identifies your most-engaged papers, finds related literature via OpenAlex + S2, deduplicates, and excludes already-in-library papers.
-- **`generate_review_note`** — Extract evidence from multiple papers for literature review. Provide item keys + optional focus topic → returns passages with inline citations (Author, Year, p.X) ready for AI synthesis.
-- **`generate_reading_note`** — Structured reading note for ONE paper. Auto-extracts research question, methodology, data, findings, limitations, and contribution from the PDF. Produces a template the AI refines into a concise note.
-- **`suggest_tags`** — Analyze paper metadata to suggest methodology, domain, and data-type tags. Suggest-only — never auto-applies; user confirms via `edit_tags`.
-- **`find_arguments`** — Given a claim/thesis, find supporting and opposing evidence from your library. Classifies passages by stance (support/oppose/neutral) with citations. For writing Discussion sections.
+- **`reading_status`** — Analyze reading progress. Classifies papers as `deep_read`, `browsed`, or `unread`.
+- **`recommend_papers`** — Personalized recommendations via OpenAlex + S2.
+- **`generate_review_note`** — Extract evidence from multiple papers for literature review.
+- **`generate_reading_note`** — Structured reading note for one paper.
+- **`suggest_tags`** — Analyze metadata to suggest tags. Suggest-only, never auto-applies.
+- **`find_arguments`** — Find supporting and opposing evidence for a claim/thesis.
 
 ### Admin
-- **`sync_index`** — Incremental vector index sync. Also runs automatically on MCP startup.
+- **`sync_index`** — Incremental vector index sync. Auto-runs on MCP startup. Reports quality summary and detects chunking version changes.
+- **`check_health`** — Diagnose connections, index status, embedding model, online APIs, and configuration. Bilingual output with fix suggestions.
+- **`inspect_index`** — View index quality: chunk stats, section breakdown, figure/table counts, garbled text detection, and per-paper details.
+- **`test_recall`** — Test retrieval quality for a specific paper by querying with its title and checking if its own chunks are returned.
 
 </details>
 
@@ -645,7 +676,7 @@ If results appear (with title, authors, journal, citations, and journal level ta
 
 ### Notes
 
-- **Trigger:** CNKI tools are only called when you explicitly mention Chinese literature, CNKI, 知网, 核心期刊, CSSCI, etc. Regular online search uses OpenAlex/CrossRef/S2.
+- **Trigger:** CNKI tools are only called when you explicitly mention Chinese literature, CNKI, 知网, 核心期刊, CSSCI, etc.
 - **Captcha:** If a Tencent slider captcha appears, solve it in the Chrome window and retry.
 - **Zotero import:** Requires Zotero desktop running (uses localhost:23119 Connector API).
 - **Compliance:** Requires legitimate institutional CNKI access.
@@ -653,16 +684,15 @@ If results appear (with title, authors, journal, citations, and journal level ta
 
 ### Known Issues & Limitations
 
-> ⚠️ **The CNKI module is currently unstable and disabled by default.** It relies on browser automation which is inherently fragile. Known issues include:
+> The CNKI module is currently unstable and disabled by default. It relies on browser automation which is inherently fragile.
 
 | Issue | Cause | Workaround |
 |-------|-------|------------|
-| **Timeout on search** | CNKI pages load slowly; anti-bot throttling | Simplify your query (fewer characters); retry after a few seconds |
-| **Chrome connection refused** | Chrome was not started with `--remote-debugging-port`, or an existing session conflicted | Close ALL Chrome windows, then restart with `--remote-debugging-port=9222 --user-data-dir="/tmp/chrome-debug-profile"` |
-| **Stale login session** | CNKI sessions expire after ~30 min of inactivity | Re-login in the Chrome window before retrying |
-| **Consecutive timeouts** | Rate limiting by CNKI (>3 queries in quick succession) | The tool auto-aborts after 2 consecutive timeouts; wait 30s and retry |
-| **Export to Zotero fails** | Zotero desktop not running or Connector API port changed | Ensure Zotero is running; verify http://localhost:23119/api/ responds |
-| **`incorrect profile type` errors in Chrome log** | Normal Chrome warning when using a temporary `--user-data-dir` | Harmless — does not affect functionality |
+| **Timeout on search** | CNKI pages load slowly; anti-bot throttling | Simplify your query; retry after a few seconds |
+| **Chrome connection refused** | Chrome not started with `--remote-debugging-port` | Close ALL Chrome windows, restart with the flag |
+| **Stale login session** | CNKI sessions expire after ~30 min | Re-login in the Chrome window |
+| **Consecutive timeouts** | Rate limiting by CNKI | Wait 30s and retry |
+| **Export to Zotero fails** | Zotero desktop not running | Ensure Zotero is running and API responds |
 
 If CNKI consistently fails, fall back to the English-language online search (`search_online_literature` / `find_related_literature`) which is stable and does not require browser automation.
 
@@ -690,6 +720,8 @@ playwright install chromium
 
 Restart your MCP client to reload the server.
 
+> **Note:** If the chunking strategy has been updated in a new version, `sync_index` will automatically detect the version change and rebuild the entire index on next run.
+
 ---
 
 ## Troubleshooting
@@ -703,6 +735,8 @@ Restart your MCP client to reload the server.
 | **Windows: script blocked** | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` in PowerShell |
 | **MCP tools not called** | Use a model with function calling; enable MCP/tools in client settings |
 | **AI executes writes without asking** | Add to system prompt: *"Always wait for explicit confirmation before executing writes"* |
+| **Poor search results** | Ask *"check my system health"* → `check_health` diagnoses issues |
+| **Index seems stale** | Ask *"inspect my index"* → `inspect_index` shows version and quality metrics |
 | **CNKI: "search is disabled"** | Complete the [CNKI Setup](#cnki-setup-optional) steps |
 | **CNKI: captcha** | Solve the slider in the Chrome window, then retry the search |
 
@@ -712,8 +746,11 @@ Restart your MCP client to reload the server.
 
 ```
 research_core/          # Shared library — Zotero client, RAG pipeline, search adapters, tools
+  parsers/              #   PDF extraction, semantic chunking (v2.1), caption detection
+  rag/                  #   ChromaDB indexer, retriever, embedding, sync state
+  tools/                #   32 tool implementations (one file per domain)
+  zotero/               #   Zotero local + web API client
 project_a_mcp/          # MCP server entry point (stdio transport)
-project_b_agent/        # Full-stack agent scaffold (planned)
 scripts/                # CLI utilities (index_library.py, etc.)
 tests/                  # Unit + integration tests
 docs/                   # Detailed setup guides
@@ -745,38 +782,24 @@ This project was inspired by and built upon ideas from:
 
 - **[zotero-mcp](https://github.com/54yyyu/zotero-mcp)** — Pioneering work on connecting Zotero with AI assistants via MCP.
 - **[cnki-skills](https://github.com/cookjohn/cnki-skills)** — Elegant approach to CNKI browser automation via Chrome DevTools Protocol.
-- **[academic-research-skills](https://github.com/Imbad0202/academic-research-skills)** — Inspiration for the Corpus-First search strategy and structured anti-hallucination patterns (`[MATERIAL GAP]` tagging).
-- **[nature-skills](https://github.com/Yuan1z0825/nature-skills)** — Inspiration for the Three-Index Verification approach (cross-checking citations against multiple bibliographic databases).
+- **[academic-research-skills](https://github.com/Imbad0202/academic-research-skills)** — Inspiration for the Corpus-First search strategy and structured anti-hallucination patterns.
+- **[nature-skills](https://github.com/Yuan1z0825/nature-skills)** — Inspiration for the Three-Index Verification approach.
 
 Thank you to the authors of these projects for sharing their work with the community.
 
 ---
 
-## Disclaimer / 免责声明
+## Disclaimer
 
-### English
+1. **AI output quality depends on the connected model.** Although this project implements multiple anti-hallucination mechanisms (Three-Index Verification, `[MATERIAL GAP]` tagging, source provenance), the final quality of literature reviews, summaries, and recommendations is ultimately determined by the LLM you connect. Always verify AI-generated citations against the original sources before using them in academic work.
 
-1. **AI output quality depends on the connected model.** Although this project implements multiple anti-hallucination mechanisms (Three-Index Verification, `[MATERIAL GAP]` tagging, source provenance), the final quality of literature reviews, summaries, and recommendations is ultimately determined by the LLM you connect. Always verify AI-generated citations against the original sources before using them in academic work. AI can and does fabricate references — treat all outputs as drafts requiring human verification.
+2. **For learning and research purposes only.** This project is open-source and intended solely for personal academic research and educational use. It is not commercialized. If any content or functionality inadvertently infringes on intellectual property or terms of service of third-party platforms, please open an issue and we will address it promptly.
 
-2. **For learning and research purposes only.** This project is open-source and intended solely for personal academic research and educational use. It is not commercialized and no profit is derived from it. If any content or functionality inadvertently infringes on intellectual property or terms of service of third-party platforms (CNKI, publishers, etc.), please open an issue and we will address it promptly.
+3. **CNKI module compliance.** The CNKI browser automation module is provided for convenience only. Users must have legitimate institutional access. This module is disabled by default.
 
-3. **CNKI module compliance.** The CNKI browser automation module is provided for convenience only. Users must have legitimate institutional access to CNKI. Automated access may violate CNKI's Terms of Service — use at your own risk and responsibility. This module is disabled by default for this reason.
+4. **Data privacy.** All processing happens locally by default. Your PDFs are parsed and embedded on your machine. However, if you configure a cloud-based LLM, paper content will be sent to that external service. Users working with sensitive or unpublished research should be aware of this.
 
-4. **Data privacy.** All processing happens locally by default. Your PDFs are parsed and embedded on your machine (`.chroma_db/`). However, if you configure a cloud-based embedding model or connect to a cloud LLM, paper content (text chunks, queries) will be sent to those external services. Users working with sensitive or unpublished research should be aware of this.
-
-5. **Trademark notice.** "Zotero" is a registered trademark of the Corporation for Digital Scholarship. This project is an independent community tool and is not affiliated with, endorsed by, or officially connected to Zotero or the Corporation for Digital Scholarship.
-
-### 中文
-
-1. **生成质量取决于接入的大语言模型。** 尽管本项目实现了多重防幻觉机制（三索引交叉验证、`[MATERIAL GAP]` 结构化标记、来源可溯），但文献综述、摘要和推荐的最终质量仍取决于你所使用的 AI 模型。请务必在正式引用前核实 AI 生成的文献是否真实存在。AI 有可能且确实会编造参考文献——请将所有输出视为需要人工核实的草稿。
-
-2. **仅供学习交流使用。** 本项目为开源项目，仅用于个人学术研究和学习交流，不作任何商业用途，不从中获取利润。如本项目的任何内容或功能无意中侵犯了第三方平台（知网、出版商等）的知识产权或服务条款，请通过 Issue 及时告知，我们会第一时间处理。
-
-3. **知网模块合规性。** 知网浏览器自动化模块仅为便利性而提供。用户必须拥有合法的机构知网访问权限。自动化访问可能违反知网的服务条款——使用风险和责任由用户自行承担。该模块默认关闭正是出于此原因。
-
-4. **数据隐私。** 默认情况下所有处理均在本地完成。你的 PDF 在本机上被解析和向量化（存储在 `.chroma_db/`）。但如果你配置了云端嵌入模型或连接了云端大语言模型，论文内容（文本片段、查询）将被发送至相应的外部服务。处理敏感或未发表研究的用户请注意这一点。
-
-5. **商标声明。** "Zotero" 是 Corporation for Digital Scholarship 的注册商标。本项目是独立的社区工具，与 Zotero 或 Corporation for Digital Scholarship 没有任何关联、背书或官方联系。
+5. **Trademark notice.** "Zotero" is a registered trademark of the Corporation for Digital Scholarship. This project is an independent community tool and is not affiliated with, endorsed by, or officially connected to Zotero.
 
 ---
 

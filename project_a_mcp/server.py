@@ -1,6 +1,6 @@
 """Zotero Research Assistant — MCP server.
 
-29 tools, one intent each, designed to compose via `item_key`.
+32 tools, one intent each, designed to compose via `item_key`.
 
 Categories:
   DISCOVER   search_papers, search_online_literature, search_cnki_literature,
@@ -11,7 +11,7 @@ Categories:
   MANAGE     add_note, edit_tags, manage_collections
   INSIGHT    reading_status, recommend_papers, generate_review_note, generate_reading_note,
              suggest_tags, find_arguments
-  ADMIN      sync_index
+  ADMIN      sync_index, check_health, inspect_index, test_recall
 """
 
 from __future__ import annotations
@@ -96,6 +96,9 @@ from research_core.tools import (
     sync_index as _sync_index,
 )
 from research_core.tools.arguments import find_arguments as _find_arguments
+from research_core.tools.health import check_health as _check_health
+from research_core.tools.inspect_index import inspect_index as _inspect_index
+from research_core.tools.inspect_index import test_recall as _test_recall
 from research_core.tools.reading_note import generate_reading_note as _generate_reading_note
 from research_core.tools.reading_status import get_reading_status as _get_reading_status
 from research_core.tools.recommend import recommend_papers as _recommend_papers
@@ -128,11 +131,43 @@ def _background_sync():
 
 @asynccontextmanager
 async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
-    """Server lifecycle: launch background index sync on startup."""
+    """Server lifecycle: launch background index sync on startup + diagnostics."""
     if os.getenv("ZRA_AUTO_SYNC", "true").lower() != "false":
         t = threading.Thread(target=_background_sync, daemon=True)
         t.start()
+    # Quick startup diagnostics (non-blocking, just log)
+    threading.Thread(target=_startup_diagnostics, daemon=True).start()
     yield
+
+
+def _startup_diagnostics() -> None:
+    """Log startup health status for troubleshooting."""
+    try:
+        import httpx
+        resp = httpx.get("http://127.0.0.1:23119/api/", timeout=3)
+        if resp.status_code == 200:
+            logger.info("✓ Zotero local API reachable")
+        else:
+            logger.warning(f"⚠ Zotero local API returned {resp.status_code}")
+    except Exception:
+        logger.warning(
+            "⚠ Zotero local API unreachable — "
+            "ensure Zotero desktop is running with local API enabled"
+        )
+
+    try:
+        persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
+        from research_core.rag.retriever import Retriever as _R
+        r = _R(persist_dir=persist_dir)
+        count = r._collection.count()
+        if count == 0:
+            logger.warning(
+                "⚠ Vector index empty — ask AI to 'sync index' or run sync_index tool"
+            )
+        else:
+            logger.info(f"✓ Vector index ready ({count} chunks)")
+    except Exception as e:
+        logger.warning(f"⚠ Cannot check vector index: {e}")
 
 
 _WRITE_CONFIRMATION_POLICY = (
@@ -163,6 +198,7 @@ mcp = FastMCP(
         "When analyzing a user's paper, ALWAYS extract 3-8 DOIs from its reference list "
         "and pass as reference_dois to find_related_literature. This is the most effective "
         "strategy. Also provide the paper's own DOI and set fields_of_study for niche domains.\n\n"
+        "- Something broken / 'not working' / connectivity issue → check_health\n\n"
         "CNKI is DISABLED by default. If it returns 'CNKI search is disabled', tell the user "
         "to enable it (install cnki extras, start Chrome with --remote-debugging-port=9222, "
         "log in to CNKI, set CNKI_ENABLED=true in .env, restart MCP).\n\n"
@@ -181,15 +217,65 @@ mcp = FastMCP(
 )
 
 def _safe_tool(func):
-    """Wrap a tool function to catch all exceptions and return structured errors."""
+    """Wrap tool functions: catch exceptions, return structured diagnostics."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except Exception as exc:
             logger.error(f"Tool {func.__name__} failed: {exc}\n{traceback.format_exc()}")
-            return {"error": str(exc), "tool": func.__name__}
+            error_msg = str(exc)
+            diagnosis = _diagnose_error(error_msg, func.__name__)
+            result = {"error": error_msg, "tool": func.__name__}
+            if diagnosis:
+                result["diagnosis"] = diagnosis
+                result["disclaimer"] = (
+                    "问题分析仅供参考，若未解决请查看实际报错。"
+                    " / This diagnosis is for reference only; "
+                    "check the actual error if unresolved."
+                )
+            return result
     return wrapper
+
+
+def _diagnose_error(error_msg: str, tool_name: str) -> str | None:
+    """Provide a user-friendly diagnosis for common errors."""
+    lower = error_msg.lower()
+
+    if "connection refused" in lower or "connect" in lower and "23119" in lower:
+        return (
+            "可能原因 / Possible cause: Zotero 桌面版未启动或本地 API 未开启。\n"
+            "建议 / Suggestion: 打开 Zotero → 设置 → 高级 → 启用本地 API。\n"
+            "或调用 check_health 进行完整诊断。"
+        )
+    if "no items" in lower or "empty" in lower and "index" in lower:
+        return (
+            "可能原因 / Possible cause: 向量索引为空，需要先构建索引。\n"
+            "建议 / Suggestion: 对我说 \"sync index\" 来构建论文索引。"
+        )
+    if "api key" in lower or "unauthorized" in lower or "403" in lower:
+        return (
+            "可能原因 / Possible cause: Zotero API Key 未配置或已失效。\n"
+            "建议 / Suggestion: 检查 .env 中的 ZOTERO_API_KEY。\n"
+            "获取地址: https://www.zotero.org/settings/keys"
+        )
+    if "timeout" in lower or "timed out" in lower:
+        return (
+            "可能原因 / Possible cause: 网络超时（可能是防火墙或代理问题）。\n"
+            "建议 / Suggestion: 检查网络连接，或尝试使用代理。\n"
+            "本地功能不受影响。"
+        )
+    if "permission" in lower and "read-only" in lower:
+        return (
+            "可能原因 / Possible cause: 当前为只读模式，无法执行写入操作。\n"
+            "建议 / Suggestion: 在 .env 中配置 ZOTERO_API_KEY 和 ZOTERO_LIBRARY_ID 以启用写入。"
+        )
+    if "collection" in lower and ("not found" in lower or "does not exist" in lower):
+        return (
+            "可能原因 / Possible cause: 向量数据库集合不存在或损坏。\n"
+            "建议 / Suggestion: 尝试重建索引: sync_index(force_rebuild=True)"
+        )
+    return None
 
 
 _zot: ZoteroClient | None = None
@@ -200,19 +286,31 @@ _indexer: Indexer | None = None
 def _get_zot() -> ZoteroClient:
     global _zot
     if _zot is None:
-        _zot = ZoteroClient(
-            library_id=os.getenv("ZOTERO_LIBRARY_ID", "0"),
-            library_type=os.getenv("ZOTERO_LIBRARY_TYPE", "user"),
-            api_key=os.getenv("ZOTERO_API_KEY", ""),
-            local=os.getenv("ZOTERO_LOCAL", "true").lower() == "true",
-        )
+        try:
+            _zot = ZoteroClient(
+                library_id=os.getenv("ZOTERO_LIBRARY_ID", "0"),
+                library_type=os.getenv("ZOTERO_LIBRARY_TYPE", "user"),
+                api_key=os.getenv("ZOTERO_API_KEY", ""),
+                local=os.getenv("ZOTERO_LOCAL", "true").lower() == "true",
+            )
+        except Exception as e:
+            raise ConnectionError(
+                f"Failed to initialize Zotero client: {e}. "
+                "Please ensure Zotero is running and .env is correctly configured."
+            ) from e
     return _zot
 
 
 def _get_retriever() -> Retriever:
     global _retriever
     if _retriever is None:
-        _retriever = Retriever(persist_dir=os.getenv("CHROMA_PERSIST_DIR", ".chroma_db"))
+        try:
+            _retriever = Retriever(persist_dir=os.getenv("CHROMA_PERSIST_DIR", ".chroma_db"))
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to initialize vector index: {e}. "
+                "Check CHROMA_PERSIST_DIR in .env and ensure the directory is writable."
+            ) from e
     return _retriever
 
 
@@ -1471,6 +1569,84 @@ def find_arguments(
         zot=_get_zot(),
         top_k=top_k,
         item_keys=normalize_list(item_keys, "item_keys"),
+    )
+
+
+@mcp.tool()
+@_safe_tool
+def check_health(verbose: bool = False) -> dict:
+    """Diagnose connection, index, and configuration status.
+
+    Call this when the user reports issues ("not working", "no results", "连不上")
+    or when you suspect something is misconfigured. Returns a structured report
+    with status, issues found, and actionable fix suggestions.
+
+    Checks: Zotero connectivity, write capability, vector index, embedding model,
+    online API access, and environment configuration.
+
+    When NOT to use:
+    - User is asking a normal research question → use search/read tools.
+    - User wants to rebuild the index → use sync_index.
+
+    Args:
+        verbose: Include extra debug details (default False).
+    """
+    return _check_health(
+        zot=_get_zot(),
+        retriever=_get_retriever(),
+        verbose=verbose,
+    )
+
+
+@mcp.tool()
+@_safe_tool
+def inspect_index(item_key: str | None = None) -> dict:
+    """View index quality: chunk stats, coverage, and potential issues.
+
+    Two modes:
+    - Global (no item_key): aggregate stats across the entire index —
+      total chunks, avg size, papers with issues, section breakdown.
+    - Per-paper (with item_key): detailed chunk list with page ranges,
+      lengths, previews, and section tags.
+
+    Use this when the user asks "how is my index?", "what's indexed?",
+    or when diagnosing poor search results.
+
+    When NOT to use:
+    - User wants to search for content → use search_papers.
+    - User wants to rebuild index → use sync_index.
+
+    Args:
+        item_key: Optional paper key. If given, shows that paper's chunks.
+    """
+    return _inspect_index(
+        retriever=_get_retriever(),
+        item_key=item_key,
+    )
+
+
+@mcp.tool()
+@_safe_tool
+def test_recall(item_key: str) -> dict:
+    """Test retrieval quality for a specific paper.
+
+    Searches the index using the paper's title and checks if the paper's
+    own chunks appear in results. Useful for diagnosing "why can't I find
+    this paper?" issues.
+
+    Returns recall status and the matched/missed chunks.
+
+    When NOT to use:
+    - User wants to search broadly → use search_papers.
+    - User wants index stats → use inspect_index.
+
+    Args:
+        item_key: The paper's Zotero item key to test.
+    """
+    return _test_recall(
+        retriever=_get_retriever(),
+        zot=_get_zot(),
+        item_key=item_key,
     )
 
 

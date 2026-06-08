@@ -49,6 +49,10 @@ class Indexer:
                 "page_start": c.page_start,
                 "page_end": c.page_end,
                 "chunk_idx": c.chunk_idx,
+                "section": c.metadata.get("section", "content"),
+                "has_figure_table": c.metadata.get(
+                    "has_figure_table", False
+                ),
             }
             for c in chunks
         ]
