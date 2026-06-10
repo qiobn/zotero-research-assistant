@@ -625,6 +625,7 @@ Copy [`.env.example`](./.env.example) to `.env` and adjust:
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker (`none` to disable) |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | Local vector database path |
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on MCP startup |
+| `ZRA_TABLE_MODE` | `lite` | Table extraction: `lite` (ruled tables only) or `ml` (Table Transformer for borderless/three-line tables; needs `[tables]` extra) |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | Optional; higher rate limits for online search |
 | `OPENALEX_MAILTO` | — | Optional; polite pool for OpenAlex API |
 | `UNPAYWALL_EMAIL` | — | Optional; Unpaywall OA PDF lookup |

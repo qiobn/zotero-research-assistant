@@ -619,6 +619,7 @@ codex "在我的 Zotero 里搜索城市步行性相关论文"
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 重排序模型（设 `none` 禁用） |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | 本地向量数据库路径 |
 | `ZRA_AUTO_SYNC` | `true` | MCP 启动时自动增量同步 |
+| `ZRA_TABLE_MODE` | `lite` | 表格提取：`lite`（仅有框表格）或 `ml`（Table Transformer，可结构化无框/三线表，需 `[tables]` 可选依赖） |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | 可选；提升在线搜索速率 |
 | `OPENALEX_MAILTO` | — | 可选；OpenAlex 礼貌池 |
 | `UNPAYWALL_EMAIL` | — | 可选；Unpaywall OA PDF 查找 |
