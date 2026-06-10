@@ -75,33 +75,48 @@ macOS（打开"终端"，在启动台搜索"终端"）：
 第 2 步：安装本项目
 ========================================
 
-在终端/cmd 中运行：
+-------- 2.1 先配置国内镜像（重要） --------
+
+安装过程中需要下载约 2.3GB 的 AI 模型，该模型托管在 HuggingFace（国内
+无法直连）。请在安装前先运行以下命令设置镜像：
+
+macOS / Linux（终端中运行）：
+    export HF_ENDPOINT=https://hf-mirror.com
+
+Windows（cmd 中运行）：
+    set HF_ENDPOINT=https://hf-mirror.com
+
+注意：这个设置只在当前终端窗口有效。如果你关闭了终端再打开，需要重新设置。
+后面第 3 步会把它写入配置文件，之后就不需要每次手动设置了。
+
+
+-------- 2.2 安装 --------
+
+在同一个终端窗口中继续运行（不要关闭，保持上面的镜像设置生效）：
 
     pip install zotero-research-assistant
 
 注意：
   - 如果 pip 命令提示"未找到"，试试 pip3 install zotero-research-assistant
-  - 如果你的电脑上有多个 Python 版本，使用 pip3 可以确保安装到正确的版本
   - macOS 用户通常需要用 pip3 而非 pip
+  - 如果 pip 和 pip3 都找不到，说明第 1 步的 Python 没装好
 
 如果需要知网检索功能（可选）：
 
     pip install "zotero-research-assistant[cnki]"
     （或 pip3 install "zotero-research-assistant[cnki]"）
 
-安装完成后验证：
+
+-------- 2.3 验证安装 --------
 
     zra-mcp --help
 
 如果显示帮助信息或无报错，说明安装成功。
 
-首次运行时会自动下载嵌入模型（约 2.3GB），需要等待几分钟。如果下载慢，
-可设置国内镜像后重试：
-    macOS:   export HF_ENDPOINT=https://hf-mirror.com
-    Windows: set HF_ENDPOINT=https://hf-mirror.com
-    然后重新运行 zra-mcp
+首次运行 zra-mcp 时会自动下载模型（镜像下约 3-5 分钟），下载完成后
+后续启动不再需要下载。
 
-或者直接拷贝别人已下载好的模型文件夹：
+如果镜像也很慢，可以直接拷贝别人已下载好的模型文件夹到以下位置：
     macOS:   ~/.cache/huggingface/hub/models--BAAI--bge-m3/
     Windows: C:\Users\你的用户名\.cache\huggingface\hub\models--BAAI--bge-m3\
 
@@ -148,12 +163,14 @@ pip 安装的用户需要在一个固定位置创建 .env 文件。推荐做法�
     ZOTERO_LOCAL=true
     ZOTERO_LIBRARY_ID=12345678
     ZOTERO_API_KEY=aB3xYz9kLmN...
+    HF_ENDPOINT=https://hf-mirror.com
 
 说明：
   - ZOTERO_LOCAL=true：必填，表示使用本地 Zotero
   - ZOTERO_LIBRARY_ID：填你在 3.2 步骤 7 中看到的数字
   - ZOTERO_API_KEY：填你在 3.2 步骤 6 中复制的 key。如果跳过了 3.2 就留空
-  - 如果只读使用（搜索和阅读），只需写 ZOTERO_LOCAL=true 即可
+  - HF_ENDPOINT：国内镜像地址，加速模型下载（写入 .env 后无需每次手动设置）
+  - 如果只读使用（搜索和阅读），只需写 ZOTERO_LOCAL=true 和 HF_ENDPOINT 两行即可
 
 Windows 创建 .env 文件的方法：
   1. 打开你选定的目录
@@ -534,23 +551,19 @@ Windows：
 
 
 ========================================
-附录 B：国内网络注意事项
+附录 B：网络补充说明
 ========================================
 
-如果你在国内网络环境下使用，以下信息可能对你有帮助：
+本指南已默认引导使用国内镜像，正常情况下不会遇到网络问题。
+以下是一些补充信息：
 
 1. pip install（安装本项目）
    - PyPI 国内通常可以正常访问
    - 如果慢可以用清华镜像：pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zotero-research-assistant
 
-2. 下载嵌入模型（约 2.3GB，最容易卡住的一步）
-   - HuggingFace 在国内经常无法直连
-   - 解决方案（二选一）：
-     a. 设置镜像（推荐）：
-        macOS:   export HF_ENDPOINT=https://hf-mirror.com
-        Windows: set HF_ENDPOINT=https://hf-mirror.com
-        设置后再运行 zra-mcp
-     b. 找已经下载好的人拷贝模型文件夹（见第 2 步说明）
+2. 下载嵌入模型（约 2.3GB）
+   - 已在第 2 步和 .env 中配置了 hf-mirror.com 镜像，正常 3-5 分钟可完成
+   - 如果镜像也不通，找已下载好的人拷贝模型文件夹（见第 2 步说明）
 
 3. 日常使用时的在线搜索
    - OpenAlex、CrossRef、Semantic Scholar 这些学术 API 国内通常可直连，不需要代理

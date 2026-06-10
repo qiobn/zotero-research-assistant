@@ -4,14 +4,18 @@
 
 Categories:
   DISCOVER   search_papers, search_online_literature, search_cnki_literature,
-             find_related_literature, cnki_paper_detail, cnki_navigate_pages,
-             find_similar_papers, browse_library, find_duplicates, merge_duplicates
-  READ       get_paper, get_paper_content, search_annotations, create_annotation
-  WRITE      suggest_citations, export_bibliography, add_paper, cnki_add_to_zotero
-  MANAGE     add_note, edit_tags, manage_collections
+             find_related_literature, expand_citation_network, cnki_paper_detail,
+             cnki_navigate_pages, find_similar_papers, browse_library, find_duplicates
+  READ       get_paper, get_paper_content, search_annotations
+  WRITE      add_paper, cnki_add_to_zotero, add_note, edit_tags, manage_collections,
+             create_annotation, merge_duplicates
+  CITE       suggest_citations, export_bibliography
   INSIGHT    reading_status, recommend_papers, generate_review_note, generate_reading_note,
              suggest_tags, find_arguments
   ADMIN      sync_index, check_health, inspect_index, test_recall
+
+Note: CNKI tools (search_cnki_literature, cnki_paper_detail, cnki_navigate_pages,
+cnki_add_to_zotero) are only registered when CNKI_ENABLED=true.
 """
 
 from __future__ import annotations
@@ -156,10 +160,7 @@ def _startup_diagnostics() -> None:
         )
 
     try:
-        persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
-        from research_core.rag.retriever import Retriever as _R
-        r = _R(persist_dir=persist_dir)
-        count = r._collection.count()
+        count = _get_retriever().count()
         if count == 0:
             logger.warning(
                 "⚠ Vector index empty — ask AI to 'sync index' or run sync_index tool"
@@ -186,8 +187,10 @@ mcp = FastMCP(
         "- Local library → search_papers\n"
         "- Online English → search_online_literature\n"
         "- Chinese/知网/CNKI → search_cnki_literature (only when explicitly requested)\n"
-        "- Related to a paper → find_related_literature (ONE call replaces many searches)\n"
-        "- Citation neighborhood → expand_citation_network\n"
+        "- Related to ONE paper (have title/abstract/DOI) → find_related_literature "
+        "(ONE call = 5 parallel verified strategies; PREFERRED)\n"
+        "- Pure citation graph from a LIST of seed DOIs, or niche topic where keyword "
+        "search fails → expand_citation_network (multi-seed, no verification)\n"
         "- Reading progress / what's unread → reading_status\n"
         "- 'What should I read next?' → recommend_papers\n"
         "- 'Summarize/review these papers' → generate_review_note\n"
@@ -215,6 +218,24 @@ mcp = FastMCP(
     ),
     lifespan=_lifespan,
 )
+
+_CNKI_ENABLED = os.getenv("CNKI_ENABLED", "false").lower() == "true"
+
+
+def _cnki_tool():
+    """Register a CNKI tool only when CNKI_ENABLED=true.
+
+    When disabled (default), CNKI tools are NOT exposed to the LLM, cutting the
+    tool surface from 32 to 28 and reducing tool-selection load.
+    """
+    if _CNKI_ENABLED:
+        return mcp.tool()
+
+    def _noop(func):
+        return func
+
+    return _noop
+
 
 _MAX_RESPONSE_CHARS = 80000
 _TRIM_TARGET_CHARS = 60000
@@ -389,43 +410,52 @@ def _diagnose_error(error_msg: str, tool_name: str) -> str | None:
 _zot: ZoteroClient | None = None
 _retriever: Retriever | None = None
 _indexer: Indexer | None = None
+_globals_lock = threading.Lock()
 
 
 def _get_zot() -> ZoteroClient:
     global _zot
     if _zot is None:
-        try:
-            _zot = ZoteroClient(
-                library_id=os.getenv("ZOTERO_LIBRARY_ID", "0"),
-                library_type=os.getenv("ZOTERO_LIBRARY_TYPE", "user"),
-                api_key=os.getenv("ZOTERO_API_KEY", ""),
-                local=os.getenv("ZOTERO_LOCAL", "true").lower() == "true",
-            )
-        except Exception as e:
-            raise ConnectionError(
-                f"Failed to initialize Zotero client: {e}. "
-                "Please ensure Zotero is running and .env is correctly configured."
-            ) from e
+        with _globals_lock:
+            if _zot is None:
+                try:
+                    _zot = ZoteroClient(
+                        library_id=os.getenv("ZOTERO_LIBRARY_ID", "0"),
+                        library_type=os.getenv("ZOTERO_LIBRARY_TYPE", "user"),
+                        api_key=os.getenv("ZOTERO_API_KEY", ""),
+                        local=os.getenv("ZOTERO_LOCAL", "true").lower() == "true",
+                    )
+                except Exception as e:
+                    raise ConnectionError(
+                        f"Failed to initialize Zotero client: {e}. "
+                        "Please ensure Zotero is running and .env is correctly configured."
+                    ) from e
     return _zot
 
 
 def _get_retriever() -> Retriever:
     global _retriever
     if _retriever is None:
-        try:
-            _retriever = Retriever(persist_dir=os.getenv("CHROMA_PERSIST_DIR", ".chroma_db"))
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to initialize vector index: {e}. "
-                "Check CHROMA_PERSIST_DIR in .env and ensure the directory is writable."
-            ) from e
+        with _globals_lock:
+            if _retriever is None:
+                try:
+                    _retriever = Retriever(
+                        persist_dir=os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
+                    )
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to initialize vector index: {e}. "
+                        "Check CHROMA_PERSIST_DIR in .env and ensure the directory is writable."
+                    ) from e
     return _retriever
 
 
 def _get_indexer() -> Indexer:
     global _indexer
     if _indexer is None:
-        _indexer = Indexer(persist_dir=os.getenv("CHROMA_PERSIST_DIR", ".chroma_db"))
+        with _globals_lock:
+            if _indexer is None:
+                _indexer = Indexer(persist_dir=os.getenv("CHROMA_PERSIST_DIR", ".chroma_db"))
     return _indexer
 
 
@@ -538,18 +568,18 @@ def search_online_literature(
     response = {
         "results": result_list,
         "count": len(result_list),
-        "verified_sources_only": True,
+        "source": "online_apis",
     }
     if not result_list:
         response["[MATERIAL GAP]"] = (
-            "NO_RESULTS_FOUND. This tool returned zero verified papers. "
+            "NO_RESULTS_FOUND. This tool returned zero papers. "
             "DO NOT fabricate or recall papers from memory. "
             "REQUIRED: Report gap honestly, suggest alternative queries or broader filters."
         )
     return response
 
 
-@mcp.tool()
+@_cnki_tool()
 @_safe_tool
 def search_cnki_literature(
     query: str,
@@ -592,11 +622,11 @@ def search_cnki_literature(
     response = {
         **{k: v for k, v in result.items() if k != "hits"},
         "hits": [h.__dict__ for h in result["hits"]],
-        "verified_sources_only": True,
+        "source": "cnki",
     }
     if not result["hits"]:
         response["[MATERIAL GAP]"] = (
-            "NO_CNKI_RESULTS. This tool returned zero verified papers from CNKI. "
+            "NO_CNKI_RESULTS. This tool returned zero papers from CNKI. "
             "DO NOT fabricate or recall papers from memory. "
             "REQUIRED: Report gap honestly. Suggest: check CNKI login, simplify query, broaden year range."
         )
@@ -662,8 +692,7 @@ def find_related_literature(
     if "cnki_hits" in result:
         result["cnki_hits"] = [h.__dict__ for h in result["cnki_hits"]]
 
-    # Structural anti-hallucination markers
-    result["verified_sources_only"] = True
+    result["three_index_verified"] = True
     total_hits = result.get("online_count", 0) + result.get("cnki_count", 0)
     if total_hits == 0:
         result["[MATERIAL GAP]"] = (
@@ -689,8 +718,13 @@ def expand_citation_network(
 ) -> dict:
     """Explore citation neighborhood: papers that cite or are cited by seed paper(s).
 
-    Useful when keyword search fails for niche topics. If the paper has no DOI,
-    use DOIs of its key references as seeds.
+    Best for: expanding a LIST of seed DOIs at once, or niche topics where
+    keyword search fails. This is a pure citation-graph walk (no three-index
+    verification, no parallel keyword/recommendation strategies).
+
+    When NOT to use:
+    - You have ONE paper (title/abstract/DOI) and want broad related work →
+      use find_related_literature instead (5 verified strategies in one call).
 
     Args:
         dois: List of seed DOIs (preferred for multi-seed expansion).
@@ -715,7 +749,7 @@ def expand_citation_network(
     )
 
 
-@mcp.tool()
+@_cnki_tool()
 @_safe_tool
 def cnki_add_to_zotero(
     export_ids: list[str],
@@ -750,7 +784,7 @@ def cnki_add_to_zotero(
     return result.__dict__
 
 
-@mcp.tool()
+@_cnki_tool()
 @_safe_tool
 def cnki_paper_detail(cnki_url: str) -> dict:
     """Extract full metadata from a CNKI paper's detail page.
@@ -778,7 +812,7 @@ def cnki_paper_detail(cnki_url: str) -> dict:
     return _cnki_paper_detail(cnki_url=cnki_url)
 
 
-@mcp.tool()
+@_cnki_tool()
 @_safe_tool
 def cnki_navigate_pages(
     action: str = "next",

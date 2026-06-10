@@ -7,6 +7,7 @@ Chinese + English + multilingual with 1024-dim dense vectors.
 from __future__ import annotations
 
 import os
+import threading
 
 from chromadb.api.types import (
     Documents,
@@ -24,6 +25,13 @@ class SentenceTransformerEmbedding(EmbeddingFunction[Documents]):
     def __init__(self, model_name: str | None = None):
         self._model_name = model_name or os.getenv("EMBEDDING_MODEL", _DEFAULT_MODEL)
         self._model = None
+        self._batch_size = int(os.getenv("EMBEDDING_BATCH_SIZE", "64"))
+        # Hard cap on sequence length. bge-m3 defaults to 8192; a single long
+        # chunk would pad the whole batch and make the attention tensor
+        # (batch × heads × seq²) explode (e.g. 64×16×2294²×4B ≈ 20 GiB → OOM on
+        # MPS). Our chunks are < ~1200 chars (~400 tokens), so 1024 is ample
+        # headroom and bounds peak memory safely.
+        self._max_seq_len = int(os.getenv("EMBEDDING_MAX_SEQ_LEN", "1024"))
 
     def name(self) -> str:
         return f"sentence-transformer-{self._model_name}"
@@ -33,17 +41,47 @@ class SentenceTransformerEmbedding(EmbeddingFunction[Documents]):
             from sentence_transformers import SentenceTransformer
 
             self._apply_hf_mirror()
-            logger.info(f"Loading embedding model: {self._model_name}")
+            device = self._resolve_device()
+            logger.info(f"Loading embedding model: {self._model_name} (device={device})")
             try:
-                self._model = SentenceTransformer(self._model_name)
-            except Exception as e:
+                self._model = SentenceTransformer(self._model_name, device=device)
+            except Exception:
                 if not os.environ.get("HF_ENDPOINT"):
                     logger.warning(
                         "Model download failed. If you are in China, set "
                         "HF_ENDPOINT=https://hf-mirror.com in your .env file and retry."
                     )
                 raise
-            logger.info(f"Embedding model loaded, dim={self._model.get_embedding_dimension()}")
+            try:
+                if self._max_seq_len > 0 and self._model.max_seq_length > self._max_seq_len:
+                    self._model.max_seq_length = self._max_seq_len
+            except Exception:
+                pass
+            logger.info(
+                f"Embedding model loaded, dim={self._model.get_embedding_dimension()}, "
+                f"max_seq_length={getattr(self._model, 'max_seq_length', '?')}"
+            )
+
+    @staticmethod
+    def _resolve_device() -> str | None:
+        """Pick the fastest available device: cuda → mps → cpu.
+
+        Honors EMBEDDING_DEVICE override. Returns None to let
+        sentence-transformers auto-select if torch is unavailable.
+        """
+        override = os.getenv("EMBEDDING_DEVICE", "").strip()
+        if override:
+            return override
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                return "cuda"
+            if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                return "mps"
+            return "cpu"
+        except Exception:
+            return None
 
     @staticmethod
     def _apply_hf_mirror():
@@ -55,16 +93,24 @@ class SentenceTransformerEmbedding(EmbeddingFunction[Documents]):
 
     def __call__(self, input: Documents) -> Embeddings:
         self._load()
-        embeddings = self._model.encode(input, normalize_embeddings=True)
+        embeddings = self._model.encode(
+            input,
+            normalize_embeddings=True,
+            batch_size=self._batch_size,
+            convert_to_numpy=True,
+        )
         return embeddings.tolist()
 
 
 _singleton: SentenceTransformerEmbedding | None = None
+_init_lock = threading.Lock()
 
 
 def get_embedding_function() -> SentenceTransformerEmbedding:
-    """Return a singleton embedding function. Thread-safe for single-process use."""
+    """Return a singleton embedding function. Thread-safe via double-checked locking."""
     global _singleton
     if _singleton is None:
-        _singleton = SentenceTransformerEmbedding()
+        with _init_lock:
+            if _singleton is None:
+                _singleton = SentenceTransformerEmbedding()
     return _singleton

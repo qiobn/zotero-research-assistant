@@ -2,6 +2,10 @@
 
 Supports hybrid mode: local API for fast reads, web API for writes.
 Enabled automatically when ZOTERO_LOCAL=true AND ZOTERO_API_KEY is set.
+
+Includes circuit breaker: after consecutive failures, the client enters a
+"down" state and returns errors immediately for a cooldown period, avoiding
+cascading timeouts when Zotero desktop is unavailable.
 """
 
 from __future__ import annotations
@@ -9,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 import unicodedata
 from functools import wraps
 from typing import TypeVar
@@ -24,13 +29,82 @@ F = TypeVar("F")
 
 _api_lock = threading.RLock()
 
+_ZOTERO_TIMEOUT = int(os.getenv("ZRA_ZOTERO_TIMEOUT", "15"))
+_CIRCUIT_BREAKER_THRESHOLD = 3
+_CIRCUIT_BREAKER_COOLDOWN = 30
+
+# Item types that are never standalone "papers" and must be excluded from
+# indexing/diffing. NOTE: the Zotero local API mishandles the combined
+# negation filter "-attachment || note" (it silently returns ALL items),
+# so we enforce this exclusion client-side instead of trusting the server.
+_NON_PAPER_TYPES = frozenset({"attachment", "note", "annotation"})
+
+_failure_count = 0
+_circuit_open_until = 0.0
+_circuit_lock = threading.Lock()
+
+
+class ZoteroUnavailableError(ConnectionError):
+    """Raised when Zotero is detected as unavailable (circuit breaker open)."""
+
+
+def _check_circuit() -> None:
+    """Raise immediately if circuit breaker is open."""
+    global _circuit_open_until
+    if _circuit_open_until > time.time():
+        raise ZoteroUnavailableError(
+            f"Zotero API circuit breaker is OPEN (consecutive failures >= {_CIRCUIT_BREAKER_THRESHOLD}). "
+            f"Will retry in {int(_circuit_open_until - time.time())}s. "
+            "Ensure Zotero desktop is running."
+        )
+
+
+def _record_success() -> None:
+    """Reset failure counter on successful call."""
+    global _failure_count, _circuit_open_until
+    with _circuit_lock:
+        _failure_count = 0
+        _circuit_open_until = 0.0
+
+
+def _record_failure() -> None:
+    """Increment failure counter; open circuit breaker if threshold reached."""
+    global _failure_count, _circuit_open_until
+    with _circuit_lock:
+        _failure_count += 1
+        if _failure_count >= _CIRCUIT_BREAKER_THRESHOLD:
+            _circuit_open_until = time.time() + _CIRCUIT_BREAKER_COOLDOWN
+            logger.warning(
+                f"Zotero circuit breaker OPEN after {_failure_count} consecutive failures. "
+                f"Cooldown: {_CIRCUIT_BREAKER_COOLDOWN}s."
+            )
+
 
 def _with_lock(func: F) -> F:
-    """Serialize Zotero API calls to prevent concurrent request corruption."""
+    """Serialize Zotero API calls with circuit breaker protection.
+
+    Timeout is enforced at the transport level (requests.Session) rather than
+    via thread pools, preserving RLock reentrancy for internal calls.
+    """
     @wraps(func)
     def wrapper(*args, **kwargs):
+        _check_circuit()
         with _api_lock:
-            return func(*args, **kwargs)
+            try:
+                result = func(*args, **kwargs)
+                _record_success()
+                return result
+            except ZoteroUnavailableError:
+                raise
+            except (ConnectionError, OSError, TimeoutError) as exc:
+                _record_failure()
+                raise ConnectionError(
+                    f"Zotero API call '{func.__name__}' failed: {exc}. "
+                    "Ensure Zotero desktop is running and responsive."
+                ) from exc
+            except Exception:
+                _record_failure()
+                raise
     return wrapper  # type: ignore[return-value]
 
 
@@ -59,6 +133,25 @@ class ZoteroClient:
         if local and api_key and library_id:
             self._write_zot = zotero.Zotero(library_id, library_type, api_key)
             logger.info("Hybrid mode enabled: local reads + web API writes")
+
+        self._apply_timeout(self._zot)
+        if self._write_zot:
+            self._apply_timeout(self._write_zot)
+
+    @staticmethod
+    def _apply_timeout(zot_instance: zotero.Zotero) -> None:
+        """Configure socket-level timeout on pyzotero's underlying requests session."""
+        from requests.adapters import HTTPAdapter
+
+        class _TimeoutAdapter(HTTPAdapter):
+            def send(self, request, **kwargs):
+                kwargs.setdefault("timeout", _ZOTERO_TIMEOUT)
+                return super().send(request, **kwargs)
+
+        adapter = _TimeoutAdapter()
+        if hasattr(zot_instance, "session"):
+            zot_instance.session.mount("http://", adapter)
+            zot_instance.session.mount("https://", adapter)
 
     @property
     def can_write(self) -> bool:
@@ -160,18 +253,37 @@ class ZoteroClient:
         limit: int = 500,
         item_type: str = "-attachment || note",
     ) -> list[Item]:
-        """Fetch all top-level items (no children). Used by sync_index to diff library."""
+        """Fetch all top-level papers (excludes attachments/notes/annotations).
+
+        The Zotero local API ignores the combined negation filter, so we always
+        drop non-paper types client-side regardless of what the server returns.
+        """
         raw = self._zot.items(limit=limit, itemType=item_type)
-        return [self._to_item(r) for r in raw]
+        items = [self._to_item(r) for r in raw]
+        return [it for it in items if it.item_type not in _NON_PAPER_TYPES]
 
     @_with_lock
     def get_item_versions(
         self,
         item_type: str = "-attachment || note",
     ) -> dict[str, int]:
-        """Return {item_key: version} for all top-level items. Lightweight API call."""
+        """Return {item_key: version} for top-level papers only.
+
+        Excludes attachments/notes/annotations. Because the local API's
+        combined negation filter ("-attachment || note") is broken and returns
+        everything, we compute the exclusion client-side using *positive*
+        per-type version queries, which the API handles correctly.
+        """
         try:
-            return self._zot.item_versions(itemType=item_type)
+            all_versions = dict(self._zot.item_versions())
+            excluded_keys: set[str] = set()
+            for t in _NON_PAPER_TYPES:
+                try:
+                    excluded_keys.update(self._zot.item_versions(itemType=t))
+                except Exception:
+                    # If a per-type query fails, fall back to type-aware filtering below.
+                    raise
+            return {k: v for k, v in all_versions.items() if k not in excluded_keys}
         except Exception:
             items = self.get_all_items_minimal(limit=5000, item_type=item_type)
             return {it.key: it.version for it in items}
@@ -246,13 +358,18 @@ class ZoteroClient:
     def search_all_annotations(self, query: str, limit: int = 20) -> list[dict]:
         """Search annotations across ALL papers in the library by keyword.
 
-        Paginates through the entire library (100 items per page) instead of
-        using a hard cap, but stops as soon as `limit` matches are found.
+        Paginates through the library (100 items per page) and stops as soon as
+        `limit` matches are found. To protect very large libraries from an
+        O(N*M) API storm (each paper triggers a children fetch), the scan is
+        bounded by ZRA_ANNOTATION_SCAN_CAP papers (default 300).
         """
         query_lower = query.lower()
         results: list[dict] = []
         page_size = 100
         start = 0
+        scan_cap = int(os.getenv("ZRA_ANNOTATION_SCAN_CAP", "300"))
+        scanned = 0
+        cap_hit = False
         while True:
             batch = self._zot.items(
                 itemType="-attachment || note", limit=page_size, start=start,
@@ -261,6 +378,13 @@ class ZoteroClient:
                 break
             for raw in batch:
                 item = self._to_item(raw)
+                # Local API ignores "-attachment || note"; skip non-papers here.
+                if item.item_type in _NON_PAPER_TYPES:
+                    continue
+                if scanned >= scan_cap:
+                    cap_hit = True
+                    break
+                scanned += 1
                 for ch in self._zot.children(item.key):
                     ch_data = ch.get("data", ch)
                     if ch_data.get("contentType") != "application/pdf":
@@ -291,9 +415,15 @@ class ZoteroClient:
                             })
                             if len(results) >= limit:
                                 return results
-            if len(batch) < page_size:
+            if cap_hit or len(batch) < page_size:
                 break
             start += page_size
+
+        if cap_hit:
+            logger.debug(
+                f"search_all_annotations: scan cap ({scan_cap} papers) reached; "
+                "results may be partial. Raise ZRA_ANNOTATION_SCAN_CAP if needed."
+            )
         return results
 
     # ── Read: attachments ─────────────────────────────────────

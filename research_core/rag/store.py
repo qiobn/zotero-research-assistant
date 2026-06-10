@@ -11,6 +11,7 @@ import os
 import threading
 
 import chromadb
+from loguru import logger
 
 from research_core.rag.embedding import get_embedding_function
 
@@ -22,6 +23,22 @@ sync_lock = threading.RLock()
 """Reentrant lock to serialize index write operations (sync_index, delete, upsert).
 Readers (search, get) do not need to hold this lock — ChromaDB handles read consistency.
 """
+
+
+def _hnsw_metadata() -> dict:
+    """Build HNSW tuning metadata from env (with sensible large-index defaults).
+
+    - hnsw:search_ef   query-time candidate breadth (biggest recall lever).
+                       ChromaDB default is ~10, far too low for large indices.
+    - hnsw:construction_ef  build-time graph quality (applies on fresh build only).
+    - hnsw:M           graph connectivity (applies on fresh build only).
+    """
+    return {
+        "hnsw:space": "cosine",
+        "hnsw:search_ef": int(os.getenv("ZRA_HNSW_SEARCH_EF", "100")),
+        "hnsw:construction_ef": int(os.getenv("ZRA_HNSW_CONSTRUCTION_EF", "200")),
+        "hnsw:M": int(os.getenv("ZRA_HNSW_M", "32")),
+    }
 
 
 def get_collection(
@@ -42,9 +59,40 @@ def get_collection(
 
         path = persist_dir or os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
         _client = chromadb.PersistentClient(path=path)
-        _collection = _client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-            embedding_function=get_embedding_function(),
-        )
+        metadata = _hnsw_metadata()
+        try:
+            _collection = _client.get_or_create_collection(
+                name=collection_name,
+                metadata=metadata,
+                embedding_function=get_embedding_function(),
+            )
+        except Exception as e:
+            # Older/newer ChromaDB may reject some hnsw:* keys — fall back to space only.
+            logger.warning(f"HNSW tuning metadata rejected ({e}); using defaults.")
+            _collection = _client.get_or_create_collection(
+                name=collection_name,
+                metadata={"hnsw:space": "cosine"},
+                embedding_function=get_embedding_function(),
+            )
+
+        _apply_search_ef(_collection, metadata["hnsw:search_ef"])
     return _collection
+
+
+def _apply_search_ef(collection: chromadb.Collection, search_ef: int) -> None:
+    """Best-effort: ensure query-time search_ef is applied to an existing collection.
+
+    construction_ef and M are fixed at build time, but search_ef can be updated
+    on a pre-existing collection so recall improves without a full rebuild.
+    """
+    try:
+        meta = collection.metadata or {}
+        if meta.get("hnsw:search_ef") == search_ef:
+            return
+        # ChromaDB rejects modify() payloads containing hnsw:space (it reads this
+        # as an attempt to change the distance function), so strip that key.
+        new_meta = {k: v for k, v in meta.items() if k != "hnsw:space"}
+        new_meta["hnsw:search_ef"] = search_ef
+        collection.modify(metadata=new_meta)
+    except Exception as e:
+        logger.debug(f"Could not update search_ef on existing collection: {e}")
