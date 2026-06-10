@@ -197,7 +197,7 @@ python -c "from project_a_mcp.server import mcp; print('OK')"
 python -c "from project_a_mcp.server import mcp; print('OK')"
 ```
 
-> 首次运行会下载嵌入模型（约 2.3 GB）。下载慢可设置 `HF_ENDPOINT=https://hf-mirror.com` 后重试。
+> 首次运行会下载嵌入模型（约 2.3 GB）。国内用户建议先设置镜像：`export HF_ENDPOINT=https://hf-mirror.com`（或写入 `.env` 文件），再运行即可正常下载。
 
 ### 2. 配置 Zotero
 
