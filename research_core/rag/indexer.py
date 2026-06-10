@@ -40,26 +40,37 @@ class Indexer:
             self.delete_item(item_key)
             ids = [f"{item_key}:{c.chunk_idx}" for c in chunks]
             documents = [c.text for c in chunks]
-            metadatas = [
-                {
-                    "item_key": item_key,
-                    "title": title,
-                    "year": year,
-                    "page_start": c.page_start,
-                    "page_end": c.page_end,
-                    "chunk_idx": c.chunk_idx,
-                    "section": c.metadata.get("section", "content"),
-                    "has_figure_table": c.metadata.get(
-                        "has_figure_table", False
-                    ),
-                }
-                for c in chunks
-            ]
+            metadatas = [self._build_metadata(c, item_key, title, year) for c in chunks]
             self._collection.upsert(
                 ids=ids, documents=documents, metadatas=metadatas
             )
         logger.info(f"Indexed {len(chunks)} chunks for item {item_key}")
         return len(chunks)
+
+    @staticmethod
+    def _build_metadata(c: Chunk, item_key: str, title: str, year: int) -> dict:
+        """Build ChromaDB metadata (scalar values only) for one chunk."""
+        meta = {
+            "item_key": item_key,
+            "title": title,
+            "year": year,
+            "page_start": c.page_start,
+            "page_end": c.page_end,
+            "chunk_idx": c.chunk_idx,
+            "section": c.metadata.get("section", "content"),
+            "has_figure_table": c.metadata.get("has_figure_table", False),
+            "is_table": c.metadata.get("is_table", False),
+        }
+        if c.metadata.get("is_table"):
+            meta["table_caption"] = c.metadata.get("table_caption", "")
+            meta["table_part"] = c.metadata.get("table_part", 1)
+            meta["table_parts"] = c.metadata.get("table_parts", 1)
+            meta["n_rows"] = c.metadata.get("n_rows", 0)
+            meta["n_cols"] = c.metadata.get("n_cols", 0)
+            table_json = c.metadata.get("table_json")
+            if table_json:
+                meta["table_json"] = table_json
+        return meta
 
     def delete_item(self, item_key: str) -> int:
         """Delete all chunks for an item. Returns the count deleted."""

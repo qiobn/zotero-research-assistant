@@ -26,6 +26,12 @@ class SentenceTransformerEmbedding(EmbeddingFunction[Documents]):
         self._model_name = model_name or os.getenv("EMBEDDING_MODEL", _DEFAULT_MODEL)
         self._model = None
         self._batch_size = int(os.getenv("EMBEDDING_BATCH_SIZE", "64"))
+        # Hard cap on sequence length. bge-m3 defaults to 8192; a single long
+        # chunk would pad the whole batch and make the attention tensor
+        # (batch × heads × seq²) explode (e.g. 64×16×2294²×4B ≈ 20 GiB → OOM on
+        # MPS). Our chunks are < ~1200 chars (~400 tokens), so 1024 is ample
+        # headroom and bounds peak memory safely.
+        self._max_seq_len = int(os.getenv("EMBEDDING_MAX_SEQ_LEN", "1024"))
 
     def name(self) -> str:
         return f"sentence-transformer-{self._model_name}"
@@ -46,7 +52,15 @@ class SentenceTransformerEmbedding(EmbeddingFunction[Documents]):
                         "HF_ENDPOINT=https://hf-mirror.com in your .env file and retry."
                     )
                 raise
-            logger.info(f"Embedding model loaded, dim={self._model.get_embedding_dimension()}")
+            try:
+                if self._max_seq_len > 0 and self._model.max_seq_length > self._max_seq_len:
+                    self._model.max_seq_length = self._max_seq_len
+            except Exception:
+                pass
+            logger.info(
+                f"Embedding model loaded, dim={self._model.get_embedding_dimension()}, "
+                f"max_seq_length={getattr(self._model, 'max_seq_length', '?')}"
+            )
 
     @staticmethod
     def _resolve_device() -> str | None:

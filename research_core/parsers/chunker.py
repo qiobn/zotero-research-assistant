@@ -12,12 +12,13 @@ Strategy (v2.1-semantic):
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 
-from research_core.parsers.pdf import PageText
+from research_core.parsers.pdf import PageText, TableData
 
-CHUNKING_VERSION = "v2.2-semantic-overlap"
+CHUNKING_VERSION = "v2.3-tables-hardcap"
 
 _SENTENCE_ENDS = re.compile(
     r"(?<=[.!?。！？；\n])\s+"
@@ -52,6 +53,7 @@ class Chunk:
 
 def chunk_text(
     pages: list[PageText],
+    tables: list[TableData] | None = None,
     target_chunk_size: int = 600,
     max_chunk_size: int = 1200,
     min_chunk_size: int = 100,
@@ -65,44 +67,50 @@ def chunk_text(
     Paragraph-first strategy: splits on double newlines, merges short
     paragraphs, and splits long ones at sentence boundaries. Falls back
     to sliding window for text without paragraph structure.
+
+    Structured ``tables`` (extracted separately from prose) are appended as
+    dedicated Markdown chunks, row-grouped so each stays under ``max_chunk_size``.
+    Finally a hard character cap is enforced on every chunk so that run-on text
+    with no sentence/paragraph structure (data dumps, equations, OCR, borderless
+    tables) can never produce an oversized chunk that blows up embedding memory.
     """
     full_text, page_boundaries = _build_text_and_boundaries(pages)
-    if not full_text.strip():
-        return []
 
-    ref_start, ref_end = _find_references_range(full_text)
+    chunks: list[Chunk] = []
+    if full_text.strip():
+        ref_start, ref_end = _find_references_range(full_text)
+        paragraphs = _split_paragraphs(full_text)
+        if paragraphs:
+            has_paragraph_structure = (
+                len(paragraphs) > 2
+                and any(len(p.text) > 50 for p in paragraphs)
+            )
+            if has_paragraph_structure:
+                chunks = _chunk_by_paragraphs(
+                    paragraphs,
+                    page_boundaries=page_boundaries,
+                    target_size=target_chunk_size,
+                    max_size=max_chunk_size,
+                    min_size=min_chunk_size,
+                    ref_start=ref_start,
+                    ref_end=ref_end,
+                    overlap_sentences=overlap_sentences,
+                )
+            else:
+                chunks = _chunk_sliding_window(
+                    full_text,
+                    page_boundaries=page_boundaries,
+                    chunk_size=target_chunk_size,
+                    overlap=min(overlap, target_chunk_size // 5),
+                    ref_start=ref_start,
+                    ref_end=ref_end,
+                )
+            _tag_captions(chunks)
 
-    paragraphs = _split_paragraphs(full_text)
-    if not paragraphs:
-        return []
+    if tables:
+        chunks.extend(_chunk_tables(tables, max_size=max_chunk_size))
 
-    has_paragraph_structure = (
-        len(paragraphs) > 2
-        and any(len(p.text) > 50 for p in paragraphs)
-    )
-
-    if has_paragraph_structure:
-        chunks = _chunk_by_paragraphs(
-            paragraphs,
-            page_boundaries=page_boundaries,
-            target_size=target_chunk_size,
-            max_size=max_chunk_size,
-            min_size=min_chunk_size,
-            ref_start=ref_start,
-            ref_end=ref_end,
-            overlap_sentences=overlap_sentences,
-        )
-    else:
-        chunks = _chunk_sliding_window(
-            full_text,
-            page_boundaries=page_boundaries,
-            chunk_size=target_chunk_size,
-            overlap=min(overlap, target_chunk_size // 5),
-            ref_start=ref_start,
-            ref_end=ref_end,
-        )
-
-    _tag_captions(chunks)
+    chunks = _enforce_max_chars(chunks, max_chunk_size)
     return chunks
 
 
@@ -113,6 +121,151 @@ def _tag_captions(chunks: list[Chunk]) -> None:
             continue
         if _FIGURE_TABLE_CAPTION.search(chunk.text):
             chunk.metadata["has_figure_table"] = True
+
+
+# ── Table chunking ────────────────────────────────────────────────
+
+
+def _chunk_tables(tables: list[TableData], *, max_size: int) -> list[Chunk]:
+    """Turn structured tables into Markdown chunks, row-grouped under max_size.
+
+    Each chunk carries:
+    - text: a self-contained Markdown table (caption + repeated header + rows),
+      which embeds well and is directly LLM-readable.
+    - metadata.table_json: the structured form of the rows in this chunk, a
+      JSON object {caption, page, columns, rows:[{col: val}], part, parts,
+      n_rows_total}. For complex/multi-level headers, column names are already
+      flattened (e.g. "Group A / Mean") so each row maps cleanly to scalars.
+    """
+    chunks: list[Chunk] = []
+    for table in tables:
+        groups = _row_groups(table, max_size)
+        parts = len(groups)
+        for part_i, rows in enumerate(groups):
+            md = _table_markdown(table.caption, table.columns, rows, part_i, parts)
+            payload = {
+                "caption": table.caption,
+                "page": table.page_num,
+                "columns": table.columns,
+                "rows": [
+                    dict(zip(table.columns, row, strict=False)) for row in rows
+                ],
+                "part": part_i + 1,
+                "parts": parts,
+                "n_rows_total": table.n_rows,
+            }
+            chunks.append(Chunk(
+                text=md,
+                page_start=table.page_num,
+                page_end=table.page_num,
+                chunk_idx=len(chunks),
+                metadata={
+                    "is_table": True,
+                    "has_figure_table": True,
+                    "table_caption": table.caption,
+                    "table_part": part_i + 1,
+                    "table_parts": parts,
+                    "n_rows": table.n_rows,
+                    "n_cols": table.n_cols,
+                    "table_json": json.dumps(payload, ensure_ascii=False),
+                },
+            ))
+    return chunks
+
+
+def _row_groups(table: TableData, max_size: int) -> list[list[list[str]]]:
+    """Split a table's rows so each group's Markdown stays under max_size."""
+    overhead = len(_table_markdown(table.caption, table.columns, [], 0, 1))
+    budget = max(max_size - overhead, max_size // 2)
+    groups: list[list[list[str]]] = []
+    current: list[list[str]] = []
+    current_len = 0
+    for row in table.rows:
+        row_len = sum(len(c) for c in row) + 3 * max(len(row), 1) + 2
+        if current and current_len + row_len > budget:
+            groups.append(current)
+            current = []
+            current_len = 0
+        current.append(row)
+        current_len += row_len
+    if current:
+        groups.append(current)
+    return groups or [[]]
+
+
+def _table_markdown(
+    caption: str,
+    columns: list[str],
+    rows: list[list[str]],
+    part_i: int,
+    parts: int,
+) -> str:
+    """Render a (slice of a) table as a GitHub-flavored Markdown table."""
+    lines: list[str] = []
+    if caption:
+        lines.append(caption + (f" (part {part_i + 1}/{parts})" if parts > 1 else ""))
+    elif parts > 1:
+        lines.append(f"(table part {part_i + 1}/{parts})")
+    cols = columns or ["col_1"]
+    lines.append("| " + " | ".join(_md_cell(c) for c in cols) + " |")
+    lines.append("| " + " | ".join("---" for _ in cols) + " |")
+    for row in rows:
+        cells = [_md_cell(c) for c in row]
+        if len(cells) < len(cols):
+            cells += [""] * (len(cols) - len(cells))
+        lines.append("| " + " | ".join(cells[: len(cols)]) + " |")
+    return "\n".join(lines)
+
+
+def _md_cell(value: str) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ").strip()
+
+
+# ── Hard size cap ─────────────────────────────────────────────────
+
+
+def _enforce_max_chars(chunks: list[Chunk], max_size: int) -> list[Chunk]:
+    """Guarantee no chunk exceeds max_size chars; split oversized ones.
+
+    This is the universal safety floor: regardless of how a chunk was produced
+    (prose, table, run-on data), it will be bounded. Chunk indices are
+    reassigned sequentially so ids stay unique.
+    """
+    out: list[Chunk] = []
+    for chunk in chunks:
+        if len(chunk.text) <= max_size:
+            out.append(chunk)
+            continue
+        for piece in _hard_split(chunk.text, max_size):
+            out.append(Chunk(
+                text=piece,
+                page_start=chunk.page_start,
+                page_end=chunk.page_end,
+                chunk_idx=0,
+                metadata=dict(chunk.metadata),
+            ))
+    for i, chunk in enumerate(out):
+        chunk.chunk_idx = i
+    return out
+
+
+def _hard_split(text: str, max_size: int) -> list[str]:
+    """Split text into <= max_size pieces, preferring whitespace boundaries."""
+    pieces: list[str] = []
+    pos = 0
+    n = len(text)
+    while pos < n:
+        end = min(pos + max_size, n)
+        if end < n:
+            floor = pos + max_size // 2
+            cut = max(text.rfind(" ", floor, end), text.rfind("\n", floor, end))
+            if cut > pos:
+                end = cut
+        piece = text[pos:end].strip()
+        if piece:
+            pieces.append(piece)
+        pos = end if end > pos else pos + max_size
+    return pieces
 
 
 # ── Internal data structures ──────────────────────────────────────

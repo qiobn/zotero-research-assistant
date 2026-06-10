@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from loguru import logger
 
 from research_core.parsers.chunker import CHUNKING_VERSION, chunk_text
-from research_core.parsers.pdf import extract_pdf_text
+from research_core.parsers.pdf import extract_pdf
 from research_core.rag.indexer import Indexer
 from research_core.rag.retriever import Retriever
 from research_core.rag.sync_state import SyncState
@@ -21,11 +21,14 @@ def _parse_and_chunk(pdf_path: str):
 
     Returns (chunks, total_chars). chunks is None when no text was extractable.
     """
-    pages = extract_pdf_text(pdf_path)
-    if not pages:
+    parsed = extract_pdf(pdf_path)
+    if not parsed.pages and not parsed.tables:
         return None, 0
-    total_chars = sum(len(p.text) for p in pages)
-    chunks = chunk_text(pages)
+    total_chars = sum(len(p.text) for p in parsed.pages)
+    total_chars += sum(
+        len(c) for t in parsed.tables for r in t.rows for c in r
+    )
+    chunks = chunk_text(parsed.pages, tables=parsed.tables)
     return chunks, total_chars
 
 
