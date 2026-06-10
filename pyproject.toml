@@ -1,7 +1,7 @@
 [project]
 name = "zotero-research-assistant"
-version = "0.1.2"
-description = "AI-powered Zotero research assistant — 32 MCP tools for literature search, reading analysis, citation management, and review writing."
+version = "0.2.0"
+description = "AI-powered Zotero research assistant — a standalone MCP server with 32 tools for literature search, reading analysis, citation management, and review writing."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -20,16 +20,10 @@ classifiers = [
 ]
 dependencies = [
     "pyzotero>=1.6.11",
-    "litellm>=1.74",
-    "openai>=1.50",
     "chromadb>=1.0",
     "sentence-transformers>=3.0",
     "pymupdf>=1.24",
-    "fastapi[standard]>=0.115",
-    "uvicorn>=0.34",
-    "sse-starlette>=2.3",
     "fastmcp>=2.10",
-    "aiosqlite>=0.21",
     "httpx>=0.28",
     "python-dotenv>=1.0",
     "loguru>=0.7",
@@ -37,15 +31,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-agent = [
-    "langgraph>=0.4",
-    "langgraph-checkpoint-sqlite>=2.0",
-    "langchain-litellm>=0.2",
-    "instructor>=1.10",
-    "tavily-python>=0.7",
-    "duckduckgo-search>=8.0",
-    "rank-bm25>=0.2",
-]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
@@ -72,7 +57,7 @@ build-backend = "hatchling.build"
 packages = ["research_core", "project_a_mcp"]
 
 [tool.ruff]
-src = ["research_core", "project_a_mcp", "project_b_agent", "tests"]
+src = ["research_core", "project_a_mcp", "tests"]
 line-length = 100
 target-version = "py311"
 

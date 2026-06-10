@@ -45,8 +45,3 @@ ARCHITECTURE.md
 # OS
 .DS_Store
 Thumbs.db
-
-# Node (Project B frontend, future)
-node_modules/
-.next/
-out/
