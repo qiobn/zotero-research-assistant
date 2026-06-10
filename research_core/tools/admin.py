@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from loguru import logger
@@ -13,6 +14,19 @@ from research_core.rag.indexer import Indexer
 from research_core.rag.retriever import Retriever
 from research_core.rag.sync_state import SyncState
 from research_core.zotero.client import ZoteroClient
+
+
+def _parse_and_chunk(pdf_path: str):
+    """Parse a PDF and chunk it. Pure CPU/IO work — safe to run in threads.
+
+    Returns (chunks, total_chars). chunks is None when no text was extractable.
+    """
+    pages = extract_pdf_text(pdf_path)
+    if not pages:
+        return None, 0
+    total_chars = sum(len(p.text) for p in pages)
+    chunks = chunk_text(pages)
+    return chunks, total_chars
 
 
 @dataclass
@@ -98,57 +112,85 @@ def sync_index(
     chunks_per_paper: list[int] = []
     issues: list[str] = []
 
+    # Keys without a local PDF are skipped up-front.
+    process_keys: list[str] = []
     for key in keys_to_process:
-        pdf_path = pdf_paths.get(key)
-        if not pdf_path:
+        if pdf_paths.get(key):
+            process_keys.append(key)
+        else:
             report.skipped.append(key)
             state.item_versions[key] = current_versions[key]
-            continue
 
-        try:
-            pages = extract_pdf_text(pdf_path)
-            if not pages:
+    workers = max(1, int(os.getenv("ZRA_SYNC_WORKERS", "4")))
+    # Bounded batches cap peak memory (chunks held before indexing).
+    batch_size = max(workers * 4, 16)
+
+    for i in range(0, len(process_keys), batch_size):
+        batch = process_keys[i:i + batch_size]
+
+        # Phase 1: parse + chunk in parallel (CPU/IO-bound, no shared state).
+        parsed: dict[str, tuple] = {}
+        if workers > 1 and len(batch) > 1:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(_parse_and_chunk, pdf_paths[k]): k for k in batch
+                }
+                for fut in as_completed(futures):
+                    k = futures[fut]
+                    try:
+                        parsed[k] = (*fut.result(), None)
+                    except Exception as e:
+                        parsed[k] = (None, 0, e)
+        else:
+            for k in batch:
+                try:
+                    parsed[k] = (*_parse_and_chunk(pdf_paths[k]), None)
+                except Exception as e:
+                    parsed[k] = (None, 0, e)
+
+        # Phase 2: index serially (embedding + ChromaDB upsert under sync_lock).
+        for key in batch:
+            chunks, total_chars, err = parsed.get(key, (None, 0, None))
+            if err is not None:
+                logger.error(f"sync_index failed for {key}: {err}")
+                report.failed.append({"key": key, "error": str(err)})
+                continue
+            if chunks is None:
                 report.failed.append({
                     "key": key,
                     "error": "no text extracted",
                     "hint": "Possibly scanned/encrypted PDF",
                 })
-                issues.append(
-                    f"{key}: no extractable text (scanned/encrypted?)"
-                )
+                issues.append(f"{key}: no extractable text (scanned/encrypted?)")
                 continue
 
-            total_chars = sum(len(p.text) for p in pages)
-            if total_chars < 200:
-                issues.append(
-                    f"{key}: very short extraction ({total_chars} chars)"
+            try:
+                if total_chars < 200:
+                    issues.append(f"{key}: very short extraction ({total_chars} chars)")
+
+                item = zot.get_item(key)
+                year = ZoteroClient.parse_year(item.date)
+                indexer.index_chunks(
+                    chunks, item_key=key, title=item.title, year=year
                 )
 
-            chunks = chunk_text(pages)
-            item = zot.get_item(key)
-            year = ZoteroClient.parse_year(item.date)
-            indexer.index_chunks(
-                chunks, item_key=key, title=item.title, year=year
-            )
+                chunks_per_paper.append(len(chunks))
+                for c in chunks:
+                    chunk_lengths.append(len(c.text))
 
-            chunks_per_paper.append(len(chunks))
-            for c in chunks:
-                chunk_lengths.append(len(c.text))
+                if len(chunks) <= 1 and total_chars > 500:
+                    issues.append(
+                        f"{key}: only {len(chunks)} chunk(s) from {total_chars} chars"
+                    )
 
-            if len(chunks) <= 1 and total_chars > 500:
-                issues.append(
-                    f"{key}: only {len(chunks)} chunk(s) "
-                    f"from {total_chars} chars"
-                )
-
-            if key in new_keys:
-                report.added.append(key)
-            else:
-                report.updated.append(key)
-            state.item_versions[key] = current_versions[key]
-        except Exception as e:
-            logger.error(f"sync_index failed for {key}: {e}")
-            report.failed.append({"key": key, "error": str(e)})
+                if key in new_keys:
+                    report.added.append(key)
+                else:
+                    report.updated.append(key)
+                state.item_versions[key] = current_versions[key]
+            except Exception as e:
+                logger.error(f"sync_index failed for {key}: {e}")
+                report.failed.append({"key": key, "error": str(e)})
 
     for key in current_versions:
         if key not in keys_to_process and key not in deleted_keys:

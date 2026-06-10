@@ -27,6 +27,39 @@ _semaphore = threading.Semaphore(_MAX_CONCURRENT)
 _host_locks: dict[str, threading.Semaphore] = {}
 _host_locks_lock = threading.Lock()
 
+# Short-TTL response cache for idempotent GET/HEAD requests. Avoids duplicate
+# calls to the same external endpoint within a single conversation/session.
+_CACHE_TTL = float(os.getenv("ZRA_HTTP_CACHE_TTL", "300"))
+_cache: dict[str, tuple[float, httpx.Response]] = {}
+_cache_lock = threading.Lock()
+
+
+def _cache_key(method: str, url: str, params: dict | None) -> str:
+    if params:
+        return f"{method}:{url}?{sorted(params.items())}"
+    return f"{method}:{url}"
+
+
+def _cache_get(key: str) -> httpx.Response | None:
+    if _CACHE_TTL <= 0:
+        return None
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry is None:
+            return None
+        ts, resp = entry
+        if time.time() - ts > _CACHE_TTL:
+            _cache.pop(key, None)
+            return None
+        return resp
+
+
+def _cache_set(key: str, resp: httpx.Response) -> None:
+    if _CACHE_TTL <= 0:
+        return
+    with _cache_lock:
+        _cache[key] = (time.time(), resp)
+
 
 def _get_host_semaphore(host: str) -> threading.Semaphore:
     """Get or create a per-host concurrency semaphore."""
@@ -83,6 +116,13 @@ def request(
     host = _extract_host(url)
     host_sem = _get_host_semaphore(host)
 
+    method_upper = method.upper()
+    cache_key = _cache_key(method_upper, url, params) if method_upper in ("GET", "HEAD") else None
+    if cache_key is not None:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
     last_exc: Exception | None = None
     for attempt in range(max_retries):
         with _semaphore:
@@ -127,6 +167,8 @@ def request(
                         )
                         continue
 
+                    if cache_key is not None and 200 <= resp.status_code < 300:
+                        _cache_set(cache_key, resp)
                     return resp
 
                 except httpx.TimeoutException as exc:

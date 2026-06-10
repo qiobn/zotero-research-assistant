@@ -2,6 +2,10 @@
 
 Supports hybrid mode: local API for fast reads, web API for writes.
 Enabled automatically when ZOTERO_LOCAL=true AND ZOTERO_API_KEY is set.
+
+Includes circuit breaker: after consecutive failures, the client enters a
+"down" state and returns errors immediately for a cooldown period, avoiding
+cascading timeouts when Zotero desktop is unavailable.
 """
 
 from __future__ import annotations
@@ -9,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 import unicodedata
 from functools import wraps
 from typing import TypeVar
@@ -24,13 +29,76 @@ F = TypeVar("F")
 
 _api_lock = threading.RLock()
 
+_ZOTERO_TIMEOUT = int(os.getenv("ZRA_ZOTERO_TIMEOUT", "15"))
+_CIRCUIT_BREAKER_THRESHOLD = 3
+_CIRCUIT_BREAKER_COOLDOWN = 30
+
+_failure_count = 0
+_circuit_open_until = 0.0
+_circuit_lock = threading.Lock()
+
+
+class ZoteroUnavailableError(ConnectionError):
+    """Raised when Zotero is detected as unavailable (circuit breaker open)."""
+
+
+def _check_circuit() -> None:
+    """Raise immediately if circuit breaker is open."""
+    global _circuit_open_until
+    if _circuit_open_until > time.time():
+        raise ZoteroUnavailableError(
+            f"Zotero API circuit breaker is OPEN (consecutive failures >= {_CIRCUIT_BREAKER_THRESHOLD}). "
+            f"Will retry in {int(_circuit_open_until - time.time())}s. "
+            "Ensure Zotero desktop is running."
+        )
+
+
+def _record_success() -> None:
+    """Reset failure counter on successful call."""
+    global _failure_count, _circuit_open_until
+    with _circuit_lock:
+        _failure_count = 0
+        _circuit_open_until = 0.0
+
+
+def _record_failure() -> None:
+    """Increment failure counter; open circuit breaker if threshold reached."""
+    global _failure_count, _circuit_open_until
+    with _circuit_lock:
+        _failure_count += 1
+        if _failure_count >= _CIRCUIT_BREAKER_THRESHOLD:
+            _circuit_open_until = time.time() + _CIRCUIT_BREAKER_COOLDOWN
+            logger.warning(
+                f"Zotero circuit breaker OPEN after {_failure_count} consecutive failures. "
+                f"Cooldown: {_CIRCUIT_BREAKER_COOLDOWN}s."
+            )
+
 
 def _with_lock(func: F) -> F:
-    """Serialize Zotero API calls to prevent concurrent request corruption."""
+    """Serialize Zotero API calls with circuit breaker protection.
+
+    Timeout is enforced at the transport level (requests.Session) rather than
+    via thread pools, preserving RLock reentrancy for internal calls.
+    """
     @wraps(func)
     def wrapper(*args, **kwargs):
+        _check_circuit()
         with _api_lock:
-            return func(*args, **kwargs)
+            try:
+                result = func(*args, **kwargs)
+                _record_success()
+                return result
+            except ZoteroUnavailableError:
+                raise
+            except (ConnectionError, OSError, TimeoutError) as exc:
+                _record_failure()
+                raise ConnectionError(
+                    f"Zotero API call '{func.__name__}' failed: {exc}. "
+                    "Ensure Zotero desktop is running and responsive."
+                ) from exc
+            except Exception:
+                _record_failure()
+                raise
     return wrapper  # type: ignore[return-value]
 
 
@@ -59,6 +127,25 @@ class ZoteroClient:
         if local and api_key and library_id:
             self._write_zot = zotero.Zotero(library_id, library_type, api_key)
             logger.info("Hybrid mode enabled: local reads + web API writes")
+
+        self._apply_timeout(self._zot)
+        if self._write_zot:
+            self._apply_timeout(self._write_zot)
+
+    @staticmethod
+    def _apply_timeout(zot_instance: zotero.Zotero) -> None:
+        """Configure socket-level timeout on pyzotero's underlying requests session."""
+        from requests.adapters import HTTPAdapter
+
+        class _TimeoutAdapter(HTTPAdapter):
+            def send(self, request, **kwargs):
+                kwargs.setdefault("timeout", _ZOTERO_TIMEOUT)
+                return super().send(request, **kwargs)
+
+        adapter = _TimeoutAdapter()
+        if hasattr(zot_instance, "session"):
+            zot_instance.session.mount("http://", adapter)
+            zot_instance.session.mount("https://", adapter)
 
     @property
     def can_write(self) -> bool:
@@ -246,13 +333,18 @@ class ZoteroClient:
     def search_all_annotations(self, query: str, limit: int = 20) -> list[dict]:
         """Search annotations across ALL papers in the library by keyword.
 
-        Paginates through the entire library (100 items per page) instead of
-        using a hard cap, but stops as soon as `limit` matches are found.
+        Paginates through the library (100 items per page) and stops as soon as
+        `limit` matches are found. To protect very large libraries from an
+        O(N*M) API storm (each paper triggers a children fetch), the scan is
+        bounded by ZRA_ANNOTATION_SCAN_CAP papers (default 300).
         """
         query_lower = query.lower()
         results: list[dict] = []
         page_size = 100
         start = 0
+        scan_cap = int(os.getenv("ZRA_ANNOTATION_SCAN_CAP", "300"))
+        scanned = 0
+        cap_hit = False
         while True:
             batch = self._zot.items(
                 itemType="-attachment || note", limit=page_size, start=start,
@@ -260,6 +352,10 @@ class ZoteroClient:
             if not batch:
                 break
             for raw in batch:
+                if scanned >= scan_cap:
+                    cap_hit = True
+                    break
+                scanned += 1
                 item = self._to_item(raw)
                 for ch in self._zot.children(item.key):
                     ch_data = ch.get("data", ch)
@@ -291,9 +387,15 @@ class ZoteroClient:
                             })
                             if len(results) >= limit:
                                 return results
-            if len(batch) < page_size:
+            if cap_hit or len(batch) < page_size:
                 break
             start += page_size
+
+        if cap_hit:
+            logger.debug(
+                f"search_all_annotations: scan cap ({scan_cap} papers) reached; "
+                "results may be partial. Raise ZRA_ANNOTATION_SCAN_CAP if needed."
+            )
         return results
 
     # ── Read: attachments ─────────────────────────────────────

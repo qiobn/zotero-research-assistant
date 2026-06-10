@@ -10,6 +10,7 @@ Default: cross-encoder/ms-marco-MiniLM-L-6-v2 (fast, ~80MB).
 from __future__ import annotations
 
 import os
+import threading
 
 from loguru import logger
 
@@ -56,16 +57,21 @@ class CrossEncoderReranker:
 
 _singleton: CrossEncoderReranker | None = None
 _disabled: bool | None = None
+_init_lock = threading.Lock()
 
 
 def get_reranker() -> CrossEncoderReranker | None:
-    """Return a singleton reranker, or None if disabled via env."""
+    """Return a singleton reranker, or None if disabled via env. Thread-safe."""
     global _singleton, _disabled
     if _disabled is None:
-        model = os.getenv("RERANKER_MODEL", _DEFAULT_MODEL)
-        _disabled = model.strip() == "" or model.lower() == "none"
+        with _init_lock:
+            if _disabled is None:
+                model = os.getenv("RERANKER_MODEL", _DEFAULT_MODEL)
+                _disabled = model.strip() == "" or model.lower() == "none"
     if _disabled:
         return None
     if _singleton is None:
-        _singleton = CrossEncoderReranker()
+        with _init_lock:
+            if _singleton is None:
+                _singleton = CrossEncoderReranker()
     return _singleton

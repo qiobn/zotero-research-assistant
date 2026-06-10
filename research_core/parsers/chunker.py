@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from research_core.parsers.pdf import PageText
 
-CHUNKING_VERSION = "v2.1-semantic"
+CHUNKING_VERSION = "v2.2-semantic-overlap"
 
 _SENTENCE_ENDS = re.compile(
     r"(?<=[.!?。！？；\n])\s+"
@@ -90,6 +90,7 @@ def chunk_text(
             min_size=min_chunk_size,
             ref_start=ref_start,
             ref_end=ref_end,
+            overlap_sentences=overlap_sentences,
         )
     else:
         chunks = _chunk_sliding_window(
@@ -198,13 +199,30 @@ def _chunk_by_paragraphs(
     min_size: int,
     ref_start: int,
     ref_end: int,
+    overlap_sentences: int = 1,
 ) -> list[Chunk]:
-    """Merge short paragraphs and split long ones at sentence boundaries."""
+    """Merge short paragraphs and split long ones at sentence boundaries.
+
+    Adds a small sentence-level overlap between consecutive content chunks: the
+    trailing `overlap_sentences` sentences of a chunk are prepended to the next
+    one. This preserves context that straddles chunk boundaries and improves
+    retrieval recall. Overlap is not applied across the references boundary.
+    """
     chunks: list[Chunk] = []
     current_text = ""
     current_start = 0
+    prev_tail = ""  # trailing sentences carried into the next content chunk
+
+    def _tail(text: str) -> str:
+        if overlap_sentences <= 0:
+            return ""
+        sentences = _split_sentences(text)
+        if not sentences:
+            return ""
+        return " ".join(sentences[-overlap_sentences:])
 
     def emit(text: str, char_start: int, char_end: int):
+        nonlocal prev_tail
         stripped = text.strip()
         if not stripped or len(stripped) < min_size // 2:
             return
@@ -215,10 +233,16 @@ def _chunk_by_paragraphs(
             page_boundaries,
         )
         meta: dict = {}
+        stored_text = stripped
         if is_ref:
             meta["section"] = "references"
+            prev_tail = ""  # never bridge across the references boundary
+        else:
+            if prev_tail and not stored_text.startswith(prev_tail):
+                stored_text = f"{prev_tail} {stored_text}"
+            prev_tail = _tail(stripped)
         chunks.append(Chunk(
-            text=stripped,
+            text=stored_text,
             page_start=page_start,
             page_end=page_end,
             chunk_idx=len(chunks),

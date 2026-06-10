@@ -10,9 +10,9 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import httpx
 from loguru import logger
 
+from research_core.sources import http_client as _http
 from research_core.utils import WRITE_PREVIEW_HINT, escape_html
 from research_core.zotero.client import ZoteroClient
 
@@ -252,9 +252,8 @@ def _parse_identifier(identifier: str) -> tuple[str, str]:
 def _fetch_metadata_crossref(doi: str) -> dict | None:
     """Fetch metadata from CrossRef by DOI."""
     try:
-        r = httpx.get(
+        r = _http.get(
             f"https://api.crossref.org/works/{doi}",
-            headers={"User-Agent": "ZoteroResearchAssistant/0.1 (mailto:dev@example.com)"},
             timeout=15,
         )
         if r.status_code != 200:
@@ -287,7 +286,7 @@ def _fetch_metadata_crossref(doi: str) -> dict | None:
 def _fetch_metadata_arxiv(arxiv_id: str) -> dict | None:
     """Fetch metadata from arXiv API."""
     try:
-        r = httpx.get(
+        r = _http.get(
             f"https://export.arxiv.org/api/query?id_list={arxiv_id}",
             timeout=15,
         )
@@ -330,9 +329,8 @@ def _fetch_metadata_arxiv(arxiv_id: str) -> dict | None:
 def _fetch_metadata_isbn(isbn: str) -> dict | None:
     """Fetch metadata from Open Library by ISBN."""
     try:
-        r = httpx.get(
+        r = _http.get(
             f"https://openlibrary.org/isbn/{isbn}.json",
-            follow_redirects=True,
             timeout=15,
         )
         if r.status_code != 200:
@@ -344,7 +342,7 @@ def _fetch_metadata_isbn(isbn: str) -> dict | None:
             author_key = a.get("key", "")
             if author_key:
                 try:
-                    ar = httpx.get(
+                    ar = _http.get(
                         f"https://openlibrary.org{author_key}.json",
                         timeout=10,
                     )
@@ -447,15 +445,9 @@ def _resolve_doi_from_url(url: str) -> str | None:
             return doi
 
     try:
-        r = httpx.get(
+        r = _http.get(
             url,
-            follow_redirects=True,
             timeout=15,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html",
-            },
         )
         if r.status_code != 200:
             return None
@@ -476,10 +468,9 @@ def _resolve_doi_from_url(url: str) -> str | None:
 def _search_crossref_by_pii(pii: str) -> str | None:
     """Search CrossRef for a DOI using a ScienceDirect PII identifier."""
     try:
-        r = httpx.get(
+        r = _http.get(
             "https://api.crossref.org/works",
             params={"filter": f"alternative-id:{pii}", "rows": "1"},
-            headers={"User-Agent": "ZoteroResearchAssistant/0.1 (mailto:dev@example.com)"},
             timeout=15,
         )
         if r.status_code == 200:
@@ -506,17 +497,9 @@ def _download_pdf_from_url(url: str) -> str | None:
     if not url:
         return None
     try:
-        r = httpx.get(
+        r = _http.get(
             url,
-            follow_redirects=True,
             timeout=30,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (compatible; ZoteroResearchAssistant/0.1; "
-                    "+https://github.com/qiobn/zotero-research-assistant)"
-                ),
-                "Accept": "application/pdf,*/*",
-            },
         )
         if r.status_code != 200:
             return None
@@ -565,7 +548,7 @@ def _try_unpaywall(doi: str) -> str | None:
     if not doi:
         return None
     try:
-        r = httpx.get(
+        r = _http.get(
             f"https://api.unpaywall.org/v2/{doi}?email={_unpaywall_email()}",
             timeout=10,
         )
@@ -585,7 +568,7 @@ def _try_semantic_scholar(doi: str) -> str | None:
     if not doi:
         return None
     try:
-        r = httpx.get(
+        r = _http.get(
             f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}",
             params={"fields": "isOpenAccess,openAccessPdf"},
             timeout=10,
@@ -607,7 +590,7 @@ def _try_pmc(doi: str) -> str | None:
     if not doi:
         return None
     try:
-        r = httpx.get(
+        r = _http.get(
             "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/",
             params={"ids": doi, "format": "json", "tool": "zra", "email": "dev@example.com"},
             timeout=10,
@@ -637,7 +620,7 @@ def _try_openalex_pdf(doi: str) -> str | None:
         return None
     mailto = os.getenv("OPENALEX_MAILTO", os.getenv("UNPAYWALL_EMAIL", "dev@example.com"))
     try:
-        r = httpx.get(
+        r = _http.get(
             f"https://api.openalex.org/works/doi:{doi}",
             params={"mailto": mailto},
             timeout=10,
@@ -667,10 +650,9 @@ def _try_core(doi: str) -> str | None:
     if not api_key or not doi:
         return None
     try:
-        r = httpx.get(
+        r = _http.get(
             "https://api.core.ac.uk/v3/search/works",
             params={"q": f'doi:"{doi}"', "limit": 1},
-            headers={"Authorization": f"Bearer {api_key}"},
             timeout=15,
         )
         if r.status_code != 200:
