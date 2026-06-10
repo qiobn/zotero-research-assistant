@@ -86,8 +86,13 @@ def _apply_search_ef(collection: chromadb.Collection, search_ef: int) -> None:
     on a pre-existing collection so recall improves without a full rebuild.
     """
     try:
-        current = (collection.metadata or {}).get("hnsw:search_ef")
-        if current != search_ef:
-            collection.modify(metadata={**(collection.metadata or {}), "hnsw:search_ef": search_ef})
+        meta = collection.metadata or {}
+        if meta.get("hnsw:search_ef") == search_ef:
+            return
+        # ChromaDB rejects modify() payloads containing hnsw:space (it reads this
+        # as an attempt to change the distance function), so strip that key.
+        new_meta = {k: v for k, v in meta.items() if k != "hnsw:space"}
+        new_meta["hnsw:search_ef"] = search_ef
+        collection.modify(metadata=new_meta)
     except Exception as e:
         logger.debug(f"Could not update search_ef on existing collection: {e}")

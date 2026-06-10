@@ -33,6 +33,12 @@ _ZOTERO_TIMEOUT = int(os.getenv("ZRA_ZOTERO_TIMEOUT", "15"))
 _CIRCUIT_BREAKER_THRESHOLD = 3
 _CIRCUIT_BREAKER_COOLDOWN = 30
 
+# Item types that are never standalone "papers" and must be excluded from
+# indexing/diffing. NOTE: the Zotero local API mishandles the combined
+# negation filter "-attachment || note" (it silently returns ALL items),
+# so we enforce this exclusion client-side instead of trusting the server.
+_NON_PAPER_TYPES = frozenset({"attachment", "note", "annotation"})
+
 _failure_count = 0
 _circuit_open_until = 0.0
 _circuit_lock = threading.Lock()
@@ -247,18 +253,37 @@ class ZoteroClient:
         limit: int = 500,
         item_type: str = "-attachment || note",
     ) -> list[Item]:
-        """Fetch all top-level items (no children). Used by sync_index to diff library."""
+        """Fetch all top-level papers (excludes attachments/notes/annotations).
+
+        The Zotero local API ignores the combined negation filter, so we always
+        drop non-paper types client-side regardless of what the server returns.
+        """
         raw = self._zot.items(limit=limit, itemType=item_type)
-        return [self._to_item(r) for r in raw]
+        items = [self._to_item(r) for r in raw]
+        return [it for it in items if it.item_type not in _NON_PAPER_TYPES]
 
     @_with_lock
     def get_item_versions(
         self,
         item_type: str = "-attachment || note",
     ) -> dict[str, int]:
-        """Return {item_key: version} for all top-level items. Lightweight API call."""
+        """Return {item_key: version} for top-level papers only.
+
+        Excludes attachments/notes/annotations. Because the local API's
+        combined negation filter ("-attachment || note") is broken and returns
+        everything, we compute the exclusion client-side using *positive*
+        per-type version queries, which the API handles correctly.
+        """
         try:
-            return self._zot.item_versions(itemType=item_type)
+            all_versions = dict(self._zot.item_versions())
+            excluded_keys: set[str] = set()
+            for t in _NON_PAPER_TYPES:
+                try:
+                    excluded_keys.update(self._zot.item_versions(itemType=t))
+                except Exception:
+                    # If a per-type query fails, fall back to type-aware filtering below.
+                    raise
+            return {k: v for k, v in all_versions.items() if k not in excluded_keys}
         except Exception:
             items = self.get_all_items_minimal(limit=5000, item_type=item_type)
             return {it.key: it.version for it in items}
@@ -352,11 +377,14 @@ class ZoteroClient:
             if not batch:
                 break
             for raw in batch:
+                item = self._to_item(raw)
+                # Local API ignores "-attachment || note"; skip non-papers here.
+                if item.item_type in _NON_PAPER_TYPES:
+                    continue
                 if scanned >= scan_cap:
                     cap_hit = True
                     break
                 scanned += 1
-                item = self._to_item(raw)
                 for ch in self._zot.children(item.key):
                     ch_data = ch.get("data", ch)
                     if ch_data.get("contentType") != "application/pdf":
