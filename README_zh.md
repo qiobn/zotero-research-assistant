@@ -1,6 +1,6 @@
 # Zotero 智能文献助手
 
-[![Python 3.11–3.13](https://img.shields.io/badge/python-3.11%E2%80%933.13-blue.svg)](https://www.python.org/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)](https://modelcontextprotocol.io/)
 
@@ -133,7 +133,7 @@
 
 | 组件 | 版本/说明 |
 |------|-----------|
-| **Python** | 3.11 – 3.13 |
+| **Python** | 3.11+ |
 | **Zotero** | 7+ 桌面版，需开启本地 API |
 | **MCP 客户端** | Cursor、Claude Desktop、Cherry Studio、Trae、Codex CLI 等 |
 | **大模型** | 支持 tool/function calling 的模型（Claude、GPT-4o、DeepSeek、Qwen、Gemini…） |
@@ -349,6 +349,21 @@ echo "$PWD\.venv\Scripts\python.exe"
 
 **设置 → MCP 服务器 → 添加 → JSON 模式：**
 
+**pip 安装用户（推荐）：**
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "name": "zra-mcp",
+      "type": "stdio",
+      "isActive": true,
+      "command": "zra-mcp"
+    }
+  }
+}
+```
+
+**源码安装用户（macOS/Linux）：**
 ```json
 {
   "mcpServers": {
@@ -364,7 +379,7 @@ echo "$PWD\.venv\Scripts\python.exe"
 }
 ```
 
-Windows：
+**源码安装用户（Windows）：**
 ```json
 {
   "mcpServers": {
@@ -382,7 +397,7 @@ Windows：
 
 在**设置 → 模型服务**中配置 LLM（DeepSeek、GPT-4o、Claude、Qwen 等），聊天界面开启 MCP 开关。
 
-> 完整图文教程见 [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md)。
+> 完整配置教程见 [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md)。
 
 ---
 

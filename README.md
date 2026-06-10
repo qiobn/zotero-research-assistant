@@ -1,6 +1,6 @@
 # Zotero Research Assistant
 
-[![Python 3.11–3.13](https://img.shields.io/badge/python-3.11%E2%80%933.13-blue.svg)](https://www.python.org/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)](https://modelcontextprotocol.io/)
 
@@ -18,7 +18,7 @@ Works with **Cursor**, **Claude Desktop**, **Cherry Studio**, **Trae**, **OpenAI
 
 This project was built to help graduate students and researchers — especially those without a computer science background — leverage AI-enhanced Zotero for more efficient academic workflows. The documentation is deliberately detailed and step-by-step. Cherry Studio was chosen as the primary interaction interface because it provides a user-friendly GUI that doesn't require any terminal expertise. We believe powerful research tools should be accessible to everyone, not just developers.
 
-**If you have no programming experience**, go directly to [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md) and follow the instructions step by step. Try to complete it independently — if you get stuck at any point, paste the error message to any AI chatbot (ChatGPT, DeepSeek, Kimi, etc.) and ask for help. Consider this your first step into the world of programming and AI tools. It's easier than you think.
+**If you have no programming experience**, go directly to [docs/cherry-studio-setup-en.md](./docs/cherry-studio-setup-en.md) and follow the instructions step by step. Try to complete it independently — if you get stuck at any point, paste the error message to any AI chatbot (ChatGPT, DeepSeek, Kimi, etc.) and ask for help. Consider this your first step into the world of programming and AI tools. It's easier than you think.
 
 ---
 
@@ -133,7 +133,7 @@ This project was built to help graduate students and researchers — especially 
 
 | Component | Version / Note |
 |-----------|----------------|
-| **Python** | 3.11 – 3.13 |
+| **Python** | 3.11+ |
 | **Zotero** | 7+ desktop app, running with local API enabled |
 | **MCP client** | Cursor, Claude Desktop, Cherry Studio, Trae, Codex CLI, etc. |
 | **LLM** | Any model with tool/function calling (Claude, GPT-4o, DeepSeek, Qwen, Gemini, …) |
@@ -353,6 +353,21 @@ Restart Claude Desktop. You should see the MCP tools icon (hammer) in the chat i
 
 **Settings → MCP Servers → Add → JSON mode:**
 
+**pip users (recommended):**
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "name": "zra-mcp",
+      "type": "stdio",
+      "isActive": true,
+      "command": "zra-mcp"
+    }
+  }
+}
+```
+
+**Source install users (macOS/Linux):**
 ```json
 {
   "mcpServers": {
@@ -368,7 +383,7 @@ Restart Claude Desktop. You should see the MCP tools icon (hammer) in the chat i
 }
 ```
 
-Windows:
+**Source install users (Windows):**
 ```json
 {
   "mcpServers": {
@@ -386,7 +401,7 @@ Windows:
 
 Configure an LLM under **Settings → Model Services** (DeepSeek, GPT-4o, Claude, Qwen, etc.). Enable the MCP toggle in the chat interface to activate tools.
 
-> For a detailed step-by-step guide (including screenshots), see [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md).
+> For a detailed step-by-step guide, see [docs/cherry-studio-setup-en.md](./docs/cherry-studio-setup-en.md).
 
 ---
 
