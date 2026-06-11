@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from research_core.parsers.pdf import PageText, TableData
 
-CHUNKING_VERSION = "v2.4-cjk-aware"
+CHUNKING_VERSION = "v2.5-table-xref"
 
 # Sentence boundaries, CJK-aware. CJK terminators (。！？；…) are NOT followed by
 # a space in Chinese/Japanese text, so we split immediately after them; ASCII
@@ -58,6 +58,19 @@ _FIGURE_TABLE_CAPTION = re.compile(
     r"^(Fig(?:ure|\.)?|Table|TABLE|FIGURE|图|表)\s*[0-9A-Z]+[.:]?\s",
     re.MULTILINE,
 )
+
+# A table's own label, parsed from the start of its caption:
+# "表3 ...", "Table 3.", "Tab. 5", "附表2".
+_TABLE_LABEL_RE = re.compile(
+    r"^\s*(?:附?表|tables?|tab\.?)\s*([0-9]+(?:[-.][0-9A-Za-z]+)?|[A-Z]?[0-9]+)",
+    re.IGNORECASE,
+)
+# A reference to a table inside prose: "如表3所示", "见表3、4", "Table 3",
+# "Tables 3 and 4", "(Tab. 5)". We match the prefix, then pull one or more
+# following numbers joined by list connectors.
+_TABLE_REF_PREFIX = re.compile(r"(?:附?表|tables?|tab\.)\s*", re.IGNORECASE)
+_REF_NUM = re.compile(r"[0-9]+[A-Za-z]?(?:[-.][0-9]+)?")
+_REF_CONNECTOR = re.compile(r"\s*(?:[、，,;；]|and|&)\s*", re.IGNORECASE)
 
 
 @dataclass
@@ -126,7 +139,14 @@ def chunk_text(
             _tag_captions(chunks)
 
     if tables:
-        chunks.extend(_chunk_tables(tables, max_size=max_chunk_size))
+        table_chunks = _chunk_tables(tables, max_size=max_chunk_size)
+        chunks.extend(table_chunks)
+        available_refs = {
+            c.metadata["table_ref"]
+            for c in table_chunks
+            if c.metadata.get("table_ref")
+        }
+        _tag_table_refs(chunks, available_refs)
 
     chunks = _enforce_max_chars(chunks, max_chunk_size)
     return chunks
@@ -157,12 +177,16 @@ def _chunk_tables(tables: list[TableData], *, max_size: int) -> list[Chunk]:
     """
     chunks: list[Chunk] = []
     for table in tables:
+        label, ref = _table_label_and_ref(table.caption)
         groups = _row_groups(table, max_size)
         parts = len(groups)
         for part_i, rows in enumerate(groups):
-            md = _table_markdown(table.caption, table.columns, rows, part_i, parts)
+            md = _table_markdown(
+                table.caption, table.columns, rows, part_i, parts
+            )
             payload = {
                 "caption": table.caption,
+                "label": label,
                 "page": table.page_num,
                 "columns": table.columns,
                 "rows": [
@@ -172,23 +196,91 @@ def _chunk_tables(tables: list[TableData], *, max_size: int) -> list[Chunk]:
                 "parts": parts,
                 "n_rows_total": table.n_rows,
             }
+            meta = {
+                "is_table": True,
+                "has_figure_table": True,
+                "table_caption": table.caption,
+                "table_label": label,
+                "table_part": part_i + 1,
+                "table_parts": parts,
+                "n_rows": table.n_rows,
+                "n_cols": table.n_cols,
+                "table_json": json.dumps(payload, ensure_ascii=False),
+            }
+            if ref:
+                meta["table_ref"] = ref
             chunks.append(Chunk(
                 text=md,
                 page_start=table.page_num,
                 page_end=table.page_num,
                 chunk_idx=len(chunks),
-                metadata={
-                    "is_table": True,
-                    "has_figure_table": True,
-                    "table_caption": table.caption,
-                    "table_part": part_i + 1,
-                    "table_parts": parts,
-                    "n_rows": table.n_rows,
-                    "n_cols": table.n_cols,
-                    "table_json": json.dumps(payload, ensure_ascii=False),
-                },
+                metadata=meta,
             ))
     return chunks
+
+
+# ── Table cross-referencing ───────────────────────────────────────
+
+
+def _canon_table_ref(token: str) -> str:
+    """Canonicalize a reference token so prose mentions match table labels.
+
+    Upper-cases letters and strips leading zeros on the leading number
+    ("03" -> "3", "s1" -> "S1", "3-1" -> "3-1").
+    """
+    t = token.strip().upper()
+    m = re.match(r"^0*([0-9]+)(.*)$", t)
+    if m:
+        t = m.group(1) + m.group(2)
+    return t
+
+
+def _table_label_and_ref(caption: str) -> tuple[str, str]:
+    """Parse (display_label, canonical_ref) from a caption, or ('', '')."""
+    if not caption:
+        return "", ""
+    m = _TABLE_LABEL_RE.match(caption)
+    if not m:
+        return "", ""
+    return caption[: m.end()].strip(), _canon_table_ref(m.group(1))
+
+
+def _find_table_refs(text: str) -> list[str]:
+    """Extract canonical table references mentioned in prose, in order."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in _TABLE_REF_PREFIX.finditer(text):
+        pos = m.end()
+        while True:
+            nm = _REF_NUM.match(text, pos)
+            if not nm:
+                break
+            ref = _canon_table_ref(nm.group(0))
+            if ref and ref not in seen:
+                seen.add(ref)
+                out.append(ref)
+            pos = nm.end()
+            cm = _REF_CONNECTOR.match(text, pos)
+            if not cm:
+                break
+            pos = cm.end()
+    return out
+
+
+def _tag_table_refs(chunks: list[Chunk], available_refs: set[str]) -> None:
+    """Tag prose chunks with the tables they cite (intersected with real tables).
+
+    Restricting to tables that actually exist in this paper avoids false links
+    (e.g. a chunk mentioning "Table 1" of a *cited* work we didn't extract).
+    """
+    if not available_refs:
+        return
+    for chunk in chunks:
+        if chunk.metadata.get("is_table"):
+            continue
+        found = [r for r in _find_table_refs(chunk.text) if r in available_refs]
+        if found:
+            chunk.metadata["table_refs"] = ",".join(found)
 
 
 def _row_groups(table: TableData, max_size: int) -> list[list[list[str]]]:
@@ -225,6 +317,12 @@ def _table_markdown(
     elif parts > 1:
         lines.append(f"(table part {part_i + 1}/{parts})")
     cols = columns or ["col_1"]
+    # A compact natural-language column summary. The header row alone embeds
+    # poorly for semantic queries ("which paper measured X vs Y"); spelling the
+    # columns out as prose markedly improves table recall.
+    col_summary = "; ".join(_md_cell(c) for c in cols if c)
+    if col_summary:
+        lines.append(f"Columns / 列: {col_summary}")
     lines.append("| " + " | ".join(_md_cell(c) for c in cols) + " |")
     lines.append("| " + " | ".join("---" for _ in cols) + " |")
     for row in rows:

@@ -23,6 +23,7 @@ class PaperContent:
     annotations: list[dict] = field(default_factory=list)
     outline: list[dict] = field(default_factory=list)
     fulltext: str = ""
+    referenced_tables: list[dict] = field(default_factory=list)
 
 
 def get_paper(item_key: str, zot: ZoteroClient) -> Item:
@@ -60,6 +61,40 @@ def _extract_fulltext(pdf_path: str, max_pages: int = 50) -> str:
     except Exception as e:
         logger.debug(f"Failed to extract fulltext: {e}")
         return ""
+
+
+def _resolve_referenced_tables(
+    retriever: Retriever,
+    item_key: str,
+    refs: list[str],
+) -> list[dict]:
+    """Fetch the structured content of tables cited by retrieved passages.
+
+    Returns one entry per (table_ref, part), deduplicated and ordered, each with
+    the table's Markdown text plus identifying metadata.
+    """
+    unique_refs = list(dict.fromkeys(refs))
+    table_chunks = retriever.get_item_tables(item_key, refs=unique_refs)
+    out: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+    for t in table_chunks:
+        ref = t.metadata.get("table_ref", "")
+        part = t.metadata.get("table_part", 1)
+        if (ref, part) in seen:
+            continue
+        seen.add((ref, part))
+        out.append(
+            {
+                "table_ref": ref,
+                "label": t.metadata.get("table_label", ""),
+                "caption": t.metadata.get("table_caption", ""),
+                "page": t.page_start,
+                "part": part,
+                "parts": t.metadata.get("table_parts", 1),
+                "text": t.text,
+            }
+        )
+    return out
 
 
 def get_paper_content(
@@ -110,14 +145,26 @@ def get_paper_content(
             all_chunks = retriever.get_item_chunks(item_key)
             results = all_chunks[:limit]
 
+        cited_refs: list[str] = []
         for r in results:
-            result.passages.append(
-                {
-                    "text": r.text,
-                    "page_start": r.page_start,
-                    "page_end": r.page_end,
-                    "score": round(r.score, 3) if r.score else None,
-                }
+            passage: dict = {
+                "text": r.text,
+                "page_start": r.page_start,
+                "page_end": r.page_end,
+                "score": round(r.score, 3) if r.score else None,
+            }
+            refs_raw = r.metadata.get("table_refs", "")
+            if refs_raw:
+                refs = [x for x in refs_raw.split(",") if x]
+                passage["cites_tables"] = refs
+                cited_refs.extend(refs)
+            result.passages.append(passage)
+
+        # Resolve the concrete path: a passage that cites "Table 3" pulls in
+        # that table's structured content from this paper.
+        if cited_refs:
+            result.referenced_tables = _resolve_referenced_tables(
+                retriever, item_key, cited_refs
             )
 
     if include_annotations:

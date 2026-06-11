@@ -86,6 +86,7 @@ This project was built to help graduate students and researchers — especially 
 - **Paragraph-aware chunking** — splits on natural boundaries (paragraphs → sentences), adaptive merging to target 600-char chunks; CJK-aware sentence splitting (breaks at `。！？` without needing spaces) and PDF soft-wrap repair (`满\n意度`→`满意度`) so sentences are never cut mid-word
 - **Section detection** — automatically identifies and tags reference sections; excludes them from search by default
 - **Figure & table caption tagging** — detects `Figure/Fig./Table/图/表` captions and marks chunks for targeted retrieval
+- **Table cross-referencing** — tables are indexed as standalone chunks (with a natural-language column summary for better semantic recall); prose passages that cite a table ("as shown in Table 3") are auto-linked to its content, surfaced via `get_paper_content`'s `referenced_tables`
 - **Chunking versioning** — strategy changes auto-trigger full index rebuild; no stale data
 - **Index diagnostics** — `inspect_index` shows chunk statistics, quality issues, and garbled text detection
 - **Recall testing** — `test_recall` verifies a paper's own chunks appear in top-20 search results

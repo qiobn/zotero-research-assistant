@@ -63,13 +63,23 @@ class Indexer:
         }
         if c.metadata.get("is_table"):
             meta["table_caption"] = c.metadata.get("table_caption", "")
+            meta["table_label"] = c.metadata.get("table_label", "")
             meta["table_part"] = c.metadata.get("table_part", 1)
             meta["table_parts"] = c.metadata.get("table_parts", 1)
             meta["n_rows"] = c.metadata.get("n_rows", 0)
             meta["n_cols"] = c.metadata.get("n_cols", 0)
+            table_ref = c.metadata.get("table_ref")
+            if table_ref:
+                meta["table_ref"] = table_ref
             table_json = c.metadata.get("table_json")
             if table_json:
                 meta["table_json"] = table_json
+        else:
+            # Prose chunks: record which tables they cite so a passage that says
+            # "as shown in Table 3" can be resolved to the table's content.
+            table_refs = c.metadata.get("table_refs")
+            if table_refs:
+                meta["table_refs"] = table_refs
         return meta
 
     def delete_item(self, item_key: str) -> int:
