@@ -69,29 +69,26 @@ def _resolve_referenced_tables(
     item_key: str,
     refs: list[str],
 ) -> list[dict]:
-    """Fetch the structured content of tables cited by retrieved passages.
+    """Fetch the content of tables cited by retrieved passages.
 
-    Returns one entry per (table_ref, part), deduplicated and ordered, each with
-    the table's Markdown text plus identifying metadata.
+    Each entry carries the table's label, caption, page and raw block text (the
+    table's values, not structured cells), deduplicated by ref.
     """
     unique_refs = list(dict.fromkeys(refs))
     table_chunks = retriever.get_item_tables(item_key, refs=unique_refs)
     out: list[dict] = []
-    seen: set[tuple[str, int]] = set()
+    seen: set[str] = set()
     for t in table_chunks:
         ref = t.metadata.get("table_ref", "")
-        part = t.metadata.get("table_part", 1)
-        if (ref, part) in seen:
+        if ref in seen:
             continue
-        seen.add((ref, part))
+        seen.add(ref)
         out.append(
             {
                 "table_ref": ref,
                 "label": t.metadata.get("table_label", ""),
                 "caption": t.metadata.get("table_caption", ""),
                 "page": t.page_start,
-                "part": part,
-                "parts": t.metadata.get("table_parts", 1),
                 "text": t.text,
             }
         )

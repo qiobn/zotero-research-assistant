@@ -22,13 +22,10 @@ def _parse_and_chunk(pdf_path: str):
     Returns (chunks, total_chars). chunks is None when no text was extractable.
     """
     parsed = extract_pdf(pdf_path)
-    if not parsed.pages and not parsed.tables:
+    if not parsed.pages:
         return None, 0
     total_chars = sum(len(p.text) for p in parsed.pages)
-    total_chars += sum(
-        len(c) for t in parsed.tables for r in t.rows for c in r
-    )
-    chunks = chunk_text(parsed.pages, tables=parsed.tables)
+    chunks = chunk_text(parsed.pages)
     return chunks, total_chars
 
 

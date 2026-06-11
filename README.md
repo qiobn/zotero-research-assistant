@@ -86,8 +86,7 @@ This project was built to help graduate students and researchers — especially 
 - **Paragraph-aware chunking** — splits on natural boundaries (paragraphs → sentences), adaptive merging to target 600-char chunks; CJK-aware sentence splitting (breaks at `。！？` without needing spaces) and PDF soft-wrap repair (`满\n意度`→`满意度`) so sentences are never cut mid-word
 - **Section detection** — automatically identifies and tags reference sections; excludes them from search by default
 - **Figure & table caption tagging** — detects `Figure/Fig./Table/图/表` captions and marks chunks for targeted retrieval
-- **Table cross-referencing** — tables are indexed as standalone chunks (with a natural-language column summary for better semantic recall); prose passages that cite a table ("as shown in Table 3") are auto-linked to its content, surfaced via `get_paper_content`'s `referenced_tables`
-- **Figure cross-referencing** — figures are also indexed as standalone chunks, but caption-only: we record *where* a figure is mentioned and *roughly what it shows* (its caption), with no image recognition; prose citing "Figure 3" is auto-linked to that caption via `referenced_figures`
+- **Table & figure cross-referencing** — tables and figures are indexed as lightweight caption-anchored records, not structured into cells. For a table we keep *where* it is, its caption, and the raw block content from the caption until the prose resumes (so its values stay searchable); for a figure we keep only *where* it is and *roughly what it shows* (its caption — no image recognition). Prose passages that cite "Table 3" / "Figure 2" are auto-linked to those records, surfaced via `get_paper_content`'s `referenced_tables` / `referenced_figures`. (True table structuring is a vision problem — see [Tables & figures](#tables--figures) for optional visual parsers.)
 - **Chunking versioning** — strategy changes auto-trigger full index rebuild; no stale data
 - **Index diagnostics** — `inspect_index` shows chunk statistics, quality issues, and garbled text detection
 - **Recall testing** — `test_recall` verifies a paper's own chunks appear in top-20 search results
@@ -637,7 +636,6 @@ Copy [`.env.example`](./.env.example) to `.env` and adjust:
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker (`none` to disable) |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | Local vector database path |
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on MCP startup |
-| `ZRA_TABLE_MODE` | `lite` | Table extraction: `lite` (ruled tables only) or `ml` (Table Transformer for borderless/three-line tables; needs `[tables]` extra) |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | Optional; higher rate limits for online search |
 | `OPENALEX_MAILTO` | — | Optional; polite pool for OpenAlex API |
 | `UNPAYWALL_EMAIL` | — | Optional; Unpaywall OA PDF lookup |
@@ -646,6 +644,38 @@ Copy [`.env.example`](./.env.example) to `.env` and adjust:
 | `CNKI_CDP_URL` | — | Chrome remote debugging URL |
 
 All data stays **on your machine**: Zotero library, `.chroma_db/`, and HuggingFace model cache (`~/.cache/huggingface/`).
+
+---
+
+## Tables & figures
+
+Tables and figures are **not** parsed into structured cells. Reliable table
+structuring is fundamentally a vision problem: text/geometry-based detection
+produces garbage on borderless "three-line" academic tables and even mis-segments
+multi-column prose and reference lists into fake tables. So instead of pretending
+to structure them, the indexer keeps lightweight **caption-anchored records**:
+
+- **Tables** — the caption (e.g. "Table 3 …"), the page, and the raw block
+  content from the caption until the prose resumes, so the table's *values* stay
+  searchable. No cell/column structure.
+- **Figures** — the caption only (roughly what the figure shows). No image is
+  decoded.
+- Prose that cites "Table 3" / "Figure 2" is linked to those records, so a
+  passage and the thing it references resolve together (`referenced_tables` /
+  `referenced_figures` in `get_paper_content`).
+
+**Want true structured tables?** Preprocess your PDFs with a dedicated visual
+document parser and store the result (e.g. Markdown/HTML) as a note or attachment
+that gets indexed as text. Good options:
+
+| Tool | Notes |
+|------|-------|
+| [docling](https://github.com/docling-project/docling) | IBM; strong layout + table structure recognition, exports Markdown/JSON |
+| [open-parse](https://github.com/Filimoa/open-parse) | Layout-aware chunking with table support |
+| [unstructured](https://github.com/Unstructured-IO/unstructured) | `hi_res` strategy extracts table HTML |
+
+These are heavier (vision models, slower) and intentionally kept out of the
+default pipeline.
 
 ---
 

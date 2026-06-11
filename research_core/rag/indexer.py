@@ -63,18 +63,13 @@ class Indexer:
             "is_figure": c.metadata.get("is_figure", False),
         }
         if c.metadata.get("is_table"):
+            # Caption-anchored table record: where it lives + caption + raw block
+            # content (kept searchable, not structured into cells).
             meta["table_caption"] = c.metadata.get("table_caption", "")
             meta["table_label"] = c.metadata.get("table_label", "")
-            meta["table_part"] = c.metadata.get("table_part", 1)
-            meta["table_parts"] = c.metadata.get("table_parts", 1)
-            meta["n_rows"] = c.metadata.get("n_rows", 0)
-            meta["n_cols"] = c.metadata.get("n_cols", 0)
             table_ref = c.metadata.get("table_ref")
             if table_ref:
                 meta["table_ref"] = table_ref
-            table_json = c.metadata.get("table_json")
-            if table_json:
-                meta["table_json"] = table_json
         elif c.metadata.get("is_figure"):
             # Caption-only figure record: where it lives + roughly what it shows.
             meta["figure_caption"] = c.metadata.get("figure_caption", "")

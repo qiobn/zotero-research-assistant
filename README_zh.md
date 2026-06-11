@@ -86,8 +86,7 @@
 - **段落感知分块** — 按自然边界（段落→句子）切分，自适应合并至目标 600 字符；中文感知断句（`。！？` 无需空格即断），并修复 PDF 排版软换行（`满\n意度`→`满意度`），避免句子被从中间切断
 - **章节检测** — 自动识别并标记参考文献段落，搜索时默认排除
 - **图表标注检测** — 识别 `Figure/Fig./Table/图/表` 等标注格式，标记含图表的 chunk 以便精准检索
-- **表格交叉引用** — 表格单独成块（含列名自然语言摘要，提升语义召回）；正文里"如表3所示"的段落会自动链接到对应表格内容，`get_paper_content` 返回 `referenced_tables`
-- **图表交叉引用** — 图同样单独成块，但仅记录"图在何处被提及 + 标题大致内容"（不做图像识别）；正文"如图3所示"会链接到对应图的标题，`get_paper_content` 返回 `referenced_figures`
+- **表格 / 图交叉引用** — 表格和图都作为轻量"标题锚点记录"入库，**不做单元格结构化**。表格保留：在哪里、标题、以及从标题到正文恢复之间的原始内容块（让表内数值仍可被检索）；图仅保留：在哪里 + 标题大致内容（不做图像识别）。正文里"如表3所示 / 如图2所示"的段落会自动链接到对应记录，`get_paper_content` 返回 `referenced_tables` / `referenced_figures`。（真正的表格结构化是视觉问题——可选视觉解析器见 [表格与图](#表格与图)。）
 - **分块版本化** — 策略变更自动触发全量重建索引，杜绝陈旧数据
 - **索引诊断** — `inspect_index` 展示 chunk 统计、质量问题、乱码检测
 - **召回率自测** — `test_recall` 验证论文自身 chunk 是否出现在 top-20 结果中
@@ -629,7 +628,6 @@ codex "在我的 Zotero 里搜索城市步行性相关论文"
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 重排序模型（设 `none` 禁用） |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | 本地向量数据库路径 |
 | `ZRA_AUTO_SYNC` | `true` | MCP 启动时自动增量同步 |
-| `ZRA_TABLE_MODE` | `lite` | 表格提取：`lite`（仅有框表格）或 `ml`（Table Transformer，可结构化无框/三线表，需 `[tables]` 可选依赖） |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | 可选；提升在线搜索速率 |
 | `OPENALEX_MAILTO` | — | 可选；OpenAlex 礼貌池 |
 | `UNPAYWALL_EMAIL` | — | 可选；Unpaywall OA PDF 查找 |
@@ -638,6 +636,31 @@ codex "在我的 Zotero 里搜索城市步行性相关论文"
 | `CNKI_CDP_URL` | — | Chrome 远程调试 URL |
 
 所有数据**保留在本地**：Zotero 文库、`.chroma_db/`、HuggingFace 模型缓存（`~/.cache/huggingface/`）。
+
+---
+
+## 表格与图
+
+表格和图**不会**被解析成结构化单元格。可靠的表格结构化本质上是一个视觉问题：
+基于文本/几何的检测在无框"三线表"上会产出垃圾，甚至把多栏正文、参考文献误判
+成几十栏的假表。因此本项目不做这种"伪结构化"，而是保留轻量的**标题锚点记录**：
+
+- **表格** —— 标题（如"表3 …"）、所在页、以及从标题到正文恢复之间的原始内容块
+  （让表内**数值**仍可被检索），不含单元格/列结构。
+- **图** —— 仅标题（图大致展示了什么），不解码图像。
+- 正文里"如表3所示 / 如图2所示"会被链接到对应记录，段落与其引用的图表一起返回
+  （`get_paper_content` 的 `referenced_tables` / `referenced_figures`）。
+
+**需要真正的结构化表格？** 可用专门的视觉文档解析器预处理 PDF，把结果
+（Markdown/HTML）存为笔记或附件，再作为文本入库。推荐：
+
+| 工具 | 说明 |
+|------|------|
+| [docling](https://github.com/docling-project/docling) | IBM；版面 + 表结构识别强，可导出 Markdown/JSON |
+| [open-parse](https://github.com/Filimoa/open-parse) | 版面感知分块，支持表格 |
+| [unstructured](https://github.com/Unstructured-IO/unstructured) | `hi_res` 策略可抽取表格 HTML |
+
+这些方案更重（视觉模型、更慢），有意不放进默认流程。
 
 ---
 

@@ -1,28 +1,36 @@
 """Semantic-aware text chunking with page-number preservation.
 
 Strategy:
-1. Concatenate pages, repairing PDF soft line-wraps (CJK words and hyphenated
-   Latin words broken across visual lines)
-2. Detect reference/bibliography section → tag chunks with section metadata
-3. Split by paragraphs (double newline)
-4. Merge short paragraphs up to target_chunk_size
-5. Split long paragraphs at sentence boundaries (CJK- and ASCII-aware)
-6. Fallback to character sliding window for unstructured text (e.g. OCR)
-7. Append structured tables as dedicated Markdown chunks
-8. Hard-cap every chunk at max size, breaking at the best sentence/clause
+1. Extract tables and figures as caption-anchored records (see below), and strip
+   table blocks out of the prose so the same content is not indexed twice
+2. Concatenate the remaining prose pages, repairing PDF soft line-wraps (CJK
+   words and hyphenated Latin words broken across visual lines)
+3. Detect reference/bibliography section → tag chunks with section metadata
+4. Split by paragraphs, merge short ones up to target_chunk_size, split long
+   ones at sentence boundaries (CJK- and ASCII-aware)
+5. Fallback to character sliding window for unstructured text (e.g. OCR)
+6. Hard-cap every chunk at max size, breaking at the best sentence/clause
    boundary so Chinese text is never cut mid-word
-9. Post-process: detect figure/table captions → tag has_figure_table
+7. Post-process: detect figure/table captions → tag has_figure_table
+
+Tables and figures are NOT structured into cells/JSON. Reliable table structuring
+is fundamentally a vision problem (see docs for optional docling/open-parse
+preprocessing); geometric detection produces garbage on borderless academic
+tables. Instead we treat both like lightweight reference records: we capture
+*where* a table/figure is, its caption (roughly what it shows), and — for tables
+— the raw block content from the caption until the prose narration resumes, so
+the values stay searchable. Prose passages that cite "表3"/"Figure 2" are linked
+to these records (table_refs / figure_refs).
 """
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 
-from research_core.parsers.pdf import PageText, TableData
+from research_core.parsers.pdf import PageText
 
-CHUNKING_VERSION = "v2.6-figure-xref"
+CHUNKING_VERSION = "v2.7.1-caption-tables"
 
 # Sentence boundaries, CJK-aware. CJK terminators (。！？；…) are NOT followed by
 # a space in Chinese/Japanese text, so we split immediately after them; ASCII
@@ -59,10 +67,33 @@ _FIGURE_TABLE_CAPTION = re.compile(
     re.MULTILINE,
 )
 
-# A table's own label, parsed from the start of its caption:
-# "表3 ...", "Table 3.", "Tab. 5", "附表2".
-_TABLE_LABEL_RE = re.compile(
-    r"^\s*(?:附?表|tables?|tab\.?)\s*([0-9]+(?:[-.][0-9A-Za-z]+)?|[A-Z]?[0-9]+)",
+# A table caption at the start of a line, mirroring figures: "表3 ...",
+# "Table 3. ...", "Tab. 5:", "附表2 ...". Group 1 = display label, group 2 =
+# canonical number, group 3 = caption text on the same line.
+_TABLE_CAPTION_RE = re.compile(
+    r"^[ \t]*((?:附?表|tables?|tab\.?)\s*([0-9]+[A-Za-z]?(?:[-.][0-9]+)?))"
+    r"[.:：、\s]*(.*)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Any table/figure caption line — used to stop a captured table block when the
+# next caption begins.
+_ANY_CAPTION_LINE = re.compile(
+    r"^[ \t]*(?:附?表|tables?|tab\.?|fig(?:ure|s)?\.?|图)\s*[0-9]",
+    re.IGNORECASE,
+)
+# Max characters of raw content captured below a table caption.
+_TABLE_BLOCK_MAX = 1100
+# A table is always a single chunk; cap its full text below the chunk hard-cap
+# (1200) so ``_enforce_max_chars`` never splits a table into a useless tail
+# fragment. The caption sits at the front, so trimming only drops the body tail.
+_TABLE_TEXT_MAX = 1190
+# When the text right after the label is a verb/connector ("表1显示…",
+# "Table 1 shows…"), the line is a prose reference, not a real caption — skip it
+# so a number-dense sentence isn't mistaken for (and doesn't shadow) the table.
+_CAPTION_PROSE_LEAD = re.compile(
+    r"^(?:显示|表明|所示|可知|中|反映|列出|给出|说明|描述|呈现|总结|展示|指出|可见|表示"
+    r"|shows?|lists?|presents?|indicates?|summari[sz]es?|reports?|displays?"
+    r"|gives?|describes?|illustrates?|depicts?)",
     re.IGNORECASE,
 )
 # A reference to a table inside prose: "如表3所示", "见表3、4", "Table 3",
@@ -100,7 +131,7 @@ class Chunk:
 
 def chunk_text(
     pages: list[PageText],
-    tables: list[TableData] | None = None,
+    tables: object = None,  # legacy/ignored: tables are derived from page text
     target_chunk_size: int = 600,
     max_chunk_size: int = 1200,
     min_chunk_size: int = 100,
@@ -111,17 +142,23 @@ def chunk_text(
 ) -> list[Chunk]:
     """Split page-level text into semantic chunks, preserving page numbers.
 
-    Paragraph-first strategy: splits on double newlines, merges short
-    paragraphs, and splits long ones at sentence boundaries. Falls back
-    to sliding window for text without paragraph structure.
+    Tables and figures are first pulled out as caption-anchored records; table
+    blocks are removed from the prose stream so their content is not indexed
+    twice. The remaining prose is chunked paragraph-first (merge short, split
+    long at sentence boundaries; sliding-window fallback for unstructured text).
 
-    Structured ``tables`` (extracted separately from prose) are appended as
-    dedicated Markdown chunks, row-grouped so each stays under ``max_chunk_size``.
-    Finally a hard character cap is enforced on every chunk so that run-on text
-    with no sentence/paragraph structure (data dumps, equations, OCR, borderless
-    tables) can never produce an oversized chunk that blows up embedding memory.
+    A hard character cap is enforced on every chunk so that run-on text with no
+    sentence/paragraph structure (data dumps, equations, OCR) can never produce
+    an oversized chunk that blows up embedding memory.
+
+    ``tables`` is accepted but ignored (legacy signature); tables are derived
+    from the page text directly.
     """
-    full_text, page_boundaries = _build_text_and_boundaries(pages)
+    figures = _extract_figures(pages)
+    table_records, table_spans = _extract_tables(pages)
+    prose_pages = _strip_table_spans(pages, table_spans)
+
+    full_text, page_boundaries = _build_text_and_boundaries(prose_pages)
 
     chunks: list[Chunk] = []
     if full_text.strip():
@@ -154,17 +191,11 @@ def chunk_text(
                 )
             _tag_captions(chunks)
 
-    if tables:
-        table_chunks = _chunk_tables(tables, max_size=max_chunk_size)
-        chunks.extend(table_chunks)
-        available_table_refs = {
-            c.metadata["table_ref"]
-            for c in table_chunks
-            if c.metadata.get("table_ref")
-        }
+    if table_records:
+        chunks.extend(_chunk_tables(table_records))
+        available_table_refs = {t.ref for t in table_records if t.ref}
         _tag_refs(chunks, available_table_refs, _TABLE_REF_PREFIX, "table_refs")
 
-    figures = _extract_figures(pages)
     if figures:
         chunks.extend(_chunk_figures(figures))
         available_fig_refs = {f.ref for f in figures}
@@ -183,61 +214,183 @@ def _tag_captions(chunks: list[Chunk]) -> None:
             chunk.metadata["has_figure_table"] = True
 
 
-# ── Table chunking ────────────────────────────────────────────────
+# ── Table extraction (caption + raw content, not structured) ──────
 
 
-def _chunk_tables(tables: list[TableData], *, max_size: int) -> list[Chunk]:
-    """Turn structured tables into Markdown chunks, row-grouped under max_size.
+@dataclass
+class _Table:
+    ref: str
+    label: str
+    caption: str
+    body: str
+    page: int
 
-    Each chunk carries:
-    - text: a self-contained Markdown table (caption + repeated header + rows),
-      which embeds well and is directly LLM-readable.
-    - metadata.table_json: the structured form of the rows in this chunk, a
-      JSON object {caption, page, columns, rows:[{col: val}], part, parts,
-      n_rows_total}. For complex/multi-level headers, column names are already
-      flattened (e.g. "Group A / Mean") so each row maps cleanly to scalars.
+
+def _extract_tables(
+    pages: list[PageText],
+) -> tuple[list[_Table], dict[int, list[tuple[int, int]]]]:
+    """Find table captions in raw page text and capture each table's block.
+
+    A table runs from its caption line until the prose narration resumes (or a
+    size cap / the next caption). We don't structure the cells — academic
+    three-line tables can't be reconstructed reliably from text geometry — we
+    just keep the caption plus the raw block so values stay searchable, mirroring
+    how figures are handled.
+
+    Returns ``(tables, spans_by_page_index)``. The spans let the caller strip
+    table blocks out of the prose so the content is not indexed twice. A caption
+    is only accepted as a table (and stripped) when the block below it actually
+    looks tabular, which guards against prose sentences like "表3 说明了…".
+    """
+    by_ref: dict[str, _Table] = {}
+    spans_by_page: dict[int, list[tuple[int, int]]] = {}
+    for pi, pt in enumerate(pages):
+        text = pt.text
+        for m in _TABLE_CAPTION_RE.finditer(text):
+            ref = _canon_table_ref(m.group(2))
+            if not ref:
+                continue
+            if _CAPTION_PROSE_LEAD.match(m.group(3).strip()):
+                continue  # "表1显示…/Table 1 shows…" — a prose reference, not a caption
+            block_end = _table_block_end(text, m.end())
+            body = text[m.end():block_end].strip()
+            if not _looks_tabular(body):
+                continue  # a prose mention, not an actual table caption
+            label = " ".join(m.group(1).split())
+            caption = " ".join(m.group(3).split())[:250]
+            spans_by_page.setdefault(pi, []).append((m.start(), block_end))
+            prev = by_ref.get(ref)
+            if prev is None or len(body) > len(prev.body):
+                by_ref[ref] = _Table(
+                    ref=ref, label=label, caption=caption,
+                    body=body[:_TABLE_BLOCK_MAX], page=pt.page_num,
+                )
+    return list(by_ref.values()), spans_by_page
+
+
+def _table_block_end(text: str, pos: int) -> int:
+    """End offset of a table block that starts just after a caption line.
+
+    Consumes following lines until a prose paragraph resumes, the next caption
+    begins, a blank-line gap, or the size cap is reached.
+    """
+    n = len(text)
+    limit = min(n, pos + _TABLE_BLOCK_MAX)
+    end = pos
+    blanks = 0
+    while end < n and end < limit:
+        nl = text.find("\n", end)
+        if nl == -1:
+            nl = n
+        line = text[end:nl]
+        s = line.strip()
+        if not s:
+            blanks += 1
+            if blanks >= 2:
+                break
+            end = nl + 1
+            continue
+        blanks = 0
+        if _is_prose_line(s) or _ANY_CAPTION_LINE.match(line):
+            break
+        end = nl + 1
+    return min(end, n)
+
+
+def _is_prose_line(s: str) -> bool:
+    """Heuristic: a line that reads as narrative prose, not a table row.
+
+    Table rows are short and/or number-dense; prose lines close with sentence
+    punctuation or run long. The sentence-terminator check is length-aware in a
+    CJK-friendly way: Chinese sentences pack meaning into few characters
+    ("……为主。" is ~12 chars but is clearly prose), so a terminated line of ≥12
+    chars counts as prose, while any line of ≥50 chars (wrapped prose without a
+    visible terminator) does too.
+    """
+    if not s:
+        return False
+    digits = sum(c.isdigit() for c in s)
+    if digits / len(s) >= 0.25:
+        return False  # number-dense → a data row, not prose
+    if s[-1] in "。！？.!?" and len(s) >= 12:
+        return True
+    # CJK packs ~2x the information per character, so a long CJK-dominant line
+    # with no terminator is almost always a wrapped prose line, not a table cell
+    # (table cells are short labels/values). Latin prose only trips at ≥50.
+    cjk = sum(1 for c in s if "\u3400" <= c <= "\u9fff")
+    if cjk >= len(s) * 0.5 and len(s) >= 24:
+        return True
+    return len(s) >= 50
+
+
+def _looks_tabular(body: str) -> bool:
+    """True if a captured block looks like table content.
+
+    Table cells sit on their own short lines (PDF column extraction) — either
+    brief text labels ("Attribute level", "区名称") or number-dense values. Prose
+    that leaked past ``_table_block_end`` would show up as long, sentence-like
+    lines, so a high share of short/numeric lines marks a real table. We require
+    a few rows to avoid promoting one-line caption fragments.
+    """
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    if len(lines) < 3:
+        return False
+    cellish = 0
+    for ln in lines:
+        digits = sum(c.isdigit() for c in ln)
+        if len(ln) <= 25 or digits / len(ln) >= 0.2:
+            cellish += 1
+    return cellish / len(lines) >= 0.6
+
+
+def _strip_table_spans(
+    pages: list[PageText],
+    spans_by_page: dict[int, list[tuple[int, int]]],
+) -> list[PageText]:
+    """Return pages with captured table spans removed from the prose text."""
+    if not spans_by_page:
+        return pages
+    out: list[PageText] = []
+    for pi, pt in enumerate(pages):
+        spans = spans_by_page.get(pi)
+        if not spans:
+            out.append(pt)
+            continue
+        text = pt.text
+        for start, end in sorted(spans, reverse=True):
+            text = text[:start] + "\n" + text[end:]
+        out.append(PageText(page_num=pt.page_num, text=text))
+    return out
+
+
+def _chunk_tables(tables: list[_Table]) -> list[Chunk]:
+    """One chunk per table: caption + raw block content (not structured).
+
+    The chunk is retrievable on its own and resolvable from prose that cites the
+    table. No cells/JSON — just the label, caption and the rough content so the
+    table's values stay searchable.
     """
     chunks: list[Chunk] = []
-    for table in tables:
-        label, ref = _table_label_and_ref(table.caption)
-        groups = _row_groups(table, max_size)
-        parts = len(groups)
-        for part_i, rows in enumerate(groups):
-            md = _table_markdown(
-                table.caption, table.columns, rows, part_i, parts
-            )
-            payload = {
-                "caption": table.caption,
-                "label": label,
-                "page": table.page_num,
-                "columns": table.columns,
-                "rows": [
-                    dict(zip(table.columns, row, strict=False)) for row in rows
-                ],
-                "part": part_i + 1,
-                "parts": parts,
-                "n_rows_total": table.n_rows,
-            }
-            meta = {
-                "is_table": True,
-                "has_figure_table": True,
-                "table_caption": table.caption,
-                "table_label": label,
-                "table_part": part_i + 1,
-                "table_parts": parts,
-                "n_rows": table.n_rows,
-                "n_cols": table.n_cols,
-                "table_json": json.dumps(payload, ensure_ascii=False),
-            }
-            if ref:
-                meta["table_ref"] = ref
-            chunks.append(Chunk(
-                text=md,
-                page_start=table.page_num,
-                page_end=table.page_num,
-                chunk_idx=len(chunks),
-                metadata=meta,
-            ))
+    for t in tables:
+        head = f"{t.label} {t.caption}".strip() if t.caption else t.label
+        text = f"{head}\n{t.body}".strip() if t.body else head
+        if len(text) > _TABLE_TEXT_MAX:
+            text = text[:_TABLE_TEXT_MAX]
+        meta = {
+            "is_table": True,
+            "has_figure_table": True,
+            "table_label": t.label,
+            "table_caption": t.caption,
+        }
+        if t.ref:
+            meta["table_ref"] = t.ref
+        chunks.append(Chunk(
+            text=text,
+            page_start=t.page,
+            page_end=t.page,
+            chunk_idx=len(chunks),
+            metadata=meta,
+        ))
     return chunks
 
 
@@ -255,16 +408,6 @@ def _canon_table_ref(token: str) -> str:
     if m:
         t = m.group(1) + m.group(2)
     return t
-
-
-def _table_label_and_ref(caption: str) -> tuple[str, str]:
-    """Parse (display_label, canonical_ref) from a caption, or ('', '')."""
-    if not caption:
-        return "", ""
-    m = _TABLE_LABEL_RE.match(caption)
-    if not m:
-        return "", ""
-    return caption[: m.end()].strip(), _canon_table_ref(m.group(1))
 
 
 def _find_refs(text: str, prefix_re: re.Pattern) -> list[str]:
@@ -291,11 +434,6 @@ def _find_refs(text: str, prefix_re: re.Pattern) -> list[str]:
                 break
             pos = cm.end()
     return out
-
-
-def _find_table_refs(text: str) -> list[str]:
-    """Extract canonical table references mentioned in prose, in order."""
-    return _find_refs(text, _TABLE_REF_PREFIX)
 
 
 def _tag_refs(
@@ -376,60 +514,6 @@ def _chunk_figures(figures: list[_Figure]) -> list[Chunk]:
             },
         ))
     return chunks
-
-
-def _row_groups(table: TableData, max_size: int) -> list[list[list[str]]]:
-    """Split a table's rows so each group's Markdown stays under max_size."""
-    overhead = len(_table_markdown(table.caption, table.columns, [], 0, 1))
-    budget = max(max_size - overhead, max_size // 2)
-    groups: list[list[list[str]]] = []
-    current: list[list[str]] = []
-    current_len = 0
-    for row in table.rows:
-        row_len = sum(len(c) for c in row) + 3 * max(len(row), 1) + 2
-        if current and current_len + row_len > budget:
-            groups.append(current)
-            current = []
-            current_len = 0
-        current.append(row)
-        current_len += row_len
-    if current:
-        groups.append(current)
-    return groups or [[]]
-
-
-def _table_markdown(
-    caption: str,
-    columns: list[str],
-    rows: list[list[str]],
-    part_i: int,
-    parts: int,
-) -> str:
-    """Render a (slice of a) table as a GitHub-flavored Markdown table."""
-    lines: list[str] = []
-    if caption:
-        lines.append(caption + (f" (part {part_i + 1}/{parts})" if parts > 1 else ""))
-    elif parts > 1:
-        lines.append(f"(table part {part_i + 1}/{parts})")
-    cols = columns or ["col_1"]
-    # A compact natural-language column summary. The header row alone embeds
-    # poorly for semantic queries ("which paper measured X vs Y"); spelling the
-    # columns out as prose markedly improves table recall.
-    col_summary = "; ".join(_md_cell(c) for c in cols if c)
-    if col_summary:
-        lines.append(f"Columns / 列: {col_summary}")
-    lines.append("| " + " | ".join(_md_cell(c) for c in cols) + " |")
-    lines.append("| " + " | ".join("---" for _ in cols) + " |")
-    for row in rows:
-        cells = [_md_cell(c) for c in row]
-        if len(cells) < len(cols):
-            cells += [""] * (len(cols) - len(cells))
-        lines.append("| " + " | ".join(cells[: len(cols)]) + " |")
-    return "\n".join(lines)
-
-
-def _md_cell(value: str) -> str:
-    return str(value).replace("|", "\\|").replace("\n", " ").strip()
 
 
 # ── Hard size cap ─────────────────────────────────────────────────
