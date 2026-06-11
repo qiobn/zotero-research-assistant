@@ -273,6 +273,17 @@ Daily Usage
 No need to open a terminal, no manual service startup, no manual index sync.
 Cherry Studio automatically starts the MCP service, which auto-syncs on startup.
 
+[IMPORTANT: be patient on the very first run while the index builds]
+The first time you start, the system parses every PDF in your library and
+computes semantic vectors. This takes a while — the more papers, the longer
+(hundreds of papers can take tens of minutes or more, depending on your
+machine). The good news: it runs automatically in the background, so you can:
+  - leave it running and use your computer for other things meanwhile;
+  - expect semantic search to be incomplete until it finishes (this is normal);
+  - check progress by telling the AI "inspect my index" or "is everything OK".
+Only the first build (or when your library changes) needs waiting; later
+startups are fast incremental syncs.
+
 
 -------- Usage Scenarios --------
 

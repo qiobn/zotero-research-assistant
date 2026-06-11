@@ -238,7 +238,15 @@ If you cloned from source and want to build the index manually:
 python scripts/index_library.py
 ```
 
-The index is stored in `.chroma_db/` (local only). Typical time: ~3–5 min for 100 papers, ~10–15 min for 500 papers.
+The index is stored in `.chroma_db/` (local only).
+
+> **First-time indexing can take a while — let it run in the background.** The
+> first build parses every PDF and computes embeddings; the more papers, the
+> longer it takes (rough guide: ~3–5 min for 100 papers, ~10–15 min for 500,
+> longer on CPU or large libraries). The auto-sync runs in a background thread
+> and does not block the client; for the manual script you can background it too
+> (e.g. `nohup python scripts/index_library.py &`). Only the first build (or
+> after library changes) waits — subsequent startups are fast incremental syncs.
 
 ### 4. Connect your AI client
 
