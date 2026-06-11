@@ -226,7 +226,7 @@ class TestCitationNetwork:
             ]
         }
 
-        with patch("research_core.sources.openalex.httpx.get", return_value=mock_resp):
+        with patch("research_core.sources.openalex._http.get", return_value=mock_resp):
             result = resolve_openalex_id(title="Authenticity in non-local restaurant business")
             assert result is None, "Should not resolve to mismatched title"
 
@@ -247,7 +247,7 @@ class TestCitationNetwork:
             ]
         }
 
-        with patch("research_core.sources.openalex.httpx.get", return_value=mock_resp):
+        with patch("research_core.sources.openalex._http.get", return_value=mock_resp):
             result = resolve_openalex_id(title="Authenticity in non-local restaurant business performance")
             assert result == "https://openalex.org/W789"
 

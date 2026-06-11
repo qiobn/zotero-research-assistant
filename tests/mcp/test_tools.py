@@ -1,4 +1,4 @@
-"""Integration tests for all 13 MCP tools against a real Zotero library.
+"""Integration tests for the MCP tools against a real Zotero library.
 
 These require:
   1. Zotero 7 running with local API on port 23119
