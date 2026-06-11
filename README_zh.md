@@ -624,6 +624,8 @@ codex "在我的 Zotero 里搜索城市步行性相关论文"
 | `ZOTERO_API_KEY` | — | 写操作必需（混合模式） |
 | `ZOTERO_LIBRARY_ID` | `0` | 你的 Zotero 用户 ID |
 | `EMBEDDING_MODEL` | `BAAI/bge-m3` | 语义搜索用的 sentence-transformer |
+| `EMBEDDING_MAX_SEQ_LEN` | `1024` | 嵌入序列长度上限；防止异常长输入撑爆 GPU/MPS 显存 |
+| `HF_ENDPOINT` | — | HuggingFace 镜像地址（国内用户用 `https://hf-mirror.com` 加速模型下载） |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 重排序模型（设 `none` 禁用） |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | 本地向量数据库路径 |
 | `ZRA_AUTO_SYNC` | `true` | MCP 启动时自动增量同步 |

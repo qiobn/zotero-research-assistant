@@ -632,6 +632,8 @@ Copy [`.env.example`](./.env.example) to `.env` and adjust:
 | `ZOTERO_API_KEY` | — | Required for write operations (hybrid mode) |
 | `ZOTERO_LIBRARY_ID` | `0` | Your Zotero user ID |
 | `EMBEDDING_MODEL` | `BAAI/bge-m3` | Sentence-transformer for semantic search |
+| `EMBEDDING_MAX_SEQ_LEN` | `1024` | Cap on embedding sequence length; bounds GPU/MPS memory on pathological long inputs |
+| `HF_ENDPOINT` | — | HuggingFace mirror for model downloads (e.g. `https://hf-mirror.com` for users in China) |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker (`none` to disable) |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | Local vector database path |
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on MCP startup |
