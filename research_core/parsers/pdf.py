@@ -10,9 +10,12 @@ flows through as prose and is bounded by the chunker's hard size cap.
 
 from __future__ import annotations
 
+import os
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 import pymupdf
+from loguru import logger
 
 # A detected table region must overlap a text block by at least this fraction
 # for the block to be considered "part of the table" and removed from prose.
@@ -61,10 +64,30 @@ def extract_pdf_text(path: str) -> list[PageText]:
 def extract_pdf(path: str) -> ParsedPDF:
     """Extract prose text and structured tables from a PDF.
 
-    Ruled tables are detected per page, structured into ``TableData``, and their
-    page regions are stripped from the prose so the same content is not indexed
-    twice (and so a table's run-on text never forms an oversized prose chunk).
+    Table handling depends on ZRA_TABLE_MODE:
+    - "lite" (default): conservative line-based detection only — fast, no extra
+      deps, but only catches ruled tables. Borderless/three-line tables fall
+      through to prose and are bounded by the chunker's hard size cap.
+    - "ml": Microsoft Table Transformer — reliably structures borderless and
+      three-line academic tables (requires the optional `[tables]` extra). Falls
+      back to "lite" automatically if the dependencies/models are unavailable.
+
+    In both modes, detected table regions are stripped from the prose so the
+    same content is not indexed twice.
     """
+    if _table_mode() == "ml":
+        try:
+            return _extract_with_ml(path)
+        except Exception as e:  # never let table extraction break indexing
+            logger.warning(f"ML table mode failed ({e}); falling back to lite mode")
+    return _extract_lite(path)
+
+
+def _table_mode() -> str:
+    return os.getenv("ZRA_TABLE_MODE", "lite").strip().lower()
+
+
+def _extract_lite(path: str) -> ParsedPDF:
     pages: list[PageText] = []
     tables: list[TableData] = []
     with pymupdf.open(path) as doc:
@@ -83,6 +106,31 @@ def extract_pdf(path: str) -> ParsedPDF:
             text = _prose_excluding_tables(page, table_rects)
             if text.strip():
                 pages.append(PageText(page_num=page_num, text=text))
+    return ParsedPDF(pages=pages, tables=tables)
+
+
+def _extract_with_ml(path: str) -> ParsedPDF:
+    from research_core.parsers import table_ml
+
+    ml_tables = table_ml.extract_tables(path)
+    if not ml_tables:
+        # No tables found (or deps missing) — fall back so prose still indexes.
+        return _extract_lite(path)
+
+    by_page: dict[int, list] = defaultdict(list)
+    for mt in ml_tables:
+        by_page[mt.page_num].append(mt)
+
+    pages: list[PageText] = []
+    tables: list[TableData] = []
+    with pymupdf.open(path) as doc:
+        for i, page in enumerate(doc):
+            page_num = i + 1
+            rects = [pymupdf.Rect(mt.bbox) for mt in by_page.get(page_num, [])]
+            text = _prose_excluding_tables(page, rects)
+            if text.strip():
+                pages.append(PageText(page_num=page_num, text=text))
+            tables.extend(mt.data for mt in by_page.get(page_num, []))
     return ParsedPDF(pages=pages, tables=tables)
 
 

@@ -83,9 +83,11 @@ This project was built to help graduate students and researchers — especially 
 
 ### Semantic RAG Pipeline
 
-- **Paragraph-aware chunking** — splits on natural boundaries (paragraphs → sentences), adaptive merging to target 600-char chunks
+- **Paragraph-aware chunking** — splits on natural boundaries (paragraphs → sentences), adaptive merging to target 600-char chunks; CJK-aware sentence splitting (breaks at `。！？` without needing spaces) and PDF soft-wrap repair (`满\n意度`→`满意度`) so sentences are never cut mid-word
 - **Section detection** — automatically identifies and tags reference sections; excludes them from search by default
 - **Figure & table caption tagging** — detects `Figure/Fig./Table/图/表` captions and marks chunks for targeted retrieval
+- **Table cross-referencing** — tables are indexed as standalone chunks (with a natural-language column summary for better semantic recall); prose passages that cite a table ("as shown in Table 3") are auto-linked to its content, surfaced via `get_paper_content`'s `referenced_tables`
+- **Figure cross-referencing** — figures are also indexed as standalone chunks, but caption-only: we record *where* a figure is mentioned and *roughly what it shows* (its caption), with no image recognition; prose citing "Figure 3" is auto-linked to that caption via `referenced_figures`
 - **Chunking versioning** — strategy changes auto-trigger full index rebuild; no stale data
 - **Index diagnostics** — `inspect_index` shows chunk statistics, quality issues, and garbled text detection
 - **Recall testing** — `test_recall` verifies a paper's own chunks appear in top-20 search results
@@ -237,7 +239,15 @@ If you cloned from source and want to build the index manually:
 python scripts/index_library.py
 ```
 
-The index is stored in `.chroma_db/` (local only). Typical time: ~3–5 min for 100 papers, ~10–15 min for 500 papers.
+The index is stored in `.chroma_db/` (local only).
+
+> **First-time indexing can take a while — let it run in the background.** The
+> first build parses every PDF and computes embeddings; the more papers, the
+> longer it takes (rough guide: ~3–5 min for 100 papers, ~10–15 min for 500,
+> longer on CPU or large libraries). The auto-sync runs in a background thread
+> and does not block the client; for the manual script you can background it too
+> (e.g. `nohup python scripts/index_library.py &`). Only the first build (or
+> after library changes) waits — subsequent startups are fast incremental syncs.
 
 ### 4. Connect your AI client
 
@@ -622,9 +632,12 @@ Copy [`.env.example`](./.env.example) to `.env` and adjust:
 | `ZOTERO_API_KEY` | — | Required for write operations (hybrid mode) |
 | `ZOTERO_LIBRARY_ID` | `0` | Your Zotero user ID |
 | `EMBEDDING_MODEL` | `BAAI/bge-m3` | Sentence-transformer for semantic search |
+| `EMBEDDING_MAX_SEQ_LEN` | `1024` | Cap on embedding sequence length; bounds GPU/MPS memory on pathological long inputs |
+| `HF_ENDPOINT` | — | HuggingFace mirror for model downloads (e.g. `https://hf-mirror.com` for users in China) |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker (`none` to disable) |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | Local vector database path |
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on MCP startup |
+| `ZRA_TABLE_MODE` | `lite` | Table extraction: `lite` (ruled tables only) or `ml` (Table Transformer for borderless/three-line tables; needs `[tables]` extra) |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | Optional; higher rate limits for online search |
 | `OPENALEX_MAILTO` | — | Optional; polite pool for OpenAlex API |
 | `UNPAYWALL_EMAIL` | — | Optional; Unpaywall OA PDF lookup |
@@ -761,7 +774,7 @@ Restart your MCP client to reload the server.
 
 ```
 research_core/          # Shared library — Zotero client, RAG pipeline, search adapters, tools
-  parsers/              #   PDF extraction, semantic chunking (v2.1), caption detection
+  parsers/              #   PDF extraction, CJK-aware semantic chunking, table extraction, caption detection
   rag/                  #   ChromaDB indexer, retriever, embedding, sync state
   tools/                #   32 tool implementations (one file per domain)
   zotero/               #   Zotero local + web API client

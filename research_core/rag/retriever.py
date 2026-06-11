@@ -148,6 +148,85 @@ class Retriever:
         out.sort(key=lambda r: r.chunk_idx)
         return out
 
+    def get_item_tables(
+        self,
+        item_key: str,
+        refs: list[str] | set[str] | None = None,
+    ) -> list[RetrievalResult]:
+        """Retrieve a paper's structured table chunks.
+
+        If ``refs`` is given (canonical labels like "3"), only tables whose
+        ``table_ref`` matches are returned — this resolves a prose passage's
+        cited tables (e.g. "see Table 3") to their actual content. Multi-part
+        tables are returned in order.
+        """
+        where: dict = {
+            "$and": [{"item_key": item_key}, {"is_table": True}]
+        }
+        raw = self._collection.get(
+            where=where, include=["documents", "metadatas"]
+        )
+        docs = raw.get("documents", []) or []
+        metas = raw.get("metadatas", []) or []
+        wanted = {str(r) for r in refs} if refs else None
+        out: list[RetrievalResult] = []
+        for doc, meta in zip(docs, metas, strict=True):
+            if wanted is not None and meta.get("table_ref") not in wanted:
+                continue
+            out.append(
+                RetrievalResult(
+                    text=doc,
+                    item_key=meta.get("item_key", ""),
+                    title=meta.get("title", ""),
+                    page_start=meta.get("page_start", 0),
+                    page_end=meta.get("page_end", 0),
+                    score=1.0,
+                    chunk_idx=meta.get("chunk_idx", 0),
+                    metadata=meta,
+                )
+            )
+        out.sort(key=lambda r: (r.metadata.get("table_ref", ""), r.metadata.get("table_part", 1)))
+        return out
+
+    def get_item_figures(
+        self,
+        item_key: str,
+        refs: list[str] | set[str] | None = None,
+    ) -> list[RetrievalResult]:
+        """Retrieve a paper's figure records (caption-only).
+
+        If ``refs`` is given (canonical labels like "2"), only matching figures
+        are returned — this resolves a prose passage's cited figures (e.g.
+        "see Figure 2") to their caption / rough description.
+        """
+        where: dict = {
+            "$and": [{"item_key": item_key}, {"is_figure": True}]
+        }
+        raw = self._collection.get(
+            where=where, include=["documents", "metadatas"]
+        )
+        docs = raw.get("documents", []) or []
+        metas = raw.get("metadatas", []) or []
+        wanted = {str(r) for r in refs} if refs else None
+        out: list[RetrievalResult] = []
+        for doc, meta in zip(docs, metas, strict=True):
+            if wanted is not None and meta.get("figure_ref") not in wanted:
+                continue
+            out.append(
+                RetrievalResult(
+                    text=doc,
+                    item_key=meta.get("item_key", ""),
+                    title=meta.get("title", ""),
+                    page_start=meta.get("page_start", 0),
+                    page_end=meta.get("page_end", 0),
+                    score=1.0,
+                    chunk_idx=meta.get("chunk_idx", 0),
+                    metadata=meta,
+                )
+            )
+        out.sort(key=lambda r: r.metadata.get("figure_ref", ""))
+        return out
+
     def list_indexed_items(self) -> set[str]:
         """Return the set of item_keys currently indexed."""
         raw = self._collection.get(include=["metadatas"])

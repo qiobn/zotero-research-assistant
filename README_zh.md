@@ -83,9 +83,11 @@
 
 ### 语义 RAG 管线
 
-- **段落感知分块** — 按自然边界（段落→句子）切分，自适应合并至目标 600 字符
+- **段落感知分块** — 按自然边界（段落→句子）切分，自适应合并至目标 600 字符；中文感知断句（`。！？` 无需空格即断），并修复 PDF 排版软换行（`满\n意度`→`满意度`），避免句子被从中间切断
 - **章节检测** — 自动识别并标记参考文献段落，搜索时默认排除
 - **图表标注检测** — 识别 `Figure/Fig./Table/图/表` 等标注格式，标记含图表的 chunk 以便精准检索
+- **表格交叉引用** — 表格单独成块（含列名自然语言摘要，提升语义召回）；正文里"如表3所示"的段落会自动链接到对应表格内容，`get_paper_content` 返回 `referenced_tables`
+- **图表交叉引用** — 图同样单独成块，但仅记录"图在何处被提及 + 标题大致内容"（不做图像识别）；正文"如图3所示"会链接到对应图的标题，`get_paper_content` 返回 `referenced_figures`
 - **分块版本化** — 策略变更自动触发全量重建索引，杜绝陈旧数据
 - **索引诊断** — `inspect_index` 展示 chunk 统计、质量问题、乱码检测
 - **召回率自测** — `test_recall` 验证论文自身 chunk 是否出现在 top-20 结果中
@@ -237,7 +239,13 @@ MCP 服务端启动时**自动同步**（`ZRA_AUTO_SYNC=true`）。首次启动�
 python scripts/index_library.py
 ```
 
-索引存储在 `.chroma_db/`（仅本地）。典型耗时：100 篇约 3-5 分钟，500 篇约 10-15 分钟。
+索引存储在 `.chroma_db/`（仅本地）。
+
+> **首次建索引会比较慢，建议挂后台等待。** 第一次需要解析每篇 PDF 并计算语义向量，
+> 文献越多越久（参考：100 篇约 3-5 分钟、500 篇约 10-15 分钟，CPU 或大库会更久）。
+> 自动同步在后台线程进行、不阻塞客户端使用；手动跑 `index_library.py` 时也可以放后台
+> （如 `nohup python scripts/index_library.py &`）。索引只在首次或文献变动时需要等待，
+> 之后启动都是秒级增量同步。
 
 ### 4. 连接 AI 客户端
 
@@ -616,9 +624,12 @@ codex "在我的 Zotero 里搜索城市步行性相关论文"
 | `ZOTERO_API_KEY` | — | 写操作必需（混合模式） |
 | `ZOTERO_LIBRARY_ID` | `0` | 你的 Zotero 用户 ID |
 | `EMBEDDING_MODEL` | `BAAI/bge-m3` | 语义搜索用的 sentence-transformer |
+| `EMBEDDING_MAX_SEQ_LEN` | `1024` | 嵌入序列长度上限；防止异常长输入撑爆 GPU/MPS 显存 |
+| `HF_ENDPOINT` | — | HuggingFace 镜像地址（国内用户用 `https://hf-mirror.com` 加速模型下载） |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 重排序模型（设 `none` 禁用） |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | 本地向量数据库路径 |
 | `ZRA_AUTO_SYNC` | `true` | MCP 启动时自动增量同步 |
+| `ZRA_TABLE_MODE` | `lite` | 表格提取：`lite`（仅有框表格）或 `ml`（Table Transformer，可结构化无框/三线表，需 `[tables]` 可选依赖） |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | 可选；提升在线搜索速率 |
 | `OPENALEX_MAILTO` | — | 可选；OpenAlex 礼貌池 |
 | `UNPAYWALL_EMAIL` | — | 可选；Unpaywall OA PDF 查找 |
@@ -755,7 +766,7 @@ playwright install chromium
 
 ```
 research_core/          # 核心库 — Zotero 客户端、RAG 管线、搜索适配器、工具
-  parsers/              #   PDF 提取、语义分块（v2.1）、图表标注检测
+  parsers/              #   PDF 提取、中文感知语义分块、表格提取、图表标注检测
   rag/                  #   ChromaDB 索引器、检索器、嵌入、同步状态
   tools/                #   32 个工具实现（按领域分文件）
   zotero/               #   Zotero 本地 + Web API 客户端

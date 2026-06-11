@@ -23,6 +23,8 @@ class PaperContent:
     annotations: list[dict] = field(default_factory=list)
     outline: list[dict] = field(default_factory=list)
     fulltext: str = ""
+    referenced_tables: list[dict] = field(default_factory=list)
+    referenced_figures: list[dict] = field(default_factory=list)
 
 
 def get_paper(item_key: str, zot: ZoteroClient) -> Item:
@@ -60,6 +62,70 @@ def _extract_fulltext(pdf_path: str, max_pages: int = 50) -> str:
     except Exception as e:
         logger.debug(f"Failed to extract fulltext: {e}")
         return ""
+
+
+def _resolve_referenced_tables(
+    retriever: Retriever,
+    item_key: str,
+    refs: list[str],
+) -> list[dict]:
+    """Fetch the structured content of tables cited by retrieved passages.
+
+    Returns one entry per (table_ref, part), deduplicated and ordered, each with
+    the table's Markdown text plus identifying metadata.
+    """
+    unique_refs = list(dict.fromkeys(refs))
+    table_chunks = retriever.get_item_tables(item_key, refs=unique_refs)
+    out: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+    for t in table_chunks:
+        ref = t.metadata.get("table_ref", "")
+        part = t.metadata.get("table_part", 1)
+        if (ref, part) in seen:
+            continue
+        seen.add((ref, part))
+        out.append(
+            {
+                "table_ref": ref,
+                "label": t.metadata.get("table_label", ""),
+                "caption": t.metadata.get("table_caption", ""),
+                "page": t.page_start,
+                "part": part,
+                "parts": t.metadata.get("table_parts", 1),
+                "text": t.text,
+            }
+        )
+    return out
+
+
+def _resolve_referenced_figures(
+    retriever: Retriever,
+    item_key: str,
+    refs: list[str],
+) -> list[dict]:
+    """Fetch caption-only records of figures cited by retrieved passages.
+
+    No image is decoded — each entry carries the figure's label, caption (a
+    rough description of what it shows), and page.
+    """
+    unique_refs = list(dict.fromkeys(refs))
+    figure_chunks = retriever.get_item_figures(item_key, refs=unique_refs)
+    out: list[dict] = []
+    seen: set[str] = set()
+    for f in figure_chunks:
+        ref = f.metadata.get("figure_ref", "")
+        if ref in seen:
+            continue
+        seen.add(ref)
+        out.append(
+            {
+                "figure_ref": ref,
+                "label": f.metadata.get("figure_label", ""),
+                "caption": f.metadata.get("figure_caption", ""),
+                "page": f.page_start,
+            }
+        )
+    return out
 
 
 def get_paper_content(
@@ -110,14 +176,36 @@ def get_paper_content(
             all_chunks = retriever.get_item_chunks(item_key)
             results = all_chunks[:limit]
 
+        cited_tables: list[str] = []
+        cited_figures: list[str] = []
         for r in results:
-            result.passages.append(
-                {
-                    "text": r.text,
-                    "page_start": r.page_start,
-                    "page_end": r.page_end,
-                    "score": round(r.score, 3) if r.score else None,
-                }
+            passage: dict = {
+                "text": r.text,
+                "page_start": r.page_start,
+                "page_end": r.page_end,
+                "score": round(r.score, 3) if r.score else None,
+            }
+            t_raw = r.metadata.get("table_refs", "")
+            if t_raw:
+                refs = [x for x in t_raw.split(",") if x]
+                passage["cites_tables"] = refs
+                cited_tables.extend(refs)
+            f_raw = r.metadata.get("figure_refs", "")
+            if f_raw:
+                refs = [x for x in f_raw.split(",") if x]
+                passage["cites_figures"] = refs
+                cited_figures.extend(refs)
+            result.passages.append(passage)
+
+        # Resolve the concrete path: a passage that cites "Table 3" / "Figure 2"
+        # pulls in that table's content / figure's caption from this paper.
+        if cited_tables:
+            result.referenced_tables = _resolve_referenced_tables(
+                retriever, item_key, cited_tables
+            )
+        if cited_figures:
+            result.referenced_figures = _resolve_referenced_figures(
+                retriever, item_key, cited_figures
             )
 
     if include_annotations:
