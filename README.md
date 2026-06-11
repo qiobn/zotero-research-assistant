@@ -83,7 +83,7 @@ This project was built to help graduate students and researchers — especially 
 
 ### Semantic RAG Pipeline
 
-- **Paragraph-aware chunking** — splits on natural boundaries (paragraphs → sentences), adaptive merging to target 600-char chunks
+- **Paragraph-aware chunking** — splits on natural boundaries (paragraphs → sentences), adaptive merging to target 600-char chunks; CJK-aware sentence splitting (breaks at `。！？` without needing spaces) and PDF soft-wrap repair (`满\n意度`→`满意度`) so sentences are never cut mid-word
 - **Section detection** — automatically identifies and tags reference sections; excludes them from search by default
 - **Figure & table caption tagging** — detects `Figure/Fig./Table/图/表` captions and marks chunks for targeted retrieval
 - **Chunking versioning** — strategy changes auto-trigger full index rebuild; no stale data
@@ -762,7 +762,7 @@ Restart your MCP client to reload the server.
 
 ```
 research_core/          # Shared library — Zotero client, RAG pipeline, search adapters, tools
-  parsers/              #   PDF extraction, semantic chunking (v2.1), caption detection
+  parsers/              #   PDF extraction, CJK-aware semantic chunking, table extraction, caption detection
   rag/                  #   ChromaDB indexer, retriever, embedding, sync state
   tools/                #   32 tool implementations (one file per domain)
   zotero/               #   Zotero local + web API client

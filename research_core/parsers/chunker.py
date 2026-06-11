@@ -1,13 +1,17 @@
 """Semantic-aware text chunking with page-number preservation.
 
-Strategy (v2.1-semantic):
-1. Concatenate pages preserving page boundaries
+Strategy:
+1. Concatenate pages, repairing PDF soft line-wraps (CJK words and hyphenated
+   Latin words broken across visual lines)
 2. Detect reference/bibliography section → tag chunks with section metadata
 3. Split by paragraphs (double newline)
 4. Merge short paragraphs up to target_chunk_size
-5. Split long paragraphs at sentence boundaries
+5. Split long paragraphs at sentence boundaries (CJK- and ASCII-aware)
 6. Fallback to character sliding window for unstructured text (e.g. OCR)
-7. Post-process: detect figure/table captions → tag has_figure_table
+7. Append structured tables as dedicated Markdown chunks
+8. Hard-cap every chunk at max size, breaking at the best sentence/clause
+   boundary so Chinese text is never cut mid-word
+9. Post-process: detect figure/table captions → tag has_figure_table
 """
 
 from __future__ import annotations
@@ -18,11 +22,25 @@ from dataclasses import dataclass, field
 
 from research_core.parsers.pdf import PageText, TableData
 
-CHUNKING_VERSION = "v2.3-tables-hardcap"
+CHUNKING_VERSION = "v2.4-cjk-aware"
 
+# Sentence boundaries, CJK-aware. CJK terminators (。！？；…) are NOT followed by
+# a space in Chinese/Japanese text, so we split immediately after them; ASCII
+# terminators must be followed by whitespace (avoids splitting "U.S." or "3.14").
 _SENTENCE_ENDS = re.compile(
-    r"(?<=[.!?。！？；\n])\s+"
+    r"(?<=[。！？；…])\s*|(?<=[.!?;])\s+"
 )
+
+# A run of CJK ideographs / kana on both sides of a single newline is a soft
+# line-wrap from PDF layout (CJK uses no inter-word spaces), so we join them.
+_CJK = r"\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef"
+_CJK_SOFT_WRAP = re.compile(rf"(?<=[{_CJK}])\n+(?=[{_CJK}])")
+# Latin hyphenation across a line break: "exam-\nple" -> "example".
+_LATIN_HYPHEN_WRAP = re.compile(r"([A-Za-z])-\n+([a-z])")
+
+# Boundary characters for the hard splitter, strongest first. CJK/ASCII sentence
+# terminators are preferred, then clause punctuation, then whitespace.
+_HARD_CUT_TIERS = ("。！？!?；;…", "，、,：:）)】」』", " \t\n")
 
 _REFERENCES_HEADING = re.compile(
     r"^\s*(References|Bibliography|REFERENCES|BIBLIOGRAPHY|参考文献|引用文献)\s*$",
@@ -250,15 +268,19 @@ def _enforce_max_chars(chunks: list[Chunk], max_size: int) -> list[Chunk]:
 
 
 def _hard_split(text: str, max_size: int) -> list[str]:
-    """Split text into <= max_size pieces, preferring whitespace boundaries."""
+    """Split text into <= max_size pieces at the best available boundary.
+
+    Prefers sentence terminators (。！？.!?), then clause punctuation (，、,：),
+    then whitespace. This keeps Chinese text — which has no inter-word spaces —
+    from being cut mid-word/mid-sentence the way a whitespace-only splitter does.
+    """
     pieces: list[str] = []
     pos = 0
     n = len(text)
     while pos < n:
         end = min(pos + max_size, n)
         if end < n:
-            floor = pos + max_size // 2
-            cut = max(text.rfind(" ", floor, end), text.rfind("\n", floor, end))
+            cut = _best_cut(text, pos + max_size // 2, end)
             if cut > pos:
                 end = cut
         piece = text[pos:end].strip()
@@ -266,6 +288,19 @@ def _hard_split(text: str, max_size: int) -> list[str]:
             pieces.append(piece)
         pos = end if end > pos else pos + max_size
     return pieces
+
+
+def _best_cut(text: str, lo: int, hi: int) -> int:
+    """Return the best split offset in [lo, hi), or -1 if none.
+
+    Tries each boundary tier (strongest first) and returns the position just
+    after the rightmost matching char so the boundary stays with the left piece.
+    """
+    for tier in _HARD_CUT_TIERS:
+        idx = max((text.rfind(ch, lo, hi) for ch in tier), default=-1)
+        if idx >= 0:
+            return idx + 1
+    return -1
 
 
 # ── Internal data structures ──────────────────────────────────────
@@ -289,9 +324,22 @@ def _build_text_and_boundaries(
     boundaries: list[tuple[int, int, int]] = []
     for pt in pages:
         start = len(full_text)
-        full_text += pt.text + "\n"
+        full_text += _join_soft_wraps(pt.text) + "\n"
         boundaries.append((start, len(full_text), pt.page_num))
     return full_text, boundaries
+
+
+def _join_soft_wraps(text: str) -> str:
+    """Repair PDF layout line-wraps so words/sentences aren't broken mid-token.
+
+    PDF extraction inserts a newline at every visual line break, including in the
+    middle of a CJK sentence ("满\\n意度") or a hyphenated English word
+    ("exam-\\nple"). We rejoin those soft wraps. Paragraph breaks (blank lines)
+    and newlines adjacent to punctuation are preserved.
+    """
+    text = _LATIN_HYPHEN_WRAP.sub(r"\1\2", text)
+    text = _CJK_SOFT_WRAP.sub("", text)
+    return text
 
 
 def _find_references_range(full_text: str) -> tuple[int, int]:
