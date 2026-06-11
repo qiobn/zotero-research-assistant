@@ -285,6 +285,39 @@ Only the first build (or when your library changes) needs waiting; later
 startups are fast incremental syncs.
 
 
+[About tables & figures: the default, and whether to chase "precise tables"]
+Bottom line first: the default is good enough for almost everyone — no change
+needed.
+
+Why it's built this way — the current state of the art:
+  - Reconstructing a PDF table into exact rows/columns has no fast, accurate
+    text-only solution for academic papers (especially Chinese "three-line" and
+    borderless tables). It is fundamentally a vision (look-at-the-image) problem.
+  - Guessing from geometry/ruled lines works badly: in practice it mis-detects
+    multi-column prose and reference lists as huge fake tables, polluting search.
+    So this project deliberately does NOT do that pseudo-structuring.
+
+Default behavior (works out of the box, fast to build):
+  - Tables: we record where it is, its caption, and the raw block beneath the
+    caption (its values stay searchable) — but not as clean rows/columns.
+  - Figures: we record where it is and roughly what the caption says (no image
+    recognition).
+  - Prose like "as shown in Table 3 / Figure 2" auto-links to that table/figure.
+  - Upside: fast indexing. Cost: tables aren't clean structured data.
+
+If you genuinely need precise table structure (e.g. you want the AI to read
+exact per-row/per-column values):
+  - Preprocess your PDFs with a dedicated visual document parser into
+    Markdown/HTML with tables, then index that as a note/attachment. Options:
+    docling, open-parse, unstructured.
+  - The tradeoff: these use vision models — accurate, but heavier and slower, so
+    first-build time grows substantially (tens of minutes can become hours,
+    depending on library size and machine) and they need extra dependencies.
+  - In one line: more complete info / more accurate table structure costs you
+    initial build speed. Whether it's worth it depends on how much your research
+    relies on table data — your call.
+
+
 -------- Usage Scenarios --------
 
 [Search Literature]

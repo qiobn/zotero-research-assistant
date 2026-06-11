@@ -153,12 +153,11 @@ class Retriever:
         item_key: str,
         refs: list[str] | set[str] | None = None,
     ) -> list[RetrievalResult]:
-        """Retrieve a paper's structured table chunks.
+        """Retrieve a paper's table records (caption + raw block content).
 
         If ``refs`` is given (canonical labels like "3"), only tables whose
         ``table_ref`` matches are returned — this resolves a prose passage's
-        cited tables (e.g. "see Table 3") to their actual content. Multi-part
-        tables are returned in order.
+        cited tables (e.g. "see Table 3") to their content.
         """
         where: dict = {
             "$and": [{"item_key": item_key}, {"is_table": True}]
@@ -185,7 +184,7 @@ class Retriever:
                     metadata=meta,
                 )
             )
-        out.sort(key=lambda r: (r.metadata.get("table_ref", ""), r.metadata.get("table_part", 1)))
+        out.sort(key=lambda r: r.metadata.get("table_ref", ""))
         return out
 
     def get_item_figures(
