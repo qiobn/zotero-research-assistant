@@ -87,6 +87,7 @@ This project was built to help graduate students and researchers — especially 
 - **Section detection** — automatically identifies and tags reference sections; excludes them from search by default
 - **Figure & table caption tagging** — detects `Figure/Fig./Table/图/表` captions and marks chunks for targeted retrieval
 - **Table cross-referencing** — tables are indexed as standalone chunks (with a natural-language column summary for better semantic recall); prose passages that cite a table ("as shown in Table 3") are auto-linked to its content, surfaced via `get_paper_content`'s `referenced_tables`
+- **Figure cross-referencing** — figures are also indexed as standalone chunks, but caption-only: we record *where* a figure is mentioned and *roughly what it shows* (its caption), with no image recognition; prose citing "Figure 3" is auto-linked to that caption via `referenced_figures`
 - **Chunking versioning** — strategy changes auto-trigger full index rebuild; no stale data
 - **Index diagnostics** — `inspect_index` shows chunk statistics, quality issues, and garbled text detection
 - **Recall testing** — `test_recall` verifies a paper's own chunks appear in top-20 search results

@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from research_core.parsers.pdf import PageText, TableData
 
-CHUNKING_VERSION = "v2.5-table-xref"
+CHUNKING_VERSION = "v2.6-figure-xref"
 
 # Sentence boundaries, CJK-aware. CJK terminators (。！？；…) are NOT followed by
 # a space in Chinese/Japanese text, so we split immediately after them; ASCII
@@ -68,9 +68,25 @@ _TABLE_LABEL_RE = re.compile(
 # A reference to a table inside prose: "如表3所示", "见表3、4", "Table 3",
 # "Tables 3 and 4", "(Tab. 5)". We match the prefix, then pull one or more
 # following numbers joined by list connectors.
-_TABLE_REF_PREFIX = re.compile(r"(?:附?表|tables?|tab\.)\s*", re.IGNORECASE)
+_TABLE_REF_PREFIX = re.compile(r"(?:附?表|\btables?|\btab\.)\s*", re.IGNORECASE)
 _REF_NUM = re.compile(r"[0-9]+[A-Za-z]?(?:[-.][0-9]+)?")
 _REF_CONNECTOR = re.compile(r"\s*(?:[、，,;；]|and|&)\s*", re.IGNORECASE)
+# A number followed by a measure word is a quantity, not a reference — guards
+# against CJK compounds like "试图3次" (tried 3 times) / "代表3个" (3 of them).
+_REF_MEASURE = re.compile(r"[次个種种类張张位名条倍成項项點点步人件年月日種%％]")
+
+# Figures are handled like tables but caption-only: we never decode the image,
+# we only record where a figure is mentioned and roughly what it depicts (its
+# caption text). A figure caption at the start of a line: "图3 ...",
+# "Figure 3. ...", "Fig. 5: ...".
+_FIGURE_CAPTION_RE = re.compile(
+    r"^[ \t]*((?:fig(?:ure)?\.?|图)\s*([0-9]+[A-Za-z]?(?:[-.][0-9]+)?))"
+    r"[.:：、\s]*(.*)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+# A reference to a figure in prose: "如图3所示", "见图3、4", "Figure 3",
+# "(Fig. 5)". \b guards against matching "fig" inside words like "config".
+_FIGURE_REF_PREFIX = re.compile(r"(?:\bfig(?:ure|s)?\.?|图)\s*", re.IGNORECASE)
 
 
 @dataclass
@@ -141,12 +157,18 @@ def chunk_text(
     if tables:
         table_chunks = _chunk_tables(tables, max_size=max_chunk_size)
         chunks.extend(table_chunks)
-        available_refs = {
+        available_table_refs = {
             c.metadata["table_ref"]
             for c in table_chunks
             if c.metadata.get("table_ref")
         }
-        _tag_table_refs(chunks, available_refs)
+        _tag_refs(chunks, available_table_refs, _TABLE_REF_PREFIX, "table_refs")
+
+    figures = _extract_figures(pages)
+    if figures:
+        chunks.extend(_chunk_figures(figures))
+        available_fig_refs = {f.ref for f in figures}
+        _tag_refs(chunks, available_fig_refs, _FIGURE_REF_PREFIX, "figure_refs")
 
     chunks = _enforce_max_chars(chunks, max_chunk_size)
     return chunks
@@ -219,11 +241,11 @@ def _chunk_tables(tables: list[TableData], *, max_size: int) -> list[Chunk]:
     return chunks
 
 
-# ── Table cross-referencing ───────────────────────────────────────
+# ── Table / figure cross-referencing ──────────────────────────────
 
 
 def _canon_table_ref(token: str) -> str:
-    """Canonicalize a reference token so prose mentions match table labels.
+    """Canonicalize a reference token so prose mentions match labels.
 
     Upper-cases letters and strips leading zeros on the leading number
     ("03" -> "3", "s1" -> "S1", "3-1" -> "3-1").
@@ -245,18 +267,22 @@ def _table_label_and_ref(caption: str) -> tuple[str, str]:
     return caption[: m.end()].strip(), _canon_table_ref(m.group(1))
 
 
-def _find_table_refs(text: str) -> list[str]:
-    """Extract canonical table references mentioned in prose, in order."""
+def _find_refs(text: str, prefix_re: re.Pattern) -> list[str]:
+    """Extract canonical references (after ``prefix_re``) mentioned in prose.
+
+    Handles single refs and enumerations ("表3、4", "Tables 3 and 4").
+    """
     out: list[str] = []
     seen: set[str] = set()
-    for m in _TABLE_REF_PREFIX.finditer(text):
+    for m in prefix_re.finditer(text):
         pos = m.end()
         while True:
             nm = _REF_NUM.match(text, pos)
             if not nm:
                 break
             ref = _canon_table_ref(nm.group(0))
-            if ref and ref not in seen:
+            is_quantity = bool(_REF_MEASURE.match(text, nm.end()))
+            if ref and ref not in seen and not is_quantity:
                 seen.add(ref)
                 out.append(ref)
             pos = nm.end()
@@ -267,20 +293,89 @@ def _find_table_refs(text: str) -> list[str]:
     return out
 
 
-def _tag_table_refs(chunks: list[Chunk], available_refs: set[str]) -> None:
-    """Tag prose chunks with the tables they cite (intersected with real tables).
+def _find_table_refs(text: str) -> list[str]:
+    """Extract canonical table references mentioned in prose, in order."""
+    return _find_refs(text, _TABLE_REF_PREFIX)
 
-    Restricting to tables that actually exist in this paper avoids false links
+
+def _tag_refs(
+    chunks: list[Chunk],
+    available_refs: set[str],
+    prefix_re: re.Pattern,
+    key: str,
+) -> None:
+    """Tag prose chunks with the tables/figures they cite.
+
+    Restricting to refs that actually exist in this paper avoids false links
     (e.g. a chunk mentioning "Table 1" of a *cited* work we didn't extract).
+    Table and figure chunks themselves are skipped.
     """
     if not available_refs:
         return
     for chunk in chunks:
-        if chunk.metadata.get("is_table"):
+        if chunk.metadata.get("is_table") or chunk.metadata.get("is_figure"):
             continue
-        found = [r for r in _find_table_refs(chunk.text) if r in available_refs]
+        found = [r for r in _find_refs(chunk.text, prefix_re) if r in available_refs]
         if found:
-            chunk.metadata["table_refs"] = ",".join(found)
+            chunk.metadata[key] = ",".join(found)
+
+
+# ── Figure extraction (caption-only) ──────────────────────────────
+
+
+@dataclass
+class _Figure:
+    ref: str
+    label: str
+    caption: str
+    page: int
+
+
+def _extract_figures(pages: list[PageText]) -> list[_Figure]:
+    """Find figure captions in the *raw* page text. We record the label, a
+    canonical ref, and the caption text (a rough description of what the figure
+    shows) — never the image itself. One entry per ref, longest caption wins.
+
+    Raw page text is used (not the soft-wrap-joined full text) so the caption
+    stays bounded to its own line instead of bleeding into the next paragraph.
+    """
+    by_ref: dict[str, _Figure] = {}
+    for pt in pages:
+        for m in _FIGURE_CAPTION_RE.finditer(pt.text):
+            ref = _canon_table_ref(m.group(2))
+            if not ref:
+                continue
+            label = " ".join(m.group(1).split())
+            caption = " ".join(m.group(3).split())[:250]
+            prev = by_ref.get(ref)
+            if prev is None or len(caption) > len(prev.caption):
+                by_ref[ref] = _Figure(
+                    ref=ref, label=label, caption=caption, page=pt.page_num
+                )
+    return list(by_ref.values())
+
+
+def _chunk_figures(figures: list[_Figure]) -> list[Chunk]:
+    """One lightweight chunk per figure: its caption text, made retrievable and
+    resolvable from prose that cites the figure. No image data is stored.
+    """
+    chunks: list[Chunk] = []
+    for fig in figures:
+        text = f"{fig.label} {fig.caption}".strip() if fig.caption else fig.label
+        chunks.append(Chunk(
+            text=text,
+            page_start=fig.page,
+            page_end=fig.page,
+            chunk_idx=len(chunks),
+            metadata={
+                "is_figure": True,
+                "has_figure_table": True,
+                "figure_label": fig.label,
+                "figure_ref": fig.ref,
+                "figure_caption": fig.caption,
+            },
+        ))
+    return chunks
 
 
 def _row_groups(table: TableData, max_size: int) -> list[list[list[str]]]:

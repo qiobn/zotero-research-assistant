@@ -24,6 +24,7 @@ class PaperContent:
     outline: list[dict] = field(default_factory=list)
     fulltext: str = ""
     referenced_tables: list[dict] = field(default_factory=list)
+    referenced_figures: list[dict] = field(default_factory=list)
 
 
 def get_paper(item_key: str, zot: ZoteroClient) -> Item:
@@ -97,6 +98,36 @@ def _resolve_referenced_tables(
     return out
 
 
+def _resolve_referenced_figures(
+    retriever: Retriever,
+    item_key: str,
+    refs: list[str],
+) -> list[dict]:
+    """Fetch caption-only records of figures cited by retrieved passages.
+
+    No image is decoded — each entry carries the figure's label, caption (a
+    rough description of what it shows), and page.
+    """
+    unique_refs = list(dict.fromkeys(refs))
+    figure_chunks = retriever.get_item_figures(item_key, refs=unique_refs)
+    out: list[dict] = []
+    seen: set[str] = set()
+    for f in figure_chunks:
+        ref = f.metadata.get("figure_ref", "")
+        if ref in seen:
+            continue
+        seen.add(ref)
+        out.append(
+            {
+                "figure_ref": ref,
+                "label": f.metadata.get("figure_label", ""),
+                "caption": f.metadata.get("figure_caption", ""),
+                "page": f.page_start,
+            }
+        )
+    return out
+
+
 def get_paper_content(
     item_key: str,
     retriever: Retriever,
@@ -145,7 +176,8 @@ def get_paper_content(
             all_chunks = retriever.get_item_chunks(item_key)
             results = all_chunks[:limit]
 
-        cited_refs: list[str] = []
+        cited_tables: list[str] = []
+        cited_figures: list[str] = []
         for r in results:
             passage: dict = {
                 "text": r.text,
@@ -153,18 +185,27 @@ def get_paper_content(
                 "page_end": r.page_end,
                 "score": round(r.score, 3) if r.score else None,
             }
-            refs_raw = r.metadata.get("table_refs", "")
-            if refs_raw:
-                refs = [x for x in refs_raw.split(",") if x]
+            t_raw = r.metadata.get("table_refs", "")
+            if t_raw:
+                refs = [x for x in t_raw.split(",") if x]
                 passage["cites_tables"] = refs
-                cited_refs.extend(refs)
+                cited_tables.extend(refs)
+            f_raw = r.metadata.get("figure_refs", "")
+            if f_raw:
+                refs = [x for x in f_raw.split(",") if x]
+                passage["cites_figures"] = refs
+                cited_figures.extend(refs)
             result.passages.append(passage)
 
-        # Resolve the concrete path: a passage that cites "Table 3" pulls in
-        # that table's structured content from this paper.
-        if cited_refs:
+        # Resolve the concrete path: a passage that cites "Table 3" / "Figure 2"
+        # pulls in that table's content / figure's caption from this paper.
+        if cited_tables:
             result.referenced_tables = _resolve_referenced_tables(
-                retriever, item_key, cited_refs
+                retriever, item_key, cited_tables
+            )
+        if cited_figures:
+            result.referenced_figures = _resolve_referenced_figures(
+                retriever, item_key, cited_figures
             )
 
     if include_annotations:

@@ -60,6 +60,7 @@ class Indexer:
             "section": c.metadata.get("section", "content"),
             "has_figure_table": c.metadata.get("has_figure_table", False),
             "is_table": c.metadata.get("is_table", False),
+            "is_figure": c.metadata.get("is_figure", False),
         }
         if c.metadata.get("is_table"):
             meta["table_caption"] = c.metadata.get("table_caption", "")
@@ -74,12 +75,22 @@ class Indexer:
             table_json = c.metadata.get("table_json")
             if table_json:
                 meta["table_json"] = table_json
+        elif c.metadata.get("is_figure"):
+            # Caption-only figure record: where it lives + roughly what it shows.
+            meta["figure_caption"] = c.metadata.get("figure_caption", "")
+            meta["figure_label"] = c.metadata.get("figure_label", "")
+            figure_ref = c.metadata.get("figure_ref")
+            if figure_ref:
+                meta["figure_ref"] = figure_ref
         else:
-            # Prose chunks: record which tables they cite so a passage that says
-            # "as shown in Table 3" can be resolved to the table's content.
+            # Prose chunks: record which tables/figures they cite so a passage
+            # like "as shown in Table 3 / Figure 2" can be resolved to content.
             table_refs = c.metadata.get("table_refs")
             if table_refs:
                 meta["table_refs"] = table_refs
+            figure_refs = c.metadata.get("figure_refs")
+            if figure_refs:
+                meta["figure_refs"] = figure_refs
         return meta
 
     def delete_item(self, item_key: str) -> int:

@@ -272,7 +272,7 @@ def _truncate_response(result):
     # Phase 1: Trim long text fields within list items (keep all items)
     _LIST_KEYS = (
         "data", "chunks", "passages", "items", "results", "hits",
-        "referenced_tables",
+        "referenced_tables", "referenced_figures",
     )
     _TEXT_FIELDS = (
         "text", "abstract", "passage", "preview", "matched_passage",
@@ -1038,10 +1038,12 @@ def get_paper_content(
 
     Returns:
         {item_key, title, passages, annotations, outline, fulltext,
-         referenced_tables}. When a returned passage cites a table
-        (e.g. "as shown in Table 3"), that table's structured content is
-        resolved into `referenced_tables`, and the passage lists the labels in
-        `cites_tables`.
+         referenced_tables, referenced_figures}. When a returned passage cites a
+         table or figure (e.g. "as shown in Table 3 / Figure 2"), that table's
+         structured content / figure's caption is resolved into
+         `referenced_tables` / `referenced_figures`, and the passage lists the
+         labels in `cites_tables` / `cites_figures`. Figures are caption-only
+         (no image is decoded).
     """
     content = _get_paper_content(
         item_key=item_key,
