@@ -49,6 +49,10 @@
 - [环境要求](#环境要求)
 - [快速开始](#快速开始)
 - [客户端配置](#客户端配置)
+  - [Cursor](#cursor)
+  - [Claude Desktop](#claude-desktop)
+  - [Cherry Studio](#cherry-studio)
+  - [OpenAI Codex CLI](#openai-codex-cli)
 - [使用示例](#使用示例)
 - [MCP 工具一览 (32)](#mcp-工具一览-32)
 - [配置项说明](#配置项说明)
@@ -256,22 +260,25 @@ python scripts/index_library.py
 
 ## 客户端配置
 
-本项目是一个基于 **stdio** 的 MCP 服务端。所有客户端用的**配置内容都一样**，区别只在于*放在哪里*。
+本项目是一个基于 **stdio** 的 MCP 服务端。配置内容到处都一样，区别只在于*放在哪里*。有两种基本写法：
 
 - **pip 安装：** 命令就是 `zra-mcp`。
-- **源码安装：** 填项目内 Python 解释器的完整路径，再加上工作目录。
+- **源码安装：** 填项目内 Python 解释器的完整路径，并设置工作目录。
 
-获取路径（在项目目录内执行）：
 ```bash
-# macOS / Linux
+# 源码安装 —— 获取 Python 路径（在项目目录内执行）
+# macOS / Linux：
 echo "$(pwd)/.venv/bin/python"
-# Windows (PowerShell)
+# Windows (PowerShell)：
 echo "$PWD\.venv\Scripts\python.exe"
 ```
 
-### 配置内容
+> **Windows 源码安装：** `command` 和 `cwd` 都用 `<项目>\.venv\Scripts\python.exe`。
 
-**pip 安装：**
+### Cursor
+
+**设置 → MCP → 添加 MCP 服务器**，或编辑 `.cursor/mcp.json`：
+
 ```json
 {
   "mcpServers": {
@@ -280,7 +287,8 @@ echo "$PWD\.venv\Scripts\python.exe"
 }
 ```
 
-**源码安装** —— 把路径换成你的克隆位置（Windows 用 `...\.venv\Scripts\python.exe`）：
+源码安装 —— 改用完整路径：
+
 ```json
 {
   "mcpServers": {
@@ -293,15 +301,91 @@ echo "$PWD\.venv\Scripts\python.exe"
 }
 ```
 
-### 各客户端把配置放在哪里
+重启 Cursor，Agent 模式下即可看到工具。
 
-| 客户端 | 配置位置 | 说明 |
-|--------|----------|------|
-| **Cursor** | 设置 → MCP → 添加 MCP 服务器，或 `.cursor/mcp.json` | 重启后 Agent 模式下出现工具 |
-| **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json`（macOS）<br>`%APPDATA%\Claude\claude_desktop_config.json`（Windows） | 重启后输入区出现锤子图标 |
-| **Cherry Studio** | 设置 → MCP 服务器 → 添加 → JSON 模式 | 在 `command` 旁额外加 `"name": "zra-mcp"`、`"type": "stdio"`、`"isActive": true`；并在 设置 → 模型服务 中配置 LLM。完整教程：[docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md) |
-| **Codex CLI** | `~/.codex/config.json`（或项目级 `.codex/config.json`） | 之后直接 `codex "…"`，工具自动发现 |
-| **其他 stdio 客户端**<br>（Trae、Windsurf 等） | 各自注册 MCP 服务器的地方 | `command` / `args` / `cwd` 完全相同；环境变量自动读取 `<项目>/.env` |
+### Claude Desktop
+
+编辑 `claude_desktop_config.json`（**macOS：** `~/Library/Application Support/Claude/claude_desktop_config.json` · **Windows：** `%APPDATA%\Claude\claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": { "command": "zra-mcp" }
+  }
+}
+```
+
+源码安装 —— 把 `command` 换成 Python 完整路径，并加上 `args` + `cwd`：
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
+      "args": ["-m", "project_a_mcp.server"],
+      "cwd": "/Users/you/zotero-research-assistant"
+    }
+  }
+}
+```
+
+重启 Claude Desktop，输入区出现锤子图标即成功。
+
+### Cherry Studio
+
+**设置 → MCP 服务器 → 添加 → JSON 模式。** Cherry Studio 需要额外三个字段（`name`、`type`、`isActive`）：
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "name": "zra-mcp",
+      "type": "stdio",
+      "isActive": true,
+      "command": "zra-mcp"
+    }
+  }
+}
+```
+
+源码安装 —— 把 `command` 换成 Python 完整路径，并加上 `args` + `cwd`：
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "name": "zra-mcp",
+      "type": "stdio",
+      "isActive": true,
+      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
+      "args": ["-m", "project_a_mcp.server"],
+      "cwd": "/Users/you/zotero-research-assistant"
+    }
+  }
+}
+```
+
+随后在**设置 → 模型服务**中配置 LLM（DeepSeek、GPT-4o、Claude、Qwen 等），并在聊天界面开启 MCP 开关。完整图文教程见 [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md)。
+
+### OpenAI Codex CLI
+
+添加至 `~/.codex/config.json`（或项目级 `.codex/config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
+      "args": ["-m", "project_a_mcp.server"],
+      "cwd": "/Users/you/zotero-research-assistant"
+    }
+  }
+}
+```
+
+（pip 安装：把这三行换成 `"command": "zra-mcp"` 即可。）之后正常使用 `codex "…"`，工具会被自动发现。
+
+> **其他 stdio MCP 客户端**（Trae、Windsurf 等）配置方式完全相同 —— 指向上面的 `command` / `args` / `cwd` 即可；环境变量自动读取 `<项目>/.env`。
 
 ---
 
