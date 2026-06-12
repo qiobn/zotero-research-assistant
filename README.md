@@ -49,12 +49,6 @@ This project was built to help graduate students and researchers — especially 
 - [Requirements](#requirements)
 - [Quick Start](#quick-start)
 - [Client Setup](#client-setup)
-  - [Cursor](#cursor)
-  - [Claude Desktop](#claude-desktop)
-  - [Cherry Studio](#cherry-studio)
-  - [Trae](#trae)
-  - [OpenAI Codex CLI](#openai-codex-cli)
-  - [Other MCP Clients](#other-mcp-clients)
 - [Example Workflows](#example-workflows)
 - [MCP Tools (32)](#mcp-tools-32)
 - [Configuration](#configuration)
@@ -264,48 +258,31 @@ If you see your collections, setup is complete.
 
 ## Client Setup
 
-All clients use stdio transport to connect to the MCP server.
+This is an MCP server over **stdio**. Every client uses the **same config** — only *where you put it* differs.
 
-**If you installed via pip (Option A):** use `zra-mcp` as the command directly — no path configuration needed.
+- **pip install (Option A):** the command is simply `zra-mcp`.
+- **Source install (Option B):** use the full path to the project's Python plus the working directory.
 
-**If you cloned from source (Option B):** you need the full path to the Python binary:
-
-| Value | macOS / Linux | Windows |
-|-------|--------------|---------|
-| **Python binary** | `<project>/.venv/bin/python` | `<project>\.venv\Scripts\python.exe` |
-| **Working directory** | `<project>` (full path) | `<project>` (full path) |
-
-Replace `<project>` with your clone path (e.g. `/Users/you/zotero-research-assistant` or `C:\Dev\zotero-research-assistant`).
-
-Quick path helper (run inside the project folder):
+Path helper (run inside the project folder):
 ```bash
 # macOS / Linux
 echo "$(pwd)/.venv/bin/python"
-
 # Windows (PowerShell)
 echo "$PWD\.venv\Scripts\python.exe"
 ```
 
-> The examples below show **both** pip and source configurations. Use whichever matches your install method.
+### The config
 
----
-
-### Cursor
-
-**Settings → MCP → Add new MCP server**, or add to `.cursor/mcp.json`:
-
-**pip install users:**
+**pip install:**
 ```json
 {
   "mcpServers": {
-    "zra-mcp": {
-      "command": "zra-mcp"
-    }
+    "zra-mcp": { "command": "zra-mcp" }
   }
 }
 ```
 
-**Source install users (macOS/Linux):**
+**Source install** — replace the path with your clone location (on Windows use `...\.venv\Scripts\python.exe`):
 ```json
 {
   "mcpServers": {
@@ -318,169 +295,15 @@ echo "$PWD\.venv\Scripts\python.exe"
 }
 ```
 
-**Source install users (Windows):**
-```json
-{
-  "mcpServers": {
-    "zra-mcp": {
-      "command": "C:\\Dev\\zotero-research-assistant\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "project_a_mcp.server"],
-      "cwd": "C:\\Dev\\zotero-research-assistant"
-    }
-  }
-}
-```
+### Where each client expects it
 
-Restart Cursor after adding the config. The MCP tools will appear in Agent mode.
-
----
-
-### Claude Desktop
-
-Edit `claude_desktop_config.json`:
-
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "zra-mcp": {
-      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
-      "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/Users/you/zotero-research-assistant"
-    }
-  }
-}
-```
-
-Restart Claude Desktop. You should see the MCP tools icon (hammer) in the chat input area.
-
----
-
-### Cherry Studio
-
-**Settings → MCP Servers → Add → JSON mode:**
-
-**pip users (recommended):**
-```json
-{
-  "mcpServers": {
-    "zra-mcp": {
-      "name": "zra-mcp",
-      "type": "stdio",
-      "isActive": true,
-      "command": "zra-mcp"
-    }
-  }
-}
-```
-
-**Source install users (macOS/Linux):**
-```json
-{
-  "mcpServers": {
-    "zra-mcp": {
-      "name": "zra-mcp",
-      "type": "stdio",
-      "isActive": true,
-      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
-      "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/Users/you/zotero-research-assistant"
-    }
-  }
-}
-```
-
-**Source install users (Windows):**
-```json
-{
-  "mcpServers": {
-    "zra-mcp": {
-      "name": "zra-mcp",
-      "type": "stdio",
-      "isActive": true,
-      "command": "C:\\Dev\\zotero-research-assistant\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "project_a_mcp.server"],
-      "cwd": "C:\\Dev\\zotero-research-assistant"
-    }
-  }
-}
-```
-
-Configure an LLM under **Settings → Model Services** (DeepSeek, GPT-4o, Claude, Qwen, etc.). Enable the MCP toggle in the chat interface to activate tools.
-
-> For a detailed step-by-step guide, see [docs/cherry-studio-setup-en.md](./docs/cherry-studio-setup-en.md).
-
----
-
-### Trae
-
-Trae supports MCP servers via its settings panel.
-
-**Settings → MCP → Add Server:**
-
-| Field | Value |
-|-------|-------|
-| Name | `zra-mcp` |
-| Transport | stdio |
-| Command | Full path to `.venv/bin/python` (or `.venv\Scripts\python.exe` on Windows) |
-| Arguments | `-m project_a_mcp.server` |
-| Working Directory | Full path to the project root |
-
-Or add to your Trae MCP configuration file (`.trae/mcp.json` in your workspace or global config):
-
-```json
-{
-  "mcpServers": {
-    "zra-mcp": {
-      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
-      "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/Users/you/zotero-research-assistant"
-    }
-  }
-}
-```
-
-Restart Trae after configuration. MCP tools become available in AI chat (Agent mode).
-
----
-
-### OpenAI Codex CLI
-
-[Codex CLI](https://github.com/openai/codex) supports MCP servers. Add to your `~/.codex/config.json` (or project-level `.codex/config.json`):
-
-```json
-{
-  "mcpServers": {
-    "zra-mcp": {
-      "command": "/Users/you/zotero-research-assistant/.venv/bin/python",
-      "args": ["-m", "project_a_mcp.server"],
-      "cwd": "/Users/you/zotero-research-assistant"
-    }
-  }
-}
-```
-
-Then run Codex normally — it will discover and use the tools automatically:
-
-```bash
-codex "Find papers about urban accessibility in my Zotero library"
-```
-
----
-
-### Other MCP Clients
-
-Any client that supports the [MCP stdio transport](https://modelcontextprotocol.io/docs/concepts/transports) can connect. The universal config is:
-
-| Parameter | Value |
-|-----------|-------|
-| Transport | `stdio` |
-| Command | `<project>/.venv/bin/python` |
-| Arguments | `["-m", "project_a_mcp.server"]` |
-| Working directory | `<project>` |
-| Environment | Reads from `<project>/.env` automatically |
+| Client | Put the config in | Notes |
+|--------|-------------------|-------|
+| **Cursor** | Settings → MCP → Add new MCP server, or `.cursor/mcp.json` | Tools appear in Agent mode after restart |
+| **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)<br>`%APPDATA%\Claude\claude_desktop_config.json` (Windows) | Hammer icon appears in the chat box after restart |
+| **Cherry Studio** | Settings → MCP Servers → Add → JSON mode | Also add `"name": "zra-mcp"`, `"type": "stdio"`, `"isActive": true` next to `command`. Pick an LLM under Settings → Model Services. Full walkthrough: [docs/cherry-studio-setup-en.md](./docs/cherry-studio-setup-en.md) |
+| **Codex CLI** | `~/.codex/config.json` (or project `.codex/config.json`) | Then just run `codex "…"` — tools are auto-discovered |
+| **Any other stdio client**<br>(Trae, Windsurf, …) | Wherever it registers MCP servers | Identical `command` / `args` / `cwd`; env is read from `<project>/.env` automatically |
 
 ---
 
