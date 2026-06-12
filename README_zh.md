@@ -569,11 +569,12 @@ echo "$PWD\.venv\Scripts\python.exe"
 
 | 工具 | 说明 |
 |------|------|
-| [docling](https://github.com/docling-project/docling) | IBM；版面 + 表结构识别强，可导出 Markdown/JSON |
-| [open-parse](https://github.com/Filimoa/open-parse) | 版面感知分块，支持表格 |
-| [unstructured](https://github.com/Unstructured-IO/unstructured) | `hi_res` 策略可抽取表格 HTML |
+| [MinerU](https://github.com/opendatalab/MinerU) | 学术论文、**中日韩**、复杂/嵌套表格的首选；保留表结构、公式转 LaTeX（AGPL-3.0） |
+| [Docling](https://github.com/docling-project/docling) | IBM；版面强 + `TableFormer` 表结构模型，导出 Markdown/JSON，原生集成 LangChain/LlamaIndex（MIT） |
+| [Marker](https://github.com/datalab-to/marker) | 快速 PDF→Markdown/JSON、可批量（Surya OCR），表格支持良好 |
+| [PyMuPDF4LLM](https://github.com/pymupdf/RAG) | 轻量、无需 ML —— **数字版（非扫描）** PDF 最快；与本项目所用的 PyMuPDF 同一引擎 |
 
-这些方案更重（视觉模型、更慢），有意不放进默认流程。
+前三者基于视觉/ML 模型（更重、更慢），有意不放进默认流程；PyMuPDF4LLM 轻量但仅支持数字版 PDF。
 
 ---
 
