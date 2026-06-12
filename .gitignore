@@ -7,8 +7,10 @@ build/
 *.egg
 .venv/
 
-# Environment (contains API keys)
+# Environment / credentials (contain API keys & tokens)
 .env
+.pypirc
+*.pypirc
 
 # IDE
 .vscode/
