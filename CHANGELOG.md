@@ -5,6 +5,16 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `LICENSE` file (MIT) — previously only declared in `pyproject.toml` and the README badge.
+
+### Changed
+- Cleaned `.env.example`: removed unused `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` /
+  `OLLAMA_API_BASE` and the leftover "Project B" `TAVILY_API_KEY` (the LLM is supplied
+  by the MCP client, not this server).
+
 ## [0.2.0] - 2026-06-11
 
 A large reliability- and productization-focused release. The project is now a
