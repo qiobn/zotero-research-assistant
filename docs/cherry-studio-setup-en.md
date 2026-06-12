@@ -309,7 +309,7 @@ If you genuinely need precise table structure (e.g. you want the AI to read
 exact per-row/per-column values):
   - Preprocess your PDFs with a dedicated visual document parser into
     Markdown/HTML with tables, then index that as a note/attachment. Options:
-    docling, open-parse, unstructured.
+    MinerU (best for academic/CJK/complex tables), Docling, Marker.
   - The tradeoff: these use vision models — accurate, but heavier and slower, so
     first-build time grows substantially (tens of minutes can become hours,
     depending on library size and machine) and they need extra dependencies.

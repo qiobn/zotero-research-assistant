@@ -577,12 +577,14 @@ that gets indexed as text. Good options:
 
 | Tool | Notes |
 |------|-------|
-| [docling](https://github.com/docling-project/docling) | IBM; strong layout + table structure recognition, exports Markdown/JSON |
-| [open-parse](https://github.com/Filimoa/open-parse) | Layout-aware chunking with table support |
-| [unstructured](https://github.com/Unstructured-IO/unstructured) | `hi_res` strategy extracts table HTML |
+| [MinerU](https://github.com/opendatalab/MinerU) | Best for academic papers, **CJK**, and complex/nested tables; preserves table structure and converts formulas to LaTeX (AGPL-3.0) |
+| [Docling](https://github.com/docling-project/docling) | IBM; strong layout + `TableFormer` table-structure model, exports Markdown/JSON, native LangChain/LlamaIndex integration (MIT) |
+| [Marker](https://github.com/datalab-to/marker) | Fast PDF→Markdown/JSON at scale (Surya OCR); good general table support |
+| [PyMuPDF4LLM](https://github.com/pymupdf/RAG) | Lightweight, no ML — fastest for **native (non-scanned)** PDFs; same PyMuPDF engine this project already uses |
 
-These are heavier (vision models, slower) and intentionally kept out of the
-default pipeline.
+The first three use vision/ML models (heavier, slower) and are intentionally
+kept out of the default pipeline; PyMuPDF4LLM is light but only handles
+born-digital PDFs.
 
 ---
 
