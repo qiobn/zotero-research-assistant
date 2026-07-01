@@ -22,8 +22,13 @@ build/
 # ChromaDB / Vector store
 .chroma_db/
 
-# Sync state (generated per-machine)
+# Sync state + retrieval logs (generated per-machine, inside .chroma_db/)
 _sync_state.json
+_retrieval_log.jsonl
+_retrieval_log.idx
+
+# Evaluation baseline (per-machine, depends on local library content)
+tests/eval_baseline.json
 
 # Ruff
 .ruff_cache/
