@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 
 from research_core.parsers.pdf import PageText
 
-CHUNKING_VERSION = "v2.7.1-caption-tables"
+CHUNKING_VERSION = "v2.8.0-char-overlap"
 
 # Sentence boundaries, CJK-aware. CJK terminators (。！？；…) are NOT followed by
 # a space in Chinese/Japanese text, so we split immediately after them; ASCII
@@ -135,7 +135,7 @@ def chunk_text(
     target_chunk_size: int = 600,
     max_chunk_size: int = 1200,
     min_chunk_size: int = 100,
-    overlap_sentences: int = 1,
+    overlap_chars: int = 100,
     # Legacy params kept for backward compat (ignored in v2)
     chunk_size: int = 800,
     overlap: int = 120,
@@ -178,7 +178,7 @@ def chunk_text(
                     min_size=min_chunk_size,
                     ref_start=ref_start,
                     ref_end=ref_end,
-                    overlap_sentences=overlap_sentences,
+                    overlap_chars=overlap_chars,
                 )
             else:
                 chunks = _chunk_sliding_window(
@@ -677,27 +677,69 @@ def _chunk_by_paragraphs(
     min_size: int,
     ref_start: int,
     ref_end: int,
-    overlap_sentences: int = 1,
+    overlap_chars: int = 100,
 ) -> list[Chunk]:
     """Merge short paragraphs and split long ones at sentence boundaries.
 
-    Adds a small sentence-level overlap between consecutive content chunks: the
-    trailing `overlap_sentences` sentences of a chunk are prepended to the next
-    one. This preserves context that straddles chunk boundaries and improves
-    retrieval recall. Overlap is not applied across the references boundary.
+    Adds a ~100-character overlap between consecutive content chunks: the
+    trailing text of a chunk is prepended to the next one. The overlap boundary
+    is extended backwards to the nearest sentence-start so a CJK word or
+    English sentence is never cut mid-token. This preserves context that
+    straddles chunk boundaries and improves retrieval recall.
+    Overlap is not applied across the references boundary.
     """
     chunks: list[Chunk] = []
     current_text = ""
     current_start = 0
-    prev_tail = ""  # trailing sentences carried into the next content chunk
+    prev_tail = ""  # overlap text carried into the next content chunk
 
     def _tail(text: str) -> str:
-        if overlap_sentences <= 0:
+        """Return the trailing ~overlap_chars of *text*, started at a sentence
+        boundary so no sentence or CJK word is cut in half.
+
+        Algorithm: scan backward from (|text| - overlap_chars + small_margin)
+        to find the LAST sentence terminator before the overlap window ends.
+        The text AFTER that terminator becomes the overlap.
+
+        If no sentence terminator is found, tries clause punctuation as a
+        secondary boundary. Returns empty only when no usable boundary exists
+        (formula blocks, data dumps)."""
+        if overlap_chars <= 0:
             return ""
-        sentences = _split_sentences(text)
-        if not sentences:
-            return ""
-        return " ".join(sentences[-overlap_sentences:])
+        if len(text) <= overlap_chars:
+            return text.strip()
+
+        # Search window: from (end - overlap_chars) extending overlap_chars
+        # forward, so we always capture at least one full sentence boundary.
+        search_end = len(text)  # scan up to the very end
+        search_start = max(0, len(text) - overlap_chars * 2)
+
+        # Tier 1: find the LAST sentence terminator in the search window
+        last_boundary = -1
+        for i in range(search_start, search_end):
+            if text[i] in "。！？.!?；;…":
+                last_boundary = i
+        if last_boundary >= 0:
+            # Skip whitespace after the terminator
+            j = last_boundary + 1
+            while j < len(text) and text[j] in " \t\n":
+                j += 1
+            if j < len(text):
+                return text[j:].strip()
+
+        # Tier 2: clause punctuation (last one in window)
+        for i in range(search_start, search_end):
+            if text[i] in "，、,：:）)】」』":
+                last_boundary = i
+        if last_boundary >= 0:
+            j = last_boundary + 1
+            while j < len(text) and text[j] in " \t\n":
+                j += 1
+            if j < len(text):
+                return text[j:].strip()
+
+        # No usable boundary
+        return ""
 
     def emit(text: str, char_start: int, char_end: int):
         nonlocal prev_tail

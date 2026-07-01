@@ -16,17 +16,49 @@ from research_core.rag.sync_state import SyncState
 from research_core.zotero.client import ZoteroClient
 
 
-def _parse_and_chunk(pdf_path: str):
+def _parse_and_chunk(pdf_path: str, clean: bool = True):
     """Parse a PDF and chunk it. Pure CPU/IO work — safe to run in threads.
 
-    Returns (chunks, total_chars). chunks is None when no text was extractable.
+    Returns (chunks, total_chars, cleaning_stats).
+    chunks is None when no text was extractable.
+    cleaning_stats is a dict {lines_in, lines_out, removed_by_category} or None.
     """
+    from research_core.parsers.pdf import PageText
+    from research_core.parsers.text_cleaner import clean_text
+
     parsed = extract_pdf(pdf_path)
     if not parsed.pages:
-        return None, 0
-    total_chars = sum(len(p.text) for p in parsed.pages)
-    chunks = chunk_text(parsed.pages)
-    return chunks, total_chars
+        return None, 0, None
+
+    cleaning_stats: dict | None = None
+
+    if clean:
+        total_lines_in = 0
+        total_lines_out = 0
+        all_categories: dict[str, int] = {}
+        cleaned_pages: list[PageText] = []
+        for pt in parsed.pages:
+            cleaned_text, report = clean_text(pt.text)
+            cleaned_pages.append(PageText(page_num=pt.page_num, text=cleaned_text))
+            total_lines_in += report.total_lines_in
+            total_lines_out += report.total_lines_out
+            for cat, cnt in report.removed_by_category.items():
+                all_categories[cat] = all_categories.get(cat, 0) + cnt
+        cleaning_stats = {
+            "lines_in": total_lines_in,
+            "lines_out": total_lines_out,
+            "lines_removed": total_lines_in - total_lines_out,
+            "top_categories": dict(
+                sorted(all_categories.items(), key=lambda x: -x[1])[:10]
+            ),
+        }
+        pages_for_chunking = cleaned_pages
+    else:
+        pages_for_chunking = parsed.pages
+
+    total_chars = sum(len(p.text) for p in pages_for_chunking)
+    chunks = chunk_text(pages_for_chunking)
+    return chunks, total_chars, cleaning_stats
 
 
 @dataclass
@@ -40,6 +72,9 @@ class SyncReport:
     incremental: bool = True
     quality_summary: dict = field(default_factory=dict)
     rebuild_reason: str = ""
+    cleaning_enabled: bool = True
+    total_lines_cleaned: int = 0
+    cleaning_categories: dict = field(default_factory=dict)
 
 
 def sync_index(
@@ -130,27 +165,38 @@ def sync_index(
 
         # Phase 1: parse + chunk in parallel (CPU/IO-bound, no shared state).
         parsed: dict[str, tuple] = {}
+        clean_enabled = os.getenv("ZRA_CLEAN_ENABLED", "true").lower() == "true"
         if workers > 1 and len(batch) > 1:
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futures = {
-                    pool.submit(_parse_and_chunk, pdf_paths[k]): k for k in batch
+                    pool.submit(_parse_and_chunk, pdf_paths[k], clean_enabled): k
+                    for k in batch
                 }
                 for fut in as_completed(futures):
                     k = futures[fut]
                     try:
-                        parsed[k] = (*fut.result(), None)
+                        parsed[k] = fut.result()
                     except Exception as e:
-                        parsed[k] = (None, 0, e)
+                        parsed[k] = (None, 0, None, e)
         else:
             for k in batch:
                 try:
-                    parsed[k] = (*_parse_and_chunk(pdf_paths[k]), None)
+                    parsed[k] = _parse_and_chunk(pdf_paths[k], clean=clean_enabled)
                 except Exception as e:
-                    parsed[k] = (None, 0, e)
+                    parsed[k] = (None, 0, None, e)
+
+        report.cleaning_enabled = clean_enabled
+        total_cleaned_lines = 0
+        all_clean_cats: dict[str, int] = {}
 
         # Phase 2: index serially (embedding + ChromaDB upsert under sync_lock).
         for key in batch:
-            chunks, total_chars, err = parsed.get(key, (None, 0, None))
+            result = parsed.get(key, (None, 0, None))
+            if len(result) == 4:
+                chunks, total_chars, cleaning_stats, err = result
+            else:
+                chunks, total_chars, cleaning_stats = result
+                err = None
             if err is not None:
                 logger.error(f"sync_index failed for {key}: {err}")
                 report.failed.append({"key": key, "error": str(err)})
@@ -167,6 +213,12 @@ def sync_index(
             try:
                 if total_chars < 200:
                     issues.append(f"{key}: very short extraction ({total_chars} chars)")
+
+                # Track cleaning stats
+                if cleaning_stats:
+                    total_cleaned_lines += cleaning_stats.get("lines_removed", 0)
+                    for cat, cnt in cleaning_stats.get("top_categories", {}).items():
+                        all_clean_cats[cat] = all_clean_cats.get(cat, 0) + cnt
 
                 item = zot.get_item(key)
                 year = ZoteroClient.parse_year(item.date)
@@ -201,6 +253,10 @@ def sync_index(
     state.chunking_version = CHUNKING_VERSION
     state.save()
     report.total_chunks_after = indexer.count()
+    report.total_lines_cleaned = total_cleaned_lines
+    report.cleaning_categories = dict(
+        sorted(all_clean_cats.items(), key=lambda x: -x[1])[:15]
+    )
 
     if chunk_lengths:
         report.quality_summary = {
@@ -220,3 +276,32 @@ def sync_index(
         }
 
     return report
+
+
+# ── Retrieval log query tools ─────────────────────────────────────────
+
+
+def get_recent_retrievals(
+    n: int = 20,
+    strategy: str = "",
+    success_only: bool = True,
+    persist_dir: str = ".chroma_db",
+) -> list[dict]:
+    """Return the most recent N retrieval log entries."""
+    from research_core.rag.logger import RetrievalLogger
+    log = RetrievalLogger(persist_dir)
+    return log.get_recent(n=n, strategy=strategy, success_only=success_only)
+
+
+def get_retrieval_trace(trace_id: str, persist_dir: str = ".chroma_db") -> dict | None:
+    """Look up a specific retrieval trace by its ID."""
+    from research_core.rag.logger import RetrievalLogger
+    log = RetrievalLogger(persist_dir)
+    return log.get_by_trace_id(trace_id)
+
+
+def get_retrieval_stats(persist_dir: str = ".chroma_db") -> dict:
+    """Return aggregate statistics on all logged retrievals."""
+    from research_core.rag.logger import RetrievalLogger
+    log = RetrievalLogger(persist_dir)
+    return log.stats()
