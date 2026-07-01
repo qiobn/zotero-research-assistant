@@ -87,6 +87,12 @@ class AuditReport:
     garbled_chunks: int = 0
     avg_chunks_per_paper: float = 0.0
 
+    # Quality flag distribution
+    quality_good: int = 0
+    quality_noisy: int = 0
+    quality_incomplete: int = 0
+    quality_boilerplate: int = 0
+
     # Section breakdown
     content_chunks: int = 0
     reference_chunks: int = 0
@@ -368,6 +374,7 @@ def run_audit(
     short_count = 0
     long_count = 0
     figure_table_count = 0
+    quality_flags: Counter = Counter()
 
     _PAGE_SIZE = 1000
     offset = 0
@@ -395,6 +402,7 @@ def run_audit(
 
             if meta.get("has_figure_table"):
                 figure_table_count += 1
+            quality_flags[meta.get("quality_flag", "good")] += 1
             if doc_len < 50:
                 short_count += 1
             if doc_len > 1500:
@@ -495,6 +503,10 @@ def run_audit(
     report.long_chunks = long_count
     report.garbled_chunks = garbled_count
     report.avg_chunks_per_paper = round(total_count / len(papers), 1) if papers else 0
+    report.quality_good = quality_flags.get("good", 0)
+    report.quality_noisy = quality_flags.get("noisy", 0)
+    report.quality_incomplete = quality_flags.get("incomplete", 0)
+    report.quality_boilerplate = quality_flags.get("boilerplate", 0)
     report.content_chunks = section_counts.get("content", 0)
     report.reference_chunks = section_counts.get("references", 0)
     report.figure_table_chunks = figure_table_count
@@ -630,6 +642,13 @@ def print_report(report: AuditReport) -> None:
     print(f"  Content chunks         : {report.content_chunks:>8,}  ({_pct(report.content_chunks, report.total_chunks)})")
     print(f"  Reference chunks       : {report.reference_chunks:>8,}  ({_pct(report.reference_chunks, report.total_chunks)})")
     print(f"  Figure/Table chunks    : {report.figure_table_chunks:>8,}  ({_pct(report.figure_table_chunks, report.total_chunks)})")
+
+    # Quality flags
+    print(f"\n  ── Chunk Quality Flags ──")
+    print(f"  [good]                 : {report.quality_good:>8,}  ({_pct(report.quality_good, report.total_chunks)})")
+    print(f"  [noisy]                : {report.quality_noisy:>8,}  ({_pct(report.quality_noisy, report.total_chunks)})")
+    print(f"  [incomplete]           : {report.quality_incomplete:>8,}  ({_pct(report.quality_incomplete, report.total_chunks)})")
+    print(f"  [boilerplate]          : {report.quality_boilerplate:>8,}  ({_pct(report.quality_boilerplate, report.total_chunks)})")
 
     # PDF quality
     print(f"\n  ── PDF Quality ──")
