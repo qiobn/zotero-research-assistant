@@ -1704,6 +1704,47 @@ def test_recall(item_key: str) -> dict:
     )
 
 
+# ── Retrieval Log Tools ──────────────────────────────────────────────
+
+@mcp.tool()
+def recent_retrievals(
+    n: int = 20,
+    strategy: str = "",
+) -> list[dict]:
+    """Show recent retrieval logs — what queries were run, how they performed.
+
+    Useful for diagnosing "why did my last search return these results?"
+
+    Args:
+        n: Number of recent entries to return (max 50).
+        strategy: Filter by strategy type (hybrid / semantic / keyword / fallback).
+                  Empty string = all strategies.
+    """
+    from research_core.tools.admin import get_recent_retrievals
+    return get_recent_retrievals(n=min(n, 50), strategy=strategy)
+
+
+@mcp.tool()
+def retrieval_trace(trace_id: str) -> dict:
+    """Replay a specific retrieval trace — see exactly what happened.
+
+    Args:
+        trace_id: The trace ID from a recent_retrievals entry.
+    """
+    from research_core.tools.admin import get_retrieval_trace
+    result = get_retrieval_trace(trace_id)
+    if result is None:
+        return {"error": f"Trace not found: {trace_id}"}
+    return result
+
+
+@mcp.tool()
+def retrieval_stats() -> dict:
+    """Get aggregate retrieval statistics — total queries, avg latency, error rate."""
+    from research_core.tools.admin import get_retrieval_stats
+    return get_retrieval_stats()
+
+
 def main():
     """Entry point for `zra-mcp` console script."""
     mcp.run()

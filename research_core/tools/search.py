@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
+from research_core.rag.logger import RetrievalLog, RetrievalLogger
 from research_core.rag.reranker import get_reranker
 from research_core.rag.retriever import Retriever
 from research_core.utils import WRITE_PREVIEW_HINT
@@ -51,30 +53,54 @@ def search_papers(
 
     has_query = bool(query.strip())
 
+    # --- Instrumentation ---
+    logger = RetrievalLogger()
+    log_params = {
+        "limit": limit, "year_from": year_from, "year_to": year_to,
+        "tags_include": tags_include, "tags_exclude": tags_exclude,
+    }
+
     keyword_items: list[Item] = []
+    semantic_hits = []
+    t_keyword = 0.0
+    t_semantic = 0.0
+    t_rerank = 0.0
+
     if has_query:
+        t0 = time.time()
         keyword_items = zot.search_items(
             query=query,
             limit=limit * 3,
             tag=tag_filter or None,
             collection_key=collection_key,
         )
+        t_keyword = (time.time() - t0) * 1000
     else:
+        t0 = time.time()
         keyword_items = zot.search_items(
             query="",
             limit=max(limit * 5, 100),
             tag=tag_filter or None,
             collection_key=collection_key,
         )
+        t_keyword = (time.time() - t0) * 1000
 
     reranker = get_reranker()
     overfetch = 3 if reranker is None else 5
-    semantic_hits = retriever.search(query, n_results=limit * overfetch) if has_query else []
+    rrf_k = 60
 
+    if has_query:
+        t0 = time.time()
+        semantic_hits = retriever.search(query, n_results=limit * overfetch)
+        t_semantic = (time.time() - t0) * 1000
+
+    pre_rerank_n = len(semantic_hits)
     if reranker and semantic_hits and has_query:
+        t0 = time.time()
         docs = [h.text for h in semantic_hits]
         reranked = reranker.rerank(query, docs, top_k=limit * 3)
         semantic_hits = [semantic_hits[idx] for idx, _ in reranked]
+        t_rerank = (time.time() - t0) * 1000
 
     keyword_ranks = {item.key: rank + 1 for rank, item in enumerate(keyword_items)}
     semantic_ranks: dict[str, int] = {}
@@ -150,7 +176,10 @@ def search_papers(
         if len(hits) >= limit:
             break
 
+    fallback_triggered = False
+    fallback_items: list[Item] = []
     if not hits and query.strip():
+        fallback_triggered = True
         fallback_items = zot.search_items(
             query=query, limit=limit * 2, qmode="everything",
             tag=tag_filter or None, collection_key=collection_key,
@@ -184,6 +213,33 @@ def search_papers(
             )
             if len(hits) >= limit:
                 break
+
+    # --- Emit retrieval trace ---
+    logger.log(RetrievalLog(
+        query=query,
+        strategy="hybrid" if (has_query and keyword_items and semantic_hits)
+        else ("semantic" if semantic_hits else "keyword" if keyword_items else "fallback"),
+        parameters=log_params,
+        candidate_keyword_n=len(keyword_items),
+        candidate_semantic_n=pre_rerank_n,
+        candidate_merged_n=len(hits),
+        reranker_enabled=reranker is not None,
+        reranker_model=getattr(reranker, "_model_name", "") if reranker else "",
+        reranker_pre_n=pre_rerank_n,
+        reranker_post_n=len(semantic_hits),
+        results=[
+            {"item_key": h.key, "title": h.title[:80], "score": h.score,
+             "rank": i + 1, "source": h.source}
+            for i, h in enumerate(hits[:20])
+        ],
+        result_count=len(hits),
+        fallback_triggered=fallback_triggered,
+        fallback_count=len(fallback_items),
+        latency_keyword_ms=round(t_keyword, 1),
+        latency_semantic_ms=round(t_semantic, 1),
+        latency_rerank_ms=round(t_rerank, 1),
+        latency_total_ms=round(t_keyword + t_semantic + t_rerank, 1),
+    ))
 
     return hits
 

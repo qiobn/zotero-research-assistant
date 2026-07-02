@@ -1,0 +1,554 @@
+{
+  "_meta": {
+    "description": "RAG evaluation queries — review and correct before use",
+    "generated_from": "30 indexed papers",
+    "total_queries": 60,
+    "instructions": "Review each query. Fix query_text if unclear. Verify expected_item_keys are correct. Add 'contradiction' category queries manually. Remove bad queries."
+  },
+  "queries": [
+    {
+      "query_text": "Community public service facilities have a primary supportive role in the health of the elderly",
+      "expected_item_keys": [
+        "NSZ5SERU"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: Evaluation and optimization of the layout of community publi"
+    },
+    {
+      "query_text": "Supply-demand matching assessment of public services facility among age groups from the perspective of travel behavior",
+      "expected_item_keys": [
+        "WVPQ8NB8"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: Supply-demand matching assessment of public services facility among age groups f"
+    },
+    {
+      "query_text": "Active travel for active ageing in China",
+      "expected_item_keys": [
+        "WJQ3PXMI"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: Active travel for active ageing in China: the role of built environment"
+    },
+    {
+      "query_text": "供给效率、城市规模与城市生产率",
+      "expected_item_keys": [
+        "G3A48ITM"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: 供给效率、城市规模与城市生产率——以城市交通设施为例"
+    },
+    {
+      "query_text": "Does free choice hospital conflict with",
+      "expected_item_keys": [
+        "CK7E7QDK"
+      ],
+      "category": "direct",
+      "difficulty": "medium",
+      "notes": "Topic search for: Does free choice of hospital conflict with equity of access "
+    },
+    {
+      "query_text": "Heterogeneity in job application decisions in two-adult households under social influence",
+      "expected_item_keys": [
+        "D9VKKS8H"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: Heterogeneity in job application decisions in two-adult households under social "
+    },
+    {
+      "query_text": "双层级医疗设施选址问题及禁忌搜索算法",
+      "expected_item_keys": [
+        "4WRYNG4T"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: 双层级医疗设施选址问题及禁忌搜索算法"
+    },
+    {
+      "query_text": "Mismatch between infrastructure supply and demand within a 15-minute living circle evaluation in fuzhou, china",
+      "expected_item_keys": [
+        "KT85AUVT"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: Mismatch between infrastructure supply and demand within a 15-minute living circ"
+    },
+    {
+      "query_text": "The 15-minute community life circle (15-min CLC) concept focuses on providing accessible services for older adults within a short walking distance",
+      "expected_item_keys": [
+        "9ENNXILF"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: The 15-minute community life circle for older people: walkab"
+    },
+    {
+      "query_text": "The compounded impact of the COVID-19 lockdowns on self-perception of health (SPoH) and physical activity (PA) levels among U",
+      "expected_item_keys": [
+        "HE4KWXI7"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: Self-perception of health and physical activity among adults"
+    },
+    {
+      "query_text": "Mega-cities, while leveraging large populations for development, need to rationally plan spatial resources, especially for optimizing elderly care services",
+      "expected_item_keys": [
+        "8ZR7839K"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: Exploring the equitable spatial planning on the accessibilit"
+    },
+    {
+      "query_text": "采用问卷调查和POI数据，分析2020年上海市公共服务功能设施的居民需求与供给差异，计算各街镇的功能设施供需匹配效率",
+      "expected_item_keys": [
+        "UJQCR2HB"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: 上海市公共服务功能设施供需匹配研究——基于居民需求异质性视角的分析"
+    },
+    {
+      "query_text": "社区治理共同体建构路径差异研究",
+      "expected_item_keys": [
+        "PKIGRLTX"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: 社区治理共同体建构路径差异研究——以北京市三个社区为例"
+    },
+    {
+      "query_text": "空间可达性是判定各类设施布局是否合理的重要参考指标",
+      "expected_item_keys": [
+        "CL89QW75"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: 基于改进潜能模型的养老机构空间可达性——以上海市奉贤区为例"
+    },
+    {
+      "query_text": "Public transit is considered a sustainable mode of transport that can address automobile dependency and provide environmental, economic, and societal benefits",
+      "expected_item_keys": [
+        "S8SF9UDZ"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: Heterogeneity in Activity-travel Patterns of Public Transit "
+    },
+    {
+      "query_text": "Travel-based multitasking reframed? latent class cluster",
+      "expected_item_keys": [
+        "NYUX4Q7N"
+      ],
+      "category": "direct",
+      "difficulty": "medium",
+      "notes": "Topic search for: Travel-based multitasking reframed? A latent class cluster a"
+    },
+    {
+      "query_text": "Urban vitality serves as a critical catalyst for sustainable and inclusive urban development",
+      "expected_item_keys": [
+        "LZ6SBWQZ"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: Beyond objective features: integrating subjective perception"
+    },
+    {
+      "query_text": "Associations between spatial access to medical facilities and health-seeking behaviors",
+      "expected_item_keys": [
+        "U6VZF44R"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: Associations between spatial access to medical facilities and health-seeking beh"
+    },
+    {
+      "query_text": "Drivers barriers adopting mobility service (MaaS)",
+      "expected_item_keys": [
+        "N295L4J9"
+      ],
+      "category": "direct",
+      "difficulty": "medium",
+      "notes": "Topic search for: Drivers and barriers in adopting mobility as a service (MaaS"
+    },
+    {
+      "query_text": "Segmenting potential users MaaS combining latent",
+      "expected_item_keys": [
+        "M4F4WDQK"
+      ],
+      "category": "direct",
+      "difficulty": "medium",
+      "notes": "Topic search for: Segmenting the potential users of MaaS by combining latent c"
+    },
+    {
+      "query_text": "This study explores the factors affecting travel mode choices and the relative importance of those factors",
+      "expected_item_keys": [
+        "UZ9N7N8U"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: Beyond time and cost: exploring the importance of factors in"
+    },
+    {
+      "query_text": "Evaluating the accessibility and availability of public services to reduce inequalities in everyday mobility",
+      "expected_item_keys": [
+        "RFPVJU4D"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: Evaluating the accessibility and availability of public services to reduce inequ"
+    },
+    {
+      "query_text": "Concepts of Mobility-on-Demand (MOD) and Mobility as a Service (MaaS), which feature the integration of various shared-use mobility options, have gained widespread popularity in recent years",
+      "expected_item_keys": [
+        "RB28C98H"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Abstract search for: Identifying latent shared mobility preference segments in lo"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 社区治理共同体建构路径差异研究——以北京市三个社区为例 and 2019–2020",
+      "expected_item_keys": [
+        "PKIGRLTX",
+        "HE4KWXI7"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 社区治理共同体建构路径差异研究——以北京市三个社区为例 vs Self-perception of health and physical a"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on access and 基于改进潜能模型的养老机构空间可达性——以上海市奉贤区为例",
+      "expected_item_keys": [
+        "U6VZF44R",
+        "CL89QW75"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Associations between spatial access to m vs 基于改进潜能模型的养老机构空间可达性——以上海市奉贤区为例"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on perceptions and latent",
+      "expected_item_keys": [
+        "LZ6SBWQZ",
+        "M4F4WDQK"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Beyond objective features: integrating s vs Segmenting the potential users of MaaS b"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on access and latent",
+      "expected_item_keys": [
+        "U6VZF44R",
+        "NYUX4Q7N"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Associations between spatial access to m vs Travel-based multitasking reframed? A la"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on latent and beyond",
+      "expected_item_keys": [
+        "RB28C98H",
+        "UZ9N7N8U"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Identifying latent shared mobility prefe vs Beyond time and cost: exploring the impo"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 上海市公共服务功能设施供需匹配研究——基于居民需求异质性视角的分析 and 社区治理共同体建构路径差异研究——以北京市三个社区为例",
+      "expected_item_keys": [
+        "UJQCR2HB",
+        "PKIGRLTX"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 上海市公共服务功能设施供需匹配研究——基于居民需求异质性视角的分析 vs 社区治理共同体建构路径差异研究——以北京市三个社区为例"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on access and 2019–2020",
+      "expected_item_keys": [
+        "U6VZF44R",
+        "HE4KWXI7"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Associations between spatial access to m vs Self-perception of health and physical a"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on street-level and 社区治理共同体建构路径差异研究——以北京市三个社区为例",
+      "expected_item_keys": [
+        "9ENNXILF",
+        "PKIGRLTX"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: The 15-minute community life circle for  vs 社区治理共同体建构路径差异研究——以北京市三个社区为例"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 我国全民健身场地设施配置政策的量化评价研究 and everyday",
+      "expected_item_keys": [
+        "ADLSWJMV",
+        "RFPVJU4D"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 我国全民健身场地设施配置政策的量化评价研究:1995—2022 vs Evaluating the accessibility and availab"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 土地系统多主体模型的理论与应用 and perceptions",
+      "expected_item_keys": [
+        "477AB3LX",
+        "LZ6SBWQZ"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 土地系统多主体模型的理论与应用 vs Beyond objective features: integrating s"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 供给效率、城市规模与城市生产率——以城市交通设施为例 and latent",
+      "expected_item_keys": [
+        "G3A48ITM",
+        "N295L4J9"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 供给效率、城市规模与城市生产率——以城市交通设施为例 vs Drivers and barriers in adopting mobilit"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on beyond and layout",
+      "expected_item_keys": [
+        "UZ9N7N8U",
+        "NSZ5SERU"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Beyond time and cost: exploring the impo vs Evaluation and optimization of the layou"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 居民的公共服务设施需求偏好分析与社区空间动态演化研究 and 上海市公共服务功能设施供需匹配研究——基于居民需求异质性视角的分析",
+      "expected_item_keys": [
+        "QB2789IP",
+        "UJQCR2HB"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 居民的公共服务设施需求偏好分析与社区空间动态演化研究 vs 上海市公共服务功能设施供需匹配研究——基于居民需求异质性视角的分析"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on access and 双层级医疗设施选址问题及禁忌搜索算法",
+      "expected_item_keys": [
+        "U6VZF44R",
+        "4WRYNG4T"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Associations between spatial access to m vs 双层级医疗设施选址问题及禁忌搜索算法"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 供给效率、城市规模与城市生产率——以城市交通设施为例 and 城市公共服务设施配置研究进展及趋向",
+      "expected_item_keys": [
+        "G3A48ITM",
+        "AYTFPH5X"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 供给效率、城市规模与城市生产率——以城市交通设施为例 vs 城市公共服务设施配置研究进展及趋向"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 城市公共服务设施配置研究进展及趋向 and 基于改进潜能模型的养老机构空间可达性——以上海市奉贤区为例",
+      "expected_item_keys": [
+        "AYTFPH5X",
+        "CL89QW75"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 城市公共服务设施配置研究进展及趋向 vs 基于改进潜能模型的养老机构空间可达性——以上海市奉贤区为例"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 多主体建模在水资源管理中的应用 and latent",
+      "expected_item_keys": [
+        "5NDHI2E8",
+        "RB28C98H"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 多主体建模在水资源管理中的应用：进展与展望 vs Identifying latent shared mobility prefe"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on layout and latent",
+      "expected_item_keys": [
+        "NSZ5SERU",
+        "N295L4J9"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Evaluation and optimization of the layou vs Drivers and barriers in adopting mobilit"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on planning and 多主体建模在水资源管理中的应用",
+      "expected_item_keys": [
+        "8ZR7839K",
+        "5NDHI2E8"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Exploring the equitable spatial planning vs 多主体建模在水资源管理中的应用：进展与展望"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on latent and 土地系统多主体模型的理论与应用",
+      "expected_item_keys": [
+        "S8SF9UDZ",
+        "477AB3LX"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Heterogeneity in Activity-travel Pattern vs 土地系统多主体模型的理论与应用"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on 城市公共服务设施配置研究进展及趋向 and matching",
+      "expected_item_keys": [
+        "AYTFPH5X",
+        "HHWLNFM9"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: 城市公共服务设施配置研究进展及趋向 vs Supply-demand matching assessment of the"
+    },
+    {
+      "query_text": "Compare research methodologies and findings across studies on access and latent",
+      "expected_item_keys": [
+        "CK7E7QDK",
+        "S8SF9UDZ"
+      ],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "Cross-doc: Does free choice of hospital conflict wi vs Heterogeneity in Activity-travel Pattern"
+    },
+    {
+      "query_text": "What are the latest developments in machine learning in healthcare?",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "medium",
+      "notes": "No-answer query — paper about: Supply-demand matching assessment of the public se"
+    },
+    {
+      "query_text": "What are the latest developments in deep sea microbial ecosystems?",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "medium",
+      "notes": "No-answer query — paper about: 我国全民健身场地设施配置政策的量化评价研究:1995—2022"
+    },
+    {
+      "query_text": "What are the latest developments in machine learning in healthcare?",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "medium",
+      "notes": "No-answer query — paper about: Evaluation and optimization of the layout of commu"
+    },
+    {
+      "query_text": "What are the latest developments in deep sea microbial ecosystems?",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "medium",
+      "notes": "No-answer query — paper about: Supply-demand matching assessment of public servic"
+    },
+    {
+      "query_text": "What are the latest developments in cryptocurrency market analysis?",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "medium",
+      "notes": "No-answer query — paper about: Active travel for active ageing in China: the role"
+    },
+    {
+      "query_text": "What are the latest developments in ancient Roman architecture?",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "medium",
+      "notes": "No-answer query — paper about: 供给效率、城市规模与城市生产率——以城市交通设施为例"
+    },
+    {
+      "query_text": "What are the latest developments in quantum computing applications?",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "medium",
+      "notes": "No-answer query — paper about: Does free choice of hospital conflict with equity "
+    },
+    {
+      "query_text": "What are the latest developments in quantum computing applications?",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "medium",
+      "notes": "No-answer query — paper about: Heterogeneity in job application decisions in two-"
+    },
+    {
+      "query_text": "What are the latest developments in machine learning in healthcare?",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "medium",
+      "notes": "No-answer query — paper about: 双层级医疗设施选址问题及禁忌搜索算法"
+    },
+    {
+      "query_text": "Supply-demand matching assessment of the public service facilities in 15-minute community life circle based on residents' behaviors",
+      "expected_item_keys": [
+        "HHWLNFM9"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: Supply-demand matching assessment of the public service facilities in 15-minute "
+    },
+    {
+      "query_text": "我国全民健身场地设施配置政策的量化评价研究",
+      "expected_item_keys": [
+        "ADLSWJMV"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: 我国全民健身场地设施配置政策的量化评价研究:1995—2022"
+    },
+    {
+      "query_text": "城市公共服务设施配置研究进展及趋向",
+      "expected_item_keys": [
+        "AYTFPH5X"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: 城市公共服务设施配置研究进展及趋向"
+    },
+    {
+      "query_text": "多主体建模在水资源管理中的应用",
+      "expected_item_keys": [
+        "5NDHI2E8"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: 多主体建模在水资源管理中的应用：进展与展望"
+    },
+    {
+      "query_text": "积极应对人口老龄化战略的养老服务设施规划响应",
+      "expected_item_keys": [
+        "NSJN42XH"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: 积极应对人口老龄化战略的养老服务设施规划响应"
+    },
+    {
+      "query_text": "土地系统多主体模型的理论与应用",
+      "expected_item_keys": [
+        "477AB3LX"
+      ],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "Title search for: 土地系统多主体模型的理论与应用"
+    }
+  ]
+}
