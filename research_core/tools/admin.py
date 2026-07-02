@@ -10,6 +10,24 @@ from loguru import logger
 
 from research_core.parsers.chunker import CHUNKING_VERSION, chunk_text
 from research_core.parsers.pdf import extract_pdf
+from research_core.parsers.section_detector import (
+    DetectedSection,
+    build_section_map,
+)
+from research_core.rag.database import (
+    ChunkMetaRow,
+    FigureRow,
+    PaperRow,
+    TableRow,
+    get_db,
+    insert_chunk_figure_refs,
+    insert_chunk_table_refs,
+    insert_chunks_meta,
+    insert_figures,
+    insert_sections,
+    insert_tables,
+    upsert_paper,
+)
 from research_core.rag.indexer import Indexer
 from research_core.rag.retriever import Retriever
 from research_core.rag.sync_state import SyncState
@@ -59,6 +77,205 @@ def _parse_and_chunk(pdf_path: str, clean: bool = True):
     total_chars = sum(len(p.text) for p in pages_for_chunking)
     chunks = chunk_text(pages_for_chunking)
     return chunks, total_chars, cleaning_stats
+
+
+def _index_metadata(
+    *,
+    item_key: str,
+    title: str,
+    year: int,
+    authors: str,
+    abstract: str,
+    keywords: str,
+    journal: str,
+    doi: str,
+    pub_type: str,
+    zotero_version: int,
+    chunks: list,
+    persist_dir: str = ".chroma_db",
+) -> dict:
+    """Write paper/section/chunk metadata to SQLite.
+
+    Called after chunking, before ChromaDB indexing.
+    Returns stats dict for the SyncReport.
+    """
+    from research_core.parsers.chunker import Chunk
+
+    conn = get_db(persist_dir)
+
+    # 1. Upsert paper
+    paper = PaperRow(
+        item_key=item_key,
+        title=title,
+        year=year,
+        authors=authors,
+        abstract=abstract,
+        keywords=keywords,
+        journal=journal,
+        doi=doi,
+        pub_type=pub_type,
+        zotero_version=zotero_version,
+    )
+    upsert_paper(conn, paper)
+
+    # 2. Detect sections
+    chunk_list = list(chunks)  # ensure list
+    sections_info, chunk_section_map = build_section_map(chunk_list)
+
+    # Build SectionRows
+    section_rows = []
+    for sec in sections_info:
+        section_rows.append({
+            "item_key": item_key,
+            "parent_id": None,  # simplified: no parent linking for now
+            "heading": sec.heading,
+            "section_type": sec.section_type,
+            "level": sec.level,
+            "page_start": sec.page_start,
+            "page_end": sec.page_end,
+            "chunk_start_idx": sec.chunk_start_idx,
+            "chunk_end_idx": sec.chunk_end_idx,
+        })
+
+    # Delete old sections + chunks for this paper before inserting new
+    conn.execute("DELETE FROM sections WHERE item_key = ?", (item_key,))
+    conn.execute("DELETE FROM chunks_meta WHERE item_key = ?", (item_key,))
+
+    section_ids: list[int] = []
+    for sr in section_rows:
+        cur = conn.execute("""
+            INSERT INTO sections
+                (item_key, parent_id, heading, section_type, level,
+                 page_start, page_end, chunk_start_idx, chunk_end_idx)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            sr["item_key"], sr["parent_id"], sr["heading"],
+            sr["section_type"], sr["level"],
+            sr["page_start"], sr["page_end"],
+            sr["chunk_start_idx"], sr["chunk_end_idx"],
+        ))
+        section_ids.append(cur.lastrowid or 0)
+
+    # 3. Insert chunks_meta
+    chunk_meta_rows = []
+    for i, c in enumerate(chunk_list):
+        section_id = None
+        if i in chunk_section_map:
+            si = chunk_section_map[i]
+            if si < len(section_ids):
+                section_id = section_ids[si]
+
+        chunk_meta_rows.append(ChunkMetaRow(
+            id=f"{item_key}:{c.chunk_idx}",
+            item_key=item_key,
+            chunk_idx=c.chunk_idx,
+            section_id=section_id,
+            page_start=c.page_start,
+            page_end=c.page_end,
+            quality_flag=c.quality_flag,
+            coherence_score=c.coherence_score,
+            information_density=c.information_density,
+            boilerplate_ratio=c.boilerplate_ratio,
+            sentence_count=c.sentence_count,
+            language=c.language,
+            is_table=c.metadata.get("is_table", False),
+            is_figure=c.metadata.get("is_figure", False),
+        ))
+    insert_chunks_meta(conn, chunk_meta_rows)
+
+    # 4. Extract figures and tables from chunk metadata
+    figures: list[FigureRow] = []
+    tables: list[TableRow] = []
+    fig_refs: list[tuple[str, int]] = []
+    table_refs: list[tuple[str, int]] = []
+
+    for c in chunk_list:
+        meta = c.metadata
+        chunk_id = f"{item_key}:{c.chunk_idx}"
+
+        if meta.get("is_figure") and meta.get("figure_ref"):
+            fig = FigureRow(
+                item_key=item_key,
+                ref=meta.get("figure_ref", ""),
+                label=meta.get("figure_label", ""),
+                caption=meta.get("figure_caption", ""),
+                page=c.page_start,
+            )
+            # Deduplicate by ref within same paper
+            if fig.ref not in {f.ref for f in figures}:
+                figures.append(fig)
+
+        if meta.get("is_table") and meta.get("table_ref"):
+            tbl = TableRow(
+                item_key=item_key,
+                ref=meta.get("table_ref", ""),
+                label=meta.get("table_label", ""),
+                caption=meta.get("table_caption", ""),
+                page=c.page_start,
+            )
+            if tbl.ref not in {t.ref for t in tables}:
+                tables.append(tbl)
+
+    # Re-fetch figure/table IDs after insert for cross-refs
+    conn.execute("DELETE FROM figures WHERE item_key = ?", (item_key,))
+    conn.execute("DELETE FROM table_records WHERE item_key = ?", (item_key,))
+    conn.execute(
+        "DELETE FROM chunk_figure_refs WHERE chunk_id LIKE ?",
+        (f"{item_key}:%",),
+    )
+    conn.execute(
+        "DELETE FROM chunk_table_refs WHERE chunk_id LIKE ?",
+        (f"{item_key}:%",),
+    )
+
+    fig_id_map: dict[str, int] = {}
+    for fig in figures:
+        cur = conn.execute(
+            "INSERT INTO figures (item_key, ref, label, caption, page) VALUES (?,?,?,?,?)",
+            (fig.item_key, fig.ref, fig.label, fig.caption, fig.page),
+        )
+        fig_id_map[fig.ref] = cur.lastrowid or 0
+
+    tbl_id_map: dict[str, int] = {}
+    for tbl in tables:
+        cur = conn.execute(
+            "INSERT INTO table_records (item_key, ref, label, caption, page) VALUES (?,?,?,?,?)",
+            (tbl.item_key, tbl.ref, tbl.label, tbl.caption, tbl.page),
+        )
+        tbl_id_map[tbl.ref] = cur.lastrowid or 0
+
+    # Cross-references
+    for c in chunk_list:
+        chunk_id = f"{item_key}:{c.chunk_idx}"
+        meta = c.metadata
+        if meta.get("table_refs") and tbl_id_map:
+            refs_str = meta.get("table_refs", "")
+            for ref_token in refs_str.split(","):
+                ref_token = ref_token.strip()
+                if ref_token in tbl_id_map:
+                    table_refs.append((chunk_id, tbl_id_map[ref_token]))
+        if meta.get("figure_refs") and fig_id_map:
+            refs_str = meta.get("figure_refs", "")
+            for ref_token in refs_str.split(","):
+                ref_token = ref_token.strip()
+                if ref_token in fig_id_map:
+                    fig_refs.append((chunk_id, fig_id_map[ref_token]))
+
+    if fig_refs:
+        insert_chunk_figure_refs(conn, fig_refs)
+    if table_refs:
+        insert_chunk_table_refs(conn, table_refs)
+
+    conn.commit()
+
+    return {
+        "sections": len(section_rows),
+        "chunks_meta": len(chunk_meta_rows),
+        "figures": len(figures),
+        "tables": len(tables),
+        "fig_refs": len(fig_refs),
+        "table_refs": len(table_refs),
+    }
 
 
 @dataclass
@@ -225,6 +442,28 @@ def sync_index(
                 indexer.index_chunks(
                     chunks, item_key=key, title=item.title, year=year
                 )
+
+                # Write structured metadata to SQLite
+                try:
+                    _index_metadata(
+                        item_key=key,
+                        title=item.title or "",
+                        year=year,
+                        authors="",  # ZoteroItem doesn't expose authors as JSON
+                        abstract=getattr(item, "abstract", "") or "",
+                        keywords="",  # populated from tags in a future iteration
+                        journal=getattr(item, "publicationTitle", "") or "",
+                        doi=getattr(item, "doi", "") or "",
+                        pub_type=(
+                            "thesis" if "论文" in (item.title or "")
+                            else "journal_article"
+                        ),
+                        zotero_version=current_versions.get(key, 0),
+                        chunks=chunks,
+                        persist_dir=persist_dir,
+                    )
+                except Exception as e:
+                    logger.warning(f"SQLite metadata write failed for {key}: {e}")
 
                 chunks_per_paper.append(len(chunks))
                 for c in chunks:
