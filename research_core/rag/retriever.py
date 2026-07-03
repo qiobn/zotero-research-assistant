@@ -30,7 +30,15 @@ class RetrievalResult:
     score: float
     chunk_idx: int = 0
     metadata: dict = field(default_factory=dict)
-    section_context: SectionContext | None = None  # populated when expand_context=True
+    section_context: SectionContext | None = None
+    # Paper-level context (populated by enrich())
+    paper_abstract: str = ""
+    paper_authors: str = ""
+    paper_year: int = 0
+    paper_doi: str = ""
+    paper_keywords: str = ""
+    section_heading: str = ""
+    section_type: str = ""
 
 
 class Retriever:
@@ -75,6 +83,10 @@ class Retriever:
 
         if expand_context and hits:
             self._attach_section_contexts(hits)
+
+        # Always enrich with paper + section metadata from SQLite
+        if hits:
+            self.enrich(hits)
 
         return hits
 
@@ -151,6 +163,48 @@ class Retriever:
             ctx = self.expand_to_section(r.item_key, r.chunk_idx)
             cache[cache_key] = ctx
             r.section_context = ctx
+
+    def enrich(self, results: list[RetrievalResult]) -> None:
+        """Batch-fetch paper + section metadata from SQLite and inject into
+        each RetrievalResult. Always-on — zero cost beyond a SQLite JOIN.
+
+        Populates: paper_abstract, paper_authors, paper_year, paper_doi,
+                   paper_keywords, section_heading, section_type.
+        """
+        chunk_ids = [f"{r.item_key}:{r.chunk_idx}" for r in results]
+        if not chunk_ids:
+            return
+
+        try:
+            from research_core.rag.database import enrich_results, get_db
+            enriched = enrich_results(get_db(self._persist_dir), chunk_ids)
+        except Exception:
+            return
+
+        by_id: dict[str, dict] = {}
+        for er in enriched:
+            if er.chunk_id:
+                by_id[er.chunk_id] = {
+                    "paper_abstract": er.paper_abstract,
+                    "paper_authors": er.paper_authors,
+                    "paper_year": er.paper_year,
+                    "paper_doi": er.paper_doi,
+                    "paper_keywords": er.paper_keywords,
+                    "section_heading": er.section_heading,
+                    "section_type": er.section_type,
+                }
+
+        for r in results:
+            chunk_id = f"{r.item_key}:{r.chunk_idx}"
+            ctx = by_id.get(chunk_id, {})
+            if ctx:
+                r.paper_abstract = ctx.get("paper_abstract", "")
+                r.paper_authors = ctx.get("paper_authors", "")
+                r.paper_year = ctx.get("paper_year", 0)
+                r.paper_doi = ctx.get("paper_doi", "")
+                r.paper_keywords = ctx.get("paper_keywords", "")
+                r.section_heading = ctx.get("section_heading", "")
+                r.section_type = ctx.get("section_type", "")
 
     def search_within_item(
         self,

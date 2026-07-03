@@ -27,6 +27,9 @@ class PaperHit:
     matched_passage: str = ""
     matched_page: int = 0
     source: str = "hybrid"
+    paper_abstract: str = ""
+    section_heading: str = ""
+    section_type: str = ""
 
 
 def search_papers(
@@ -110,6 +113,7 @@ def search_papers(
     keyword_ranks = {item.key: rank + 1 for rank, item in enumerate(keyword_items)}
     semantic_ranks: dict[str, int] = {}
     semantic_best_passage: dict[str, tuple[str, int]] = {}
+    semantic_enriched: dict[str, dict] = {}  # paper_abstract, section_heading, section_type
     seen_keys: set[str] = set()
     for rank, hit in enumerate(semantic_hits):
         if hit.item_key in seen_keys:
@@ -123,6 +127,12 @@ def search_papers(
             )
         else:
             semantic_best_passage[hit.item_key] = (hit.text[:300], hit.page_start)
+        # Capture enriched paper/section metadata
+        semantic_enriched[hit.item_key] = {
+            "paper_abstract": getattr(hit, "paper_abstract", "") or "",
+            "section_heading": getattr(hit, "section_heading", "") or "",
+            "section_type": getattr(hit, "section_type", "") or "",
+        }
 
     candidate_keys = set(keyword_ranks) | set(semantic_ranks)
     rrf_k = 60
@@ -165,6 +175,7 @@ def search_papers(
         if collection_filter and collection_filter not in item.collections:
             continue
         passage, page = semantic_best_passage.get(key, ("", 0))
+        enriched_meta = semantic_enriched.get(key, {})
         src = (
             "hybrid"
             if (key in keyword_ranks and key in semantic_ranks)
@@ -182,6 +193,9 @@ def search_papers(
                 matched_passage=passage,
                 matched_page=page,
                 source=src,
+                paper_abstract=enriched_meta.get("paper_abstract", ""),
+                section_heading=enriched_meta.get("section_heading", ""),
+                section_type=enriched_meta.get("section_type", ""),
             )
         )
         if len(hits) >= limit:
