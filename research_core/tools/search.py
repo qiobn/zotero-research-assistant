@@ -39,8 +39,12 @@ def search_papers(
     tags_exclude: list[str] | None = None,
     collection_key: str = "",
     limit: int = 10,
+    expand_context: bool = False,
 ) -> list[PaperHit]:
     """Hybrid search: keyword (Zotero API) + semantic (vector store) merged via RRF.
+
+    When expand_context=True, each result includes the full section text
+    (all chunks in the same section) for richer LLM context.
 
     If query is empty, skips semantic search and returns all items matching the filters
     (year/tags/collection), sorted by date added (most recent first).
@@ -91,7 +95,8 @@ def search_papers(
 
     if has_query:
         t0 = time.time()
-        semantic_hits = retriever.search(query, n_results=limit * overfetch)
+        semantic_hits = retriever.search(query, n_results=limit * overfetch,
+                                          expand_context=expand_context)
         t_semantic = (time.time() - t0) * 1000
 
     pre_rerank_n = len(semantic_hits)
@@ -111,7 +116,13 @@ def search_papers(
             continue
         seen_keys.add(hit.item_key)
         semantic_ranks[hit.item_key] = rank + 1
-        semantic_best_passage[hit.item_key] = (hit.text[:300], hit.page_start)
+        if expand_context and hit.section_context:
+            semantic_best_passage[hit.item_key] = (
+                hit.section_context.full_text[:2000],
+                hit.section_context.page_start,
+            )
+        else:
+            semantic_best_passage[hit.item_key] = (hit.text[:300], hit.page_start)
 
     candidate_keys = set(keyword_ranks) | set(semantic_ranks)
     rrf_k = 60
