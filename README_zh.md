@@ -26,13 +26,18 @@
 
 | | |
 |---|---|
-| **32 个 MCP 工具** | 一个工具对应一个意图，大模型总能选对 |
+| **35 个 MCP 工具** | 一个工具对应一个意图，大模型总能选对 |
 | **混合 RAG 搜索** | 关键字 + 语义（bge-m3，100+ 语言）+ 交叉编码器重排序 |
-| **语义分块** | 段落感知切分，自动检测参考文献段、图表标注 |
+| **语义分块** | 段落感知切分，自动检测参考文献段、图表标注，7 维质量评分 |
+| **文本清洗引擎** | 52 条黑名单规则去除期刊 boilerplate（页眉页脚、文章信息栏），中英文全覆盖 |
+| **章节级上下文扩展** | 命中 chunk → 自动展开到所在完整章节，赋予 LLM 更丰富的语境 |
+| **SQLite 元数据库** | 7 张关系表（论文、章节、chunk 元数据、图、表），与向量库分离 |
+| **检索可观测性** | JSONL 全链路追踪 + 字节偏移索引，可回溯任意历史检索的排序细节 |
 | **多源文献发现** | OpenAlex + CrossRef + Semantic Scholar 并行检索，三索引交叉验证杜绝编造引用 |
 | **引用网络扩展** | 语料优先策略 + 正向/反向引用 + OpenAlex 相关论文 |
 | **反幻觉机制** | 零编造策略 + `[MATERIAL GAP]` 结构化标签；每篇论文附可验证来源链接 |
-| **RAG 诊断** | 内置健康检查、索引质量检视、召回率自测 |
+| **RAG 评估** | Recall@K、MRR、NDCG 指标 + A/B 基线对比 + 60 条黄金查询 |
+| **嵌入质量诊断** | 6 阶段分析：论文内/间分离度、离群 chunk 检测、长度相关性、章节类型分析 |
 | **个性化推荐** | 基于阅读行为和标注推荐下一篇该读什么 |
 | **文献综述生成** | 选定论文 → 提取证据及引用 → AI 生成主题综述 |
 | **智能标签建议** | 自动分析元数据推荐方法论/领域/数据标签（建议制，不自动应用） |
@@ -81,12 +86,19 @@
 
 ### 语义 RAG 管线
 
+- **文本清洗** — 52 条黑名单正则规则在分块前去除期刊 boilerplate 噪声（英文：文章信息栏、页眉；中文：卷期号、中图分类号、基金信息；通用：页码、DOI 行、重复标点）。由 `ZRA_CLEAN_ENABLED=true` 控制（默认开启）。清洗统计随 `sync_index` 报告。
 - **段落感知分块** — 按自然边界（段落→句子）切分，自适应合并至目标 600 字符；中文感知断句（`。！？` 无需空格即断），并修复 PDF 排版软换行（`满\n意度`→`满意度`），避免句子被从中间切断
-- **章节检测** — 自动识别并标记参考文献段落，搜索时默认排除
+- **Chunk 质量评分** — 每个 chunk 附带 7 维质量字段：`coherence_score`（句子长度变异度）、`information_density`（停用词占比）、`boilerplate_ratio`、`sentence_count`、`starts_with_conjunction`、`language`（zh/en/mixed）、`quality_flag`（good/noisy/incomplete/boilerplate）。存入 ChromaDB 元数据，支持质量感知过滤。
+- **章节检测** — IMRaD 分类通过正则标题匹配（英文编号 "1. Introduction"，中文 "一、引言"）；自动识别并排除参考文献/boilerplate 段落
 - **图表标注检测** — 识别 `Figure/Fig./Table/图/表` 等标注格式，标记含图表的 chunk 以便精准检索
 - **表格 / 图交叉引用** — 表格和图都作为轻量"标题锚点记录"入库，**不做单元格结构化**。表格保留：在哪里、标题、以及从标题到正文恢复之间的原始内容块（让表内数值仍可被检索）；图仅保留：在哪里 + 标题大致内容（不做图像识别）。正文里"如表3所示 / 如图2所示"的段落会自动链接到对应记录，`get_paper_content` 返回 `referenced_tables` / `referenced_figures`。（真正的表格结构化是视觉问题——可选视觉解析器见 [表格与图](#表格与图)。）
+- **章节级上下文扩展** — `expand_context=True` 时，命中 chunk 的同时从 SQLite + ChromaDB 获取其所在完整章节，赋予 LLM 完整的段落语境而非孤立片段。缓存批量查询保证性能。
+- **SQLite 元数据库** — 独立的关系型数据层（位于 `.chroma_db/papers.db`），含 7 张表：`papers`（标题、摘要、作者、年份、DOI、关键词）、`sections`（层级化 IMRaD 结构）、`chunks_meta`（位置 + 质量评分）、`figures`、`table_records` 及交叉引用表。零用户配置——首次同步自动创建。
+- **嵌入质量诊断** — 6 阶段分析管线：每篇论文内部相似度、论文间分离度比率、离群 chunk 检测（质心一致性 < 0.3）、chunk 长度与相似度 Pearson 相关性、章节类型嵌入分离度、自动问题检测与修复建议。
+- **评估框架** — 60 条黄金查询（直接命中、跨文档综合、无答案拒绝三类），指标：Recall@5/10/20、MRR、NDCG@10。CLI 支持 `--save-baseline` 和 `--compare` 进行 A/B 对比。
+- **检索日志** — 每次搜索输出 JSONL 全链路追踪（查询、策略、候选数、重排序详情、top-20 结果及分数、关键词/语义/重排序/总计延迟分解）。字节偏移索引文件支持按 trace ID 快速回溯。三个查询工具：`recent_retrievals`、`retrieval_trace`、`retrieval_stats`。
 - **分块版本化** — 策略变更自动触发全量重建索引，杜绝陈旧数据
-- **索引诊断** — `inspect_index` 展示 chunk 统计、质量问题、乱码检测
+- **索引诊断** — `inspect_index` 展示 chunk 统计、质量标签分布、章节分布、图表 chunk 数量、乱码检测
 - **召回率自测** — `test_recall` 验证论文自身 chunk 是否出现在 top-20 结果中
 - **健康监控** — `check_health` 诊断连接、索引、嵌入模型和配置状态
 
@@ -305,7 +317,11 @@ echo "$PWD\.venv\Scripts\python.exe"
 
 ### Claude Desktop
 
-编辑 `claude_desktop_config.json`（**macOS：** `~/Library/Application Support/Claude/claude_desktop_config.json` · **Windows：** `%APPDATA%\Claude\claude_desktop_config.json`）：
+**配置文件位置：**
+- **macOS：** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows：** `%APPDATA%\Claude\claude_desktop_config.json`（例如 `C:\Users\你的用户名\AppData\Roaming\Claude\claude_desktop_config.json`）
+
+创建或编辑该文件：
 
 ```json
 {
@@ -329,7 +345,9 @@ echo "$PWD\.venv\Scripts\python.exe"
 }
 ```
 
-重启 Claude Desktop，输入区出现锤子图标即成功。
+重启 Claude Desktop，输入区出现锤子图标即成功。点击可查看 35 个可用工具。
+
+> **注意：** Claude Desktop 需要 Pro 或 Team 订阅。`.env` 文件自动从项目目录（源码安装）或当前工作目录（pip 安装）读取，shell 环境变量同样生效。
 
 ### Cherry Studio
 
@@ -365,11 +383,28 @@ echo "$PWD\.venv\Scripts\python.exe"
 }
 ```
 
-随后在**设置 → 模型服务**中配置 LLM（DeepSeek、GPT-4o、Claude、Qwen 等），并在聊天界面开启 MCP 开关。完整图文教程见 [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md)。
+随后：
+1. **设置 → 模型服务** — 配置 LLM（DeepSeek、GPT-4o、Claude、Qwen 等）。推荐 Claude 或 GPT-4o，工具调用准确度更高。
+2. 新建对话 → 点击聊天输入栏的 **MCP 开关**（插头图标）启用工具。
+3. MCP 服务器状态应显示 **"已连接"**，并列出 35 个工具。
+
+如果 `.env` 文件不在默认搜索路径中，在 JSON 中添加 `"cwd": "/你/.env所在目录"`。
+
+完整图文教程见 [docs/cherry-studio-setup.md](./docs/cherry-studio-setup.md)。
 
 ### OpenAI Codex CLI
 
-添加至 `~/.codex/config.json`（或项目级 `.codex/config.json`）：
+**pip 安装**（最简单）：
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": { "command": "zra-mcp" }
+  }
+}
+```
+
+**源码安装：**
 
 ```json
 {
@@ -383,7 +418,9 @@ echo "$PWD\.venv\Scripts\python.exe"
 }
 ```
 
-（pip 安装：把这三行换成 `"command": "zra-mcp"` 即可。）之后正常使用 `codex "…"`，工具会被自动发现。
+添加至 `~/.codex/config.json`（全局）或项目级 `<project>/.codex/config.json`。之后运行 `codex "帮我找文库中关于城市研究的论文"`，35 个工具会自动被发现。
+
+运行 `codex mcp list` 可验证服务器已连接且所有工具已注册。环境变量从 `cwd` 目录的 `.env` 文件或 shell 环境中读取。
 
 > **其他 stdio MCP 客户端**（Trae、Windsurf 等）配置方式完全相同 —— 指向上面的 `command` / `args` / `cwd` 即可；环境变量自动读取 `<项目>/.env`。
 
@@ -469,7 +506,7 @@ echo "$PWD\.venv\Scripts\python.exe"
 
 ---
 
-## MCP 工具一览 (32)
+## MCP 工具一览 (35)
 
 | 类别 | 工具 |
 |------|------|
@@ -478,7 +515,7 @@ echo "$PWD\.venv\Scripts\python.exe"
 | **写入** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **管理** | `add_note`, `edit_tags`, `manage_collections` |
 | **洞察** | `reading_status`, `recommend_papers`, `generate_review_note`, `generate_reading_note`, `suggest_tags`, `find_arguments` |
-| **管控** | `sync_index`, `check_health`, `inspect_index`, `test_recall` |
+| **管控** | `sync_index`, `check_health`, `inspect_index`, `test_recall`, `recent_retrievals`, `retrieval_trace`, `retrieval_stats` |
 
 <details>
 <summary>展开工具详情</summary>
@@ -517,10 +554,13 @@ echo "$PWD\.venv\Scripts\python.exe"
 - **`find_arguments`** — 按立场分类查找支持/反对证据。
 
 ### 管控
-- **`sync_index`** — 增量同步向量索引。启动时自动运行。报告质量摘要并检测分块版本变更。
+- **`sync_index`** — 增量同步向量索引。启动时自动运行。报告质量摘要、清洗统计，并检测分块版本变更。
 - **`check_health`** — 诊断连接、索引、嵌入模型、在线 API 和配置。中英双语输出含修复建议。
-- **`inspect_index`** — 索引质量检视：chunk 统计、章节分布、图表 chunk 数量、乱码检测、单论文详情。
+- **`inspect_index`** — 索引质量检视：chunk 统计、质量标签分布、章节分布、图表 chunk 数量、乱码检测、单论文详情。
 - **`test_recall`** — 对特定论文测试检索质量：用标题查询，验证自身 chunk 是否出现在 top-20 结果中。
+- **`recent_retrievals`** — 浏览最近的检索记录（可按策略过滤：hybrid/semantic/keyword/fallback）。查看查询内容、返回结果数、延迟分解。
+- **`retrieval_trace`** — 按 trace ID 回放某次检索的完整链路：查询、候选数、重排序详情、排序结果列表。用于排查"为什么这篇论文排在第 5 位而不是第 1 位？"
+- **`retrieval_stats`** — 聚合统计：总查询数、平均延迟、策略分布、回退率。
 
 </details>
 
@@ -541,6 +581,7 @@ echo "$PWD\.venv\Scripts\python.exe"
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 重排序模型（设 `none` 禁用） |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | 本地向量数据库路径 |
 | `ZRA_AUTO_SYNC` | `true` | MCP 启动时自动增量同步 |
+| `ZRA_CLEAN_ENABLED` | `true` | 分块前去除期刊 boilerplate 噪声（页眉页脚、文章信息栏） |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | 可选；提升在线搜索速率 |
 | `OPENALEX_MAILTO` | — | 可选；OpenAlex 礼貌池 |
 | `UNPAYWALL_EMAIL` | — | 可选；Unpaywall OA PDF 查找 |
@@ -692,7 +733,8 @@ playwright install chromium
 | **Windows 脚本被阻止** | PowerShell 执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 | **MCP 工具未被调用** | 使用支持 function calling 的模型；客户端开启 MCP/工具 |
 | **AI 不确认就执行写操作** | 系统提示词加入"执行写操作前必须等待明确确认" |
-| **搜索结果差** | 发送"检查系统健康" → `check_health` 诊断问题 |
+| **搜索结果差** | 发送"检查系统健康" → `check_health` 诊断问题；发送"显示最近的检索记录" → `recent_retrievals` 查看检索链路 |
+| **"为什么没搜到这篇论文？"** | 发送"显示最近的检索" → 获取 trace ID → "回放检索 trace [id]" → `retrieval_trace` 查看完整排序细节 |
 | **索引似乎过时** | 发送"检查我的索引" → `inspect_index` 展示版本和质量指标 |
 | **CNKI 显示"搜索已禁用"** | 完成 [CNKI 配置](#cnki-配置可选) 步骤 |
 | **CNKI 验证码** | 在 Chrome 窗口中完成滑块验证后重试 |
@@ -703,14 +745,17 @@ playwright install chromium
 
 ```
 research_core/          # 核心库 — Zotero 客户端、RAG 管线、搜索适配器、工具
-  parsers/              #   PDF 提取、中文感知语义分块、表格提取、图表标注检测
-  rag/                  #   ChromaDB 索引器、检索器、嵌入、同步状态
-  tools/                #   32 个工具实现（按领域分文件）
+  parsers/              #   PDF 提取、中英文感知分块、文本清洗器（52 规则）、
+                        #   章节检测器（IMRaD）、chunk 质量评分、图表标注检测
+  rag/                  #   ChromaDB 索引/存储/检索、SQLite 元数据库、
+                        #   嵌入质量诊断、评估框架、检索日志
+  tools/                #   35 个工具实现（按领域分文件）
   zotero/               #   Zotero 本地 + Web API 客户端
 project_a_mcp/          # MCP 服务端入口（stdio 传输）
-scripts/                # CLI 工具（index_library.py 等）
-tests/                  # 单元 + 集成测试
-docs/                   # 详细配置指南
+scripts/                # CLI 工具（index_library, index_sample, audit_index,
+                        #   run_evaluation, generate_eval_queries）
+tests/                  # 单元 + 集成测试，60 条黄金评估查询
+docs/                   # 详细配置指南（Cherry Studio 中英文）
 ```
 
 每个工具对应**一个用户意图** — 发现工具返回 `item_key`，读写工具消费它。
