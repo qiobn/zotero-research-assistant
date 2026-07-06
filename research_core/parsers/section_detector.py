@@ -166,7 +166,7 @@ def detect_sections(chunks: list[Chunk]) -> SectionDetectionResult:
 
     for i, chunk in enumerate(chunks):
         # Skip boilerplate/noisy chunks for heading detection
-        if chunk.quality_flag in ("boilerplate", "incomplete"):
+        if chunk.quality_flag == "incomplete":
             continue
 
         text = chunk.text

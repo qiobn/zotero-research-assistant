@@ -273,8 +273,9 @@ def run_embedding_diagnostics(
             f"(similarity to paper centroid < {outlier_threshold})."
         )
         report.suggestions.append(
-            "Outlier chunks may be garbled text, figure/table fragments, or boilerplate. "
-            "Check outlier examples and consider quality_flag filtering during retrieval."
+            "Outlier chunks may be garbled text, figure/table fragments, or noise. "
+            "Check outlier examples — if they are garbled, the text cleaner or chunker "
+            "may need rule additions."
         )
 
     if report.length_sim_correlation < -0.3:

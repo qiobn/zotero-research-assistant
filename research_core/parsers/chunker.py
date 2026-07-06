@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 
 from research_core.parsers.pdf import PageText
 
-CHUNKING_VERSION = "v2.9.0-quality-metadata"
+CHUNKING_VERSION = "v3.0.0-simplified-quality"
 
 # Sentence boundaries, CJK-aware. CJK terminators (。！？；…) are NOT followed by
 # a space in Chinese/Japanese text, so we split immediately after them; ASCII
@@ -127,14 +127,11 @@ class Chunk:
     page_end: int
     chunk_idx: int
     metadata: dict = field(default_factory=dict)
-    # Quality scores (computed post-chunking by score_chunk_quality)
-    coherence_score: float = 0.0
-    information_density: float = 0.0
-    boilerplate_ratio: float = 0.0
+    # Basic properties (computed post-chunking by _tag_chunk_basics)
+    language: str = ""  # "zh" / "en" / "mixed"
     sentence_count: int = 0
     starts_with_conjunction: bool = False
-    language: str = ""  # "zh" / "en" / "mixed"
-    quality_flag: str = "good"  # "good" / "noisy" / "incomplete" / "boilerplate"
+    quality_flag: str = "good"  # "good" / "incomplete"
 
 
 def chunk_text(
@@ -210,7 +207,8 @@ def chunk_text(
         _tag_refs(chunks, available_fig_refs, _FIGURE_REF_PREFIX, "figure_refs")
 
     chunks = _enforce_max_chars(chunks, max_chunk_size)
-    score_chunks_quality(chunks)
+    chunks = _merge_short_chunks(chunks)
+    _tag_chunks_basics(chunks)
     return chunks
 
 
@@ -888,68 +886,34 @@ def _page_at(
     return boundaries[-1][2] if boundaries else 0
 
 
-# ── Chunk Quality Scoring ────────────────────────────────────────────
+# ── Chunk Basic Tagging ──────────────────────────────────────────────
 
-
-# Common CJK + English stopwords for information density calculation
-_CJK_STOP = set("的了吗呢吧啊是在有和与及或到对给让把被比向从为以因所以虽然但是如果然而"
-                "等这那其该何每某个些很都也太更最极了着过还又之而于之")
-_EN_STOP = {
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
-    "should", "may", "might", "must", "can", "could", "in", "of", "to",
-    "for", "on", "with", "at", "by", "from", "as", "into", "through",
-    "during", "before", "after", "above", "below", "between", "under",
-    "and", "or", "not", "but", "if", "while", "where", "when", "which",
-    "who", "whom", "whose", "this", "that", "these", "those", "it", "its",
-    "they", "them", "their", "we", "us", "our", "he", "she", "his", "her",
-    "also", "such", "than", "then", "about", "each", "all", "both", "few",
-    "more", "most", "other", "some", "only", "over", "very", "just",
-}
-
-# Academic boilerplate fragments (case-insensitive)
-_BOILERPLATE_FRAGMENTS = [
-    "the author", "the authors", "we would like to thank",
-    "this work was supported", "this research was funded",
-    "this study was supported", "funded by", "grant number",
-    "conflict of interest", "competing interest", "declaration of",
-    "supplementary material", "supplementary data", "supporting information",
-    "available online", "additional file", "data availability statement",
-    "author contributions", "corresponding author", "correspondence to",
-    "open access", "creative commons", "cc by", "all rights reserved",
-    "published by", "peer review", "submitted", "accepted", "revised",
-]
-
-# Words that suggest a chunk was split mid-sentence from the previous chunk
+# Starts-with-conjunction check — signals prior chunk boundary cut
 _CONJUNCTION_STARTS = {
-    "and", "or", "but", "also", "however", "therefore", "thus", "moreover",
-    "furthermore", "additionally", "meanwhile", "nevertheless", "then",
-    "此外", "另外", "而且", "并且", "但是", "然而", "因此", "所以",
-    "同时", "另一方面", "除此之外", "不仅如此", "综上",
+    "and", "but", "or", "however", "therefore", "thus", "moreover",
+    "furthermore", "additionally", "also", "meanwhile",
+    "并", "并且", "而且", "但是", "然而", "因此", "所以", "此外",
+    "另外", "同时", "以及", "还有",
 }
 
-_BOILERPLATE_PATTERNS = [
-    re.compile(r"(?:http|www\.)\S+", re.IGNORECASE),
-    re.compile(r"^\d{1,3}\s*$", re.MULTILINE),  # standalone number (page/line)
-]
 
+def _tag_chunk_basics(chunk: Chunk, sentences: list[str]) -> None:
+    """Populate language, sentence_count, and quality_flag for a chunk.
 
-def score_chunk_quality(chunk: Chunk) -> None:
-    """Compute and populate quality scores for a single chunk in-place.
-
-    Lightweight heuristics — no extra model calls. Designed to run at scale
-    during indexing without meaningful overhead.
+    Minimal, cheap tags — only what has a clear downstream use:
+    - language: query-language matching
+    - sentence_count / starts_with_conjunction: boundary quality diagnostics
+    - quality_flag: "incomplete" for fragments, "good" otherwise
     """
     text = chunk.text.strip()
     if not text:
         chunk.quality_flag = "incomplete"
+        chunk.language = "en"
         return
 
-    # ── Sentence count ──
-    sentences = _split_sentences(text)
     chunk.sentence_count = len(sentences)
 
-    # ── Language detection ──
+    # ── Language detection (CJK / ASCII ratio) ──
     cjk_chars = sum(1 for c in text if "一" <= c <= "鿿")
     ascii_chars = sum(1 for c in text if c.isascii() and c.isalpha())
     total_alpha = cjk_chars + ascii_chars
@@ -962,57 +926,88 @@ def score_chunk_quality(chunk: Chunk) -> None:
         else:
             chunk.language = "mixed"
     else:
-        chunk.language = "en"  # default for numeric/formula-heavy
-
-    # ── Information density ──
-    chars_no_punct = sum(1 for c in text if c.isalnum() or c.isspace())
-    if len(text) > 0:
-        chunk.information_density = round(chars_no_punct / len(text), 3)
-
-    # ── Boilerplate ratio ──
-    text_lower = text.lower()
-    boiler_hits = 0
-    for frag in _BOILERPLATE_FRAGMENTS:
-        if frag in text_lower:
-            boiler_hits += 1
-    for pat in _BOILERPLATE_PATTERNS:
-        boiler_hits += len(pat.findall(text))
-    # Normalize: boiler hits per 100 chars
-    chunk.boilerplate_ratio = round(min(1.0, boiler_hits / max(1, len(text)) * 100), 3)
-
-    # ── Coherence proxy ──
-    # Use sentence length consistency as a proxy for structural coherence.
-    # Well-written prose has moderate variance; lists/tables have extreme variance.
-    if len(sentences) >= 2:
-        sent_lens = [len(s) for s in sentences]
-        avg_len = sum(sent_lens) / len(sent_lens)
-        if avg_len > 0:
-            variance = sum((l - avg_len) ** 2 for l in sent_lens) / len(sent_lens)
-            cv = (variance ** 0.5) / avg_len  # coefficient of variation
-            # Map CV to a 0-1 coherence score (lower CV = more coherent)
-            chunk.coherence_score = round(max(0.0, min(1.0, 1.0 - cv)), 3)
-    else:
-        chunk.coherence_score = 1.0  # single sentence = coherent by definition
+        chunk.language = "en"
 
     # ── Starts with conjunction ──
-    first_word = text.split()[0].strip("，。！？.!?；;…,、:：") if text.split() else ""
-    chunk.starts_with_conjunction = first_word.lower() in _CONJUNCTION_STARTS
+    words = text.split()
+    if words:
+        first_word = words[0].strip("，。！？.!?；;…,、:：")
+        chunk.starts_with_conjunction = first_word.lower() in _CONJUNCTION_STARTS
 
     # ── Quality flag ──
-    if len(text) < 40:
+    if len(text) < 40 or chunk.sentence_count == 0:
         chunk.quality_flag = "incomplete"
-    elif chunk.boilerplate_ratio > 0.15:
-        chunk.quality_flag = "boilerplate"
-    elif chunk.coherence_score < 0.3:
-        chunk.quality_flag = "noisy"
-    elif chunk.starts_with_conjunction and chunk.information_density < 0.5:
-        chunk.quality_flag = "noisy"
     else:
         chunk.quality_flag = "good"
 
 
-def score_chunks_quality(chunks: list[Chunk]) -> list[Chunk]:
-    """Convenience: score all chunks in a list."""
+def _tag_chunks_basics(chunks: list[Chunk]) -> list[Chunk]:
+    """Convenience: tag all chunks with basic properties."""
     for c in chunks:
-        score_chunk_quality(c)
+        sentences = _split_sentences(c.text)
+        _tag_chunk_basics(c, sentences)
     return chunks
+
+
+# ── Short Chunk Merging ──────────────────────────────────────────────
+
+_MIN_CHUNK_FLOOR = 200  # Per FloTorch 2026: fragments below this hurt e2e accuracy
+
+
+def _merge_short_chunks(chunks: list[Chunk], min_size: int = _MIN_CHUNK_FLOOR) -> list[Chunk]:
+    """Merge chunks shorter than min_size into neighbors.
+
+    Standalone chunks (tables, figures, captions) are never merged — they carry
+    structured meaning in isolation. Regular prose chunks below the floor are
+    merged backward (preferred) or forward (first chunk).
+    """
+    if not chunks:
+        return chunks
+
+    standalone_types = {"is_table", "is_figure"}
+    merged: list[Chunk] = []
+    i = 0
+
+    while i < len(chunks):
+        c = chunks[i]
+        # Never merge standalone chunks (tables/figures) or chunks at/above floor
+        is_standalone = any(c.metadata.get(k) for k in standalone_types)
+        if is_standalone or len(c.text) >= min_size:
+            merged.append(c)
+            i += 1
+            continue
+
+        # This chunk is too short — merge it backward (preferred)
+        short_text = c.text
+
+        if merged:
+            prev = merged[-1]
+            prev.text = prev.text.rstrip() + "\n\n" + short_text
+            prev.page_end = max(prev.page_end, c.page_end)
+            # Merge metadata: combine refs
+            for k in ("table_refs", "figure_refs", "cites_tables", "cites_figures"):
+                prev_set = set(prev.metadata.get(k, []))
+                cur_set = set(c.metadata.get(k, []))
+                if prev_set or cur_set:
+                    prev.metadata[k] = sorted(prev_set | cur_set)
+        elif i + 1 < len(chunks):
+            # First chunk in document is short — merge forward
+            next_c = chunks[i + 1]
+            next_c.text = short_text + "\n\n" + next_c.text.lstrip()
+            next_c.page_start = min(next_c.page_start, c.page_start)
+            merged.append(next_c)
+            i += 2
+            continue
+        else:
+            # Only chunk in document — keep as-is
+            merged.append(c)
+
+        i += 1
+
+    # Re-number chunk indices
+    for new_idx, c in enumerate(merged):
+        c.chunk_idx = new_idx
+
+    return merged
+
+

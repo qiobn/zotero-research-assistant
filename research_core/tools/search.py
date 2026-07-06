@@ -43,11 +43,15 @@ def search_papers(
     collection_key: str = "",
     limit: int = 10,
     expand_context: bool = False,
+    expand_neighbors: bool = False,
 ) -> list[PaperHit]:
     """Hybrid search: keyword (Zotero API) + semantic (vector store) merged via RRF.
 
     When expand_context=True, each result includes the full section text
     (all chunks in the same section) for richer LLM context.
+
+    When expand_neighbors=True, each result includes the hit chunk ±1 neighbor
+    chunks — a lighter alternative to full section expansion.
 
     If query is empty, skips semantic search and returns all items matching the filters
     (year/tags/collection), sorted by date added (most recent first).
@@ -99,7 +103,8 @@ def search_papers(
     if has_query:
         t0 = time.time()
         semantic_hits = retriever.search(query, n_results=limit * overfetch,
-                                          expand_context=expand_context)
+                                          expand_context=expand_context,
+                                          expand_neighbors=expand_neighbors)
         t_semantic = (time.time() - t0) * 1000
 
     pre_rerank_n = len(semantic_hits)
@@ -120,7 +125,12 @@ def search_papers(
             continue
         seen_keys.add(hit.item_key)
         semantic_ranks[hit.item_key] = rank + 1
-        if expand_context and hit.section_context:
+        if expand_neighbors and hit.neighbor_context:
+            semantic_best_passage[hit.item_key] = (
+                hit.neighbor_context.full_text[:2000],
+                hit.neighbor_context.page_start,
+            )
+        elif expand_context and hit.section_context:
             semantic_best_passage[hit.item_key] = (
                 hit.section_context.full_text[:2000],
                 hit.section_context.page_start,

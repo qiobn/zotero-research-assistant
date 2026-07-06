@@ -77,9 +77,6 @@ class ChunkMetaRow:
     page_start: int = 0
     page_end: int = 0
     quality_flag: str = "good"
-    coherence_score: float = 0.0
-    information_density: float = 0.0
-    boilerplate_ratio: float = 0.0
     sentence_count: int = 0
     language: str = ""
     is_table: bool = False
@@ -227,9 +224,6 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             page_start       INTEGER DEFAULT 0,
             page_end         INTEGER DEFAULT 0,
             quality_flag     TEXT DEFAULT 'good',
-            coherence_score  REAL DEFAULT 0.0,
-            information_density REAL DEFAULT 0.0,
-            boilerplate_ratio   REAL DEFAULT 0.0,
             sentence_count   INTEGER DEFAULT 0,
             language         TEXT DEFAULT '',
             is_table         INTEGER DEFAULT 0,
@@ -347,15 +341,13 @@ def insert_chunks_meta(
     conn.executemany("""
         INSERT OR REPLACE INTO chunks_meta
             (id, item_key, chunk_idx, section_id, page_start, page_end,
-             quality_flag, coherence_score, information_density,
-             boilerplate_ratio, sentence_count, language, is_table, is_figure)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             quality_flag, sentence_count, language, is_table, is_figure)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, [
         (
             c.id, c.item_key, c.chunk_idx, c.section_id,
             c.page_start, c.page_end, c.quality_flag,
-            c.coherence_score, c.information_density,
-            c.boilerplate_ratio, c.sentence_count, c.language,
+            c.sentence_count, c.language,
             int(c.is_table), int(c.is_figure),
         )
         for c in chunks
