@@ -475,6 +475,9 @@ def search_papers(
     tags_exclude: list[str] | None = None,
     collection_key: str = "",
     limit: int = 10,
+    expand_context: bool = False,
+    expand_neighbors: bool = False,
+    diversity_weight: float = 0.0,
 ) -> list[dict]:
     """Find papers in the user's Zotero library by topic, keywords, or filters.
 
@@ -506,6 +509,10 @@ def search_papers(
         tags_exclude: Drop any paper carrying ANY of these tags.
         collection_key: Restrict search to a single Zotero collection.
         limit: Max results to return (default 10).
+        expand_context: Attach full section text to each hit (2000 chars vs 300).
+        expand_neighbors: Attach ±1 neighbor chunks to each hit (lighter alternative).
+        diversity_weight: MMR diversity (0=disabled, 0.6=recommended). Prevents
+                          single-paper dominance in top results.
 
     Returns:
         List of papers ordered by relevance (or date if no query), each with key,
@@ -522,6 +529,9 @@ def search_papers(
         tags_exclude=normalize_list(tags_exclude, "tags_exclude"),
         collection_key=collection_key,
         limit=limit,
+        expand_context=expand_context,
+        expand_neighbors=expand_neighbors,
+        diversity_weight=diversity_weight,
     )
     return [h.__dict__ for h in hits]
 
