@@ -63,6 +63,7 @@ class RetrievalLog:
     latency_keyword_ms: float = 0.0
     latency_semantic_ms: float = 0.0
     latency_rerank_ms: float = 0.0
+    latency_mmr_ms: float = 0.0
     latency_total_ms: float = 0.0
 
     # Status

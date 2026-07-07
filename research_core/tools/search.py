@@ -44,6 +44,7 @@ def search_papers(
     limit: int = 10,
     expand_context: bool = False,
     expand_neighbors: bool = False,
+    diversity_weight: float = 0.0,
 ) -> list[PaperHit]:
     """Hybrid search: keyword (Zotero API) + semantic (vector store) merged via RRF.
 
@@ -52,6 +53,10 @@ def search_papers(
 
     When expand_neighbors=True, each result includes the hit chunk ±1 neighbor
     chunks — a lighter alternative to full section expansion.
+
+    When diversity_weight > 0, applies MMR (Maximal Marginal Relevance) after
+    Cross-Encoder reranking. Chunk-level MMR with hard cap of 3 chunks per
+    paper and per-document penalty of 0.1. Set to 0.6 for recommended balance.
 
     If query is empty, skips semantic search and returns all items matching the filters
     (year/tags/collection), sorted by date added (most recent first).
@@ -144,6 +149,24 @@ def search_papers(
         reranked = reranker.rerank(query, docs, top_k=limit * 3)
         semantic_hits = [semantic_hits[idx] for idx, _ in reranked]
         t_rerank = (time.time() - t0) * 1000
+
+    # ── MMR Diversity Reranking (post Cross-Encoder) ──
+    t_mmr = 0.0
+    mmr_applied = False
+    if diversity_weight > 0 and semantic_hits and has_query:
+        t0 = time.time()
+        pre_mmr_n = len(semantic_hits)
+        pre_mmr_papers = len(set(h.item_key for h in semantic_hits))
+        semantic_hits = retriever.mmr_diversify(
+            semantic_hits,
+            diversity_weight=diversity_weight,
+        )
+        post_mmr_papers = len(set(h.item_key for h in semantic_hits))
+        t_mmr = (time.time() - t0) * 1000
+        mmr_applied = True
+        log_params["mmr_weight"] = diversity_weight
+        log_params["mmr_papers_before"] = pre_mmr_n
+        log_params["mmr_papers_after"] = post_mmr_papers
 
     keyword_ranks = {item.key: rank + 1 for rank, item in enumerate(keyword_items)}
     semantic_ranks: dict[str, int] = {}
@@ -305,7 +328,8 @@ def search_papers(
         latency_keyword_ms=round(t_keyword, 1),
         latency_semantic_ms=round(t_semantic, 1),
         latency_rerank_ms=round(t_rerank, 1),
-        latency_total_ms=round(t_keyword + t_semantic + t_rerank, 1),
+        latency_mmr_ms=round(t_mmr, 1),
+        latency_total_ms=round(t_keyword + t_semantic + t_rerank + t_mmr, 1),
     ))
 
     return hits
