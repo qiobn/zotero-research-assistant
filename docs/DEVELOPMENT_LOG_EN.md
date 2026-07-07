@@ -225,22 +225,30 @@ Text cleaning + overlap changes:
 
 ---
 
+#### MMR Diversity Reranking (2026-07-07, `980ab81` / `ac925fd`)
+
+- Chunk-level MMR: lambda=0.6, uses existing bge-m3 embeddings from ChromaDB (~15ms)
+- Hard cap: 3 chunks/paper; per-document penalty: 0.1 per extra chunk
+- Enabled by default; tested on 6 queries: avg +1.2 papers, max chunks 4.8->2.7
+
+#### Query Rewrite Dictionary (2026-07-07, `c10aeff` / `89ecae5`)
+
+- 3-layer: ~300 built-in pairs + Zotero tags + add_query_synonym MCP tool
+- CN-EN bidirectional, LRU-cached, zero latency, no LLM dependency
+
 ### Known Issues (v0.3.0)
 
-1. **Embedding separation 0.95x** — wait for Phase 3 query rewrite + metadata-enhanced reranking
+1. **Embedding separation 0.95x** — wait for metadata-enhanced reranking
 2. **Length-sim positive correlation r=0.44** — chunks may rank by length not content
 3. **CNKI module unstable** — depends on browser automation (Playwright + Chrome CDP), disabled by default
-4. **No Contextual Summarization** — Phase 2.5 deferred; requires MCP server to have independent LLM access
-5. **No Query Rewrite** — Phase 3.1 pending; CN/EN terminology mismatch scenarios affected
+4. **No Contextual Summarization** — requires MCP server to have independent LLM access
 
-### Phase 3 Roadmap
+### Next Steps
 
 | Priority | Task | Expected Impact |
 |----------|------|-----------------|
-| P0 | Query Rewrite (CN-EN expansion + synonyms) | Direct Recall improvement |
-| P1 | Adaptive Chunk Size (methods=400, discussion=700) | Better long-paragraph retrieval |
-| P1 | MMR Diversity Reranking | Prevent single-paper domination |
-| P2 | Metadata-Enhanced Reranking (citations, journal, retraction) | Better academic ranking |
+| P0 | Adaptive Chunk Size (methods=400, discussion=700) | Better long-paragraph retrieval |
+| P1 | Metadata-Enhanced Reranking (citations, journal, retraction) | Better academic ranking |
 | P2 | Unified `diagnose_rag` MCP tool | One-click pipeline diagnostics |
 | P3 | Contextual Summarization (PaperQA2-style) | Query-relevant summary reranking (needs extra LLM) |
 

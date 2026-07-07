@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **MMR (Maximal Marginal Relevance) diversity reranking** — chunk-level MMR
+  with per-document cap (max 3 chunks per paper) and per-document penalty.
+  Operates on existing bge-m3 embeddings (~15ms overhead). Enabled by default
+  (diversity_weight=0.6); set to 0 for single-paper retrieval. Prevents
+  single-paper dominance: test set showed up to 7→3 max chunks from one paper
+  and 4→6 unique papers in top-10.
+- **Multi-layer bilingual query expansion** — 3-layer system with ~300 built-in
+  methodology term pairs (Layer 1), auto-extracted Zotero tags (Layer 2), and
+  user-defined synonyms via `add_query_synonym` MCP tool (Layer 3). CN↔EN
+  bidirectional, zero-latency dictionary lookup, LRU-cached.
+- **Neighbor chunk expansion** — `expand_neighbors=True` returns hit chunk ±1
+  adjacent chunk within the same section (~500 chars context vs 2000 for full
+  section expansion). Via `Retriever.expand_to_neighbors()`.
+- **Min chunk size floor (200 chars)** — post-chunking merge pass eliminating
+  fragments below the FloTorch 2026 threshold for e2e accuracy.
+
+### Changed
+- **Chunk quality scoring simplified** — dropped unused heuristic fields
+  (coherence_score, information_density, boilerplate_ratio) that were
+  never consumed by retrieval. Now only tags language, sentence_count,
+  starts_with_conjunction, and quality_flag (good/incomplete).
+- **MMR diversity enabled by default** in search_papers() (diversity_weight=0.6).
+- **MCP tools: 32 → 36** with add_query_synonym, recent_retrievals,
+  retrieval_trace, and retrieval_stats.
+- **CHUNKING_VERSION: v2.9.0 → v3.0.0** (triggers auto-rebuild).
+
 ## [0.3.0] - 2026-07-06
 
 A major RAG quality release — production-grade retrieval pipeline with text cleaning,

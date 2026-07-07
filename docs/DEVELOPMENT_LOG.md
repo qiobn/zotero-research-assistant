@@ -290,19 +290,39 @@ python scripts/run_evaluation.py --compare    # vs 基线 A/B 对比
 
 ---
 
+#### MMR 多样性重排序 (2026-07-07, `980ab81` / `ac925fd`)
+
+- Chunk 级 MMR：λ=0.6（60% 相关性 + 40% 多样性）
+- 利用 ChromaDB 中已有的 bge-m3 embedding，一次 `collection.get()` 获取（~15ms）
+- 硬 cap：每篇论文最多 3 个 chunk；per-document penalty：第 3 个起每 chunk -0.1
+- 默认开启（`diversity_weight=0.6`），`diversity_weight=0` 关闭
+- 测试结果（6 个查询）：
+  - 论文数：平均 +1.2 篇（最高 +2 篇）
+  - 单篇最多 chunk：平均从 4.8 降到 2.7（最高从 8 降到 3）
+  - 原本已多样化的查询不受影响
+
+#### Query Rewrite 词典扩展 (2026-07-07, `c10aeff` / `89ecae5`)
+
+- 三层架构：内置 ~300 对方法论词典 + Zotero 标签自动提取 + `add_query_synonym` MCP 工具
+- CN↔EN 双向，最长贪婪匹配，LRU 缓存 512 条（<2ms）
+- 6 大类：研究方法、变量统计、AI/ML、RAG/检索、数据评估、社科经济
+- 集成在 `search_papers()` 中，无感知、零延迟、无 LLM 依赖
+
+---
+
 ### 当前已知问题
 
-1. **嵌入分离度 0.95x**（低于 1.0）— 等 Phase 3 query rewrite + 元数据增强重排序解决
+1. **嵌入分离度 0.95x**（低于 1.0）— 等元数据增强重排序解决
 2. **长度-相似度正相关 r=0.44** — chunk 可能靠长度而非内容排名
 3. **CNKI 模块不稳定** — 依赖浏览器自动化（Playwright + Chrome CDP），默认关闭
-4. **无 Contextual Summarization** — Phase 2.5 推迟，需要 MCP server 有独立 LLM 访问权限
-5. **无 Query Rewrite** — Phase 3.1 待做，中英双语术语不匹配场景受影响
+4. **无 Contextual Summarization** — 需要 MCP server 有独立 LLM 访问权限
 
 ### 下一阶段方向 (Phase 3)
 
 | 优先级 | 任务 | 预期收益 |
 |--------|------|----------|
-| P0 | Query Rewrite（中英双语扩展 + 同义词） | 直接提升 Recall，解决中英文术语不匹配 |
+| P0 | 自适应 Chunk 粒度（methods=400, discussion=700） | 提升长段落检索精度 |
+| P1 | 元数据增强重排序（引用数、期刊质量、撤稿状态） | 提升学术排序质量 |
 | P1 | 自适应 Chunk 粒度（methods=400, discussion=700） | 提升长段落检索精度 |
 | P1 | MMR 多样性重排序 | 防止单篇论文主导 top-K |
 | P2 | 元数据增强重排序（引用数、期刊质量、撤稿状态） | 提升学术排序质量 |
