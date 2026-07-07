@@ -512,7 +512,7 @@ def sync_index(
         load_user_synonyms(synonyms_file)
         user_syns = get_user_synonyms()
         report.query_expansion = {
-            "builtin_dict_pairs": 190,  # approximate count from query_dict.json
+            "builtin_dict_pairs": 310,  # approximate count from query_dict.json
             "user_tags_loaded": len(set(all_tags)),
             "user_synonyms": len(user_syns),
         }
