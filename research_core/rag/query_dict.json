@@ -1,5 +1,5 @@
 {
-  "_description": "Bilingual query expansion dictionary — Layer 1 (built-in). Focus on cross-disciplinary research methodology terms that appear in searches regardless of domain. ~200 pairs covering research design, data collection, statistical analysis, review types, and general academic vocabulary. Domain-specific terms are handled by Layer 2 (auto-extracted from user's Zotero tags/keywords) and Layer 3 (user-defined via add_query_synonym).",
+  "_description": "Bilingual query expansion dictionary — Layer 1 (built-in). ~300 pairs covering research design, data collection, statistical analysis, review types, AI/ML methodology, RAG/retrieval terminology, evaluation metrics, and key social science terms. Domain-specific terms are handled by Layer 2 (auto-extracted from user's Zotero tags/keywords) and Layer 3 (user-defined via add_query_synonym).",
 
   "_format": "\"chinese_term\": [\"english_equiv_1\", \"english_equiv_2\", ...]. Keys are matched by longest-greedy scan in query text. Values are injected as expansion terms with weight 0.4.",
 
