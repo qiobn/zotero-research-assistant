@@ -477,7 +477,7 @@ def search_papers(
     limit: int = 10,
     expand_context: bool = False,
     expand_neighbors: bool = False,
-    diversity_weight: float = 0.0,
+    diversity_weight: float = 0.6,
 ) -> list[dict]:
     """Find papers in the user's Zotero library by topic, keywords, or filters.
 
@@ -511,8 +511,9 @@ def search_papers(
         limit: Max results to return (default 10).
         expand_context: Attach full section text to each hit (2000 chars vs 300).
         expand_neighbors: Attach ±1 neighbor chunks to each hit (lighter alternative).
-        diversity_weight: MMR diversity (0=disabled, 0.6=recommended). Prevents
-                          single-paper dominance in top results.
+        diversity_weight: MMR diversity (0.6=recommended default, 0=disabled).
+                          Prevents single-paper dominance in top results.
+                          Set to 0 when doing targeted single-paper retrieval.
 
     Returns:
         List of papers ordered by relevance (or date if no query), each with key,

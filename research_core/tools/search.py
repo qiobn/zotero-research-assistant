@@ -44,7 +44,7 @@ def search_papers(
     limit: int = 10,
     expand_context: bool = False,
     expand_neighbors: bool = False,
-    diversity_weight: float = 0.0,
+    diversity_weight: float = 0.6,
 ) -> list[PaperHit]:
     """Hybrid search: keyword (Zotero API) + semantic (vector store) merged via RRF.
 
@@ -54,9 +54,10 @@ def search_papers(
     When expand_neighbors=True, each result includes the hit chunk ±1 neighbor
     chunks — a lighter alternative to full section expansion.
 
-    When diversity_weight > 0, applies MMR (Maximal Marginal Relevance) after
-    Cross-Encoder reranking. Chunk-level MMR with hard cap of 3 chunks per
-    paper and per-document penalty of 0.1. Set to 0.6 for recommended balance.
+    Applies MMR (Maximal Marginal Relevance) diversity reranking by default
+    (diversity_weight=0.6). Chunk-level MMR with hard cap of 3 chunks per
+    paper and per-document penalty of 0.1. Set diversity_weight=0 to disable
+    (e.g. for targeted single-paper retrieval).
 
     If query is empty, skips semantic search and returns all items matching the filters
     (year/tags/collection), sorted by date added (most recent first).
