@@ -39,13 +39,24 @@ docs/          — Setup guides (Cherry Studio CN/EN)
 
 2. **Update `CHANGELOG.md`** — Keep a Changelog format (`Added`/`Changed`/`Fixed`/`Removed` sections under current version). User-facing, less technical than DEVELOPMENT_LOG.
 
-3. **Commit with a conventional commit message:**
-   - `feat:` — new feature
-   - `fix:` — bug fix
-   - `docs:` — documentation only
-   - `refactor:` — code restructuring without behavior change
-   - `chore:` — tooling, build, dependencies
-   - Example: `feat: add query rewrite for Chinese-English bilingual expansion`
+3. **Commit with a conventional commit message — ALWAYS include a body, never an empty commit:**
+   - First line: `<type>: <summary>` (50-80 chars, imperative mood)
+   - Then a BLANK LINE
+   - Then body paragraphs explaining **what** changed, **why**, and any design notes
+   - Types: `feat:` / `fix:` / `docs:` / `refactor:` / `chore:`
+   - Example:
+     ```
+     feat: add query rewrite for bilingual academic search
+
+     Dictionary-based CN<->EN term expansion with three layers:
+     Layer 1: ~300 built-in methodology pairs from query_dict.json
+     Layer 2: auto-extracted from user's Zotero tags during sync
+     Layer 3: user-defined via add_query_synonym MCP tool
+
+     Expansion runs in search_papers() — zero added latency, no LLM
+     dependency. Each expanded term runs independent semantic search
+     with RRF merging and expansion weight scoring.
+     ```
 
 4. **Push** after each logical unit of work (not after every micro-edit).
 
