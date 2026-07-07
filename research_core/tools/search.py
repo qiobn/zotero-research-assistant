@@ -27,6 +27,9 @@ class PaperHit:
     matched_passage: str = ""
     matched_page: int = 0
     source: str = "hybrid"
+    paper_abstract: str = ""
+    section_heading: str = ""
+    section_type: str = ""
 
 
 def search_papers(
@@ -39,8 +42,16 @@ def search_papers(
     tags_exclude: list[str] | None = None,
     collection_key: str = "",
     limit: int = 10,
+    expand_context: bool = False,
+    expand_neighbors: bool = False,
 ) -> list[PaperHit]:
     """Hybrid search: keyword (Zotero API) + semantic (vector store) merged via RRF.
+
+    When expand_context=True, each result includes the full section text
+    (all chunks in the same section) for richer LLM context.
+
+    When expand_neighbors=True, each result includes the hit chunk ±1 neighbor
+    chunks — a lighter alternative to full section expansion.
 
     If query is empty, skips semantic search and returns all items matching the filters
     (year/tags/collection), sorted by date added (most recent first).
@@ -89,9 +100,41 @@ def search_papers(
     overfetch = 3 if reranker is None else 5
     rrf_k = 60
 
+    # ── Query expansion (bilingual + synonym) ──
+    expanded_queries: list[tuple[str, float]] = [(query, 1.0)]
+    if has_query:
+        try:
+            from research_core.rag.query_rewriter import get_rewriter
+            expanded_queries = get_rewriter().expand(query)
+        except Exception:
+            pass  # query expansion is best-effort; never block search
+
     if has_query:
         t0 = time.time()
-        semantic_hits = retriever.search(query, n_results=limit * overfetch)
+        # Run semantic search with each expanded query, weighted by expansion score
+        if len(expanded_queries) > 1:
+            # Multi-query semantic search: run each expanded query, merge via RRF
+            all_semantic: list = []
+            for eq_text, eq_weight in expanded_queries:
+                eq_hits = retriever.search(
+                    eq_text, n_results=max(limit * overfetch, 15),
+                    expand_context=expand_context,
+                    expand_neighbors=expand_neighbors,
+                )
+                # Apply expansion weight to scores
+                for h in eq_hits:
+                    h.score *= eq_weight
+                all_semantic.extend(eq_hits)
+            # Merge: dedupe by item_key, keep max weighted score
+            merged: dict[str, type(all_semantic[0])] = {}
+            for h in all_semantic:
+                if h.item_key not in merged or h.score > merged[h.item_key].score:
+                    merged[h.item_key] = h
+            semantic_hits = sorted(merged.values(), key=lambda h: h.score, reverse=True)
+        else:
+            semantic_hits = retriever.search(query, n_results=limit * overfetch,
+                                              expand_context=expand_context,
+                                              expand_neighbors=expand_neighbors)
         t_semantic = (time.time() - t0) * 1000
 
     pre_rerank_n = len(semantic_hits)
@@ -105,13 +148,31 @@ def search_papers(
     keyword_ranks = {item.key: rank + 1 for rank, item in enumerate(keyword_items)}
     semantic_ranks: dict[str, int] = {}
     semantic_best_passage: dict[str, tuple[str, int]] = {}
+    semantic_enriched: dict[str, dict] = {}  # paper_abstract, section_heading, section_type
     seen_keys: set[str] = set()
     for rank, hit in enumerate(semantic_hits):
         if hit.item_key in seen_keys:
             continue
         seen_keys.add(hit.item_key)
         semantic_ranks[hit.item_key] = rank + 1
-        semantic_best_passage[hit.item_key] = (hit.text[:300], hit.page_start)
+        if expand_neighbors and hit.neighbor_context:
+            semantic_best_passage[hit.item_key] = (
+                hit.neighbor_context.full_text[:2000],
+                hit.neighbor_context.page_start,
+            )
+        elif expand_context and hit.section_context:
+            semantic_best_passage[hit.item_key] = (
+                hit.section_context.full_text[:2000],
+                hit.section_context.page_start,
+            )
+        else:
+            semantic_best_passage[hit.item_key] = (hit.text[:300], hit.page_start)
+        # Capture enriched paper/section metadata
+        semantic_enriched[hit.item_key] = {
+            "paper_abstract": getattr(hit, "paper_abstract", "") or "",
+            "section_heading": getattr(hit, "section_heading", "") or "",
+            "section_type": getattr(hit, "section_type", "") or "",
+        }
 
     candidate_keys = set(keyword_ranks) | set(semantic_ranks)
     rrf_k = 60
@@ -154,6 +215,7 @@ def search_papers(
         if collection_filter and collection_filter not in item.collections:
             continue
         passage, page = semantic_best_passage.get(key, ("", 0))
+        enriched_meta = semantic_enriched.get(key, {})
         src = (
             "hybrid"
             if (key in keyword_ranks and key in semantic_ranks)
@@ -171,6 +233,9 @@ def search_papers(
                 matched_passage=passage,
                 matched_page=page,
                 source=src,
+                paper_abstract=enriched_meta.get("paper_abstract", ""),
+                section_heading=enriched_meta.get("section_heading", ""),
+                section_type=enriched_meta.get("section_type", ""),
             )
         )
         if len(hits) >= limit:
@@ -217,6 +282,8 @@ def search_papers(
     # --- Emit retrieval trace ---
     logger.log(RetrievalLog(
         query=query,
+        expanded_queries=[{"text": eq[0], "weight": eq[1]} for eq in expanded_queries]
+                          if len(expanded_queries) > 1 else [],
         strategy="hybrid" if (has_query and keyword_items and semantic_hits)
         else ("semantic" if semantic_hits else "keyword" if keyword_items else "fallback"),
         parameters=log_params,

@@ -1745,6 +1745,58 @@ def retrieval_stats() -> dict:
     return get_retrieval_stats()
 
 
+# ── Query Synonym Management ──────────────────────────────────────────
+
+@mcp.tool()
+def add_query_synonym(cn_term: str, en_terms: list[str]) -> dict:
+    """Add a bilingual synonym pair for query expansion.
+
+    After adding, searches will automatically expand matching queries:
+    - A Chinese query containing 'cn_term' will also search with 'en_terms'
+    - An English query containing one of 'en_terms' will also search with 'cn_term'
+
+    Synonyms are persisted to .chroma_db/query_dict_user.json and survive
+    index rebuilds. Use an empty list for en_terms to remove a synonym.
+
+    Args:
+        cn_term: Chinese term (e.g. "社会网络分析")
+        en_terms: English equivalents (e.g. ["social network analysis", "SNA"])
+    """
+    import json
+    import os
+    from research_core.rag.query_rewriter import (
+        add_user_synonym,
+        get_user_synonyms,
+        get_rewriter,
+    )
+
+    persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
+    synonym_file = os.path.join(persist_dir, "query_dict_user.json")
+
+    if not en_terms:
+        # Remove synonym
+        syns = get_user_synonyms()
+        syns.pop(cn_term.strip(), None)
+    else:
+        add_user_synonym(cn_term, en_terms)
+
+    # Persist
+    syns = get_user_synonyms()
+    os.makedirs(persist_dir, exist_ok=True)
+    with open(synonym_file, "w", encoding="utf-8") as f:
+        json.dump({"entries": syns}, f, ensure_ascii=False, indent=2)
+
+    # Clear cache so new synonym takes effect immediately
+    from research_core.rag.query_rewriter import _cached_expand
+    _cached_expand.cache_clear()
+
+    return {
+        "status": "ok",
+        "synonym_count": len(syns),
+        "synonyms": {k: v for k, v in syns.items()},
+    }
+
+
 def main():
     """Entry point for `zra-mcp` console script."""
     mcp.run()

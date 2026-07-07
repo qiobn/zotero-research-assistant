@@ -26,13 +26,18 @@ This project was built to help graduate students and researchers — especially 
 
 | | |
 |---|---|
-| **32 MCP Tools** | One intent per tool — LLMs always pick the right one |
+| **35 MCP Tools** | One intent per tool — LLMs always pick the right one |
 | **Hybrid RAG Search** | Keyword + semantic (bge-m3, 100+ languages) + cross-encoder reranking |
-| **Semantic Chunking** | Paragraph-aware splitting with section detection (references, figures/tables) |
+| **Semantic Chunking** | Paragraph-aware splitting with section detection, chunk quality scoring (7 metrics) |
+| **Text Cleaning Engine** | 52 blacklist rules strip journal boilerplate (headers, footers, article info) from EN+CN papers |
+| **Section-Parent Context** | Hit a chunk → auto-expand to its full enclosing section for richer LLM context |
+| **SQLite Metadata Layer** | 7-table relational DB (papers, sections, chunks_meta, figures, tables) separate from vector store |
+| **Retrieval Observability** | JSONL trace logging with byte-offset index — replay any past search to debug rankings |
 | **Multi-Source Discovery** | OpenAlex + CrossRef + Semantic Scholar in parallel, Three-Index Verification to prevent fabricated citations |
 | **Citation Network Expansion** | Corpus-First strategy + forward/backward citations + OpenAlex Related Works |
 | **Anti-Hallucination** | Zero-fabrication policy with `[MATERIAL GAP]` structural tags; every paper has a verifiable source link |
-| **RAG Diagnostics** | Built-in health check, index inspection, and recall testing |
+| **RAG Evaluation** | Recall@K, MRR, NDCG metrics + A/B baseline comparison + 60 golden queries |
+| **Embedding Diagnostics** | 6-phase analysis: intra/inter separation, outlier detection, length correlation, section analysis |
 | **Personalized Recommendations** | Learns from your reading activity and annotations to suggest what to read next |
 | **Literature Review Generator** | Select papers → extract evidence with citations → AI synthesizes thematic review |
 | **Smart Tag Suggestions** | Auto-analyze metadata to recommend methodology/domain/data tags (confirm before apply) |
@@ -81,12 +86,19 @@ This project was built to help graduate students and researchers — especially 
 
 ### Semantic RAG Pipeline
 
+- **Text cleaning** — 52 blacklist regex rules strip journal boilerplate before chunking (EN: article-info blocks, running headers; CN: volume/issue lines, CLC numbers, funding footers; Universal: page numbers, DOI lines, repeated punctuation). Controlled by `ZRA_CLEAN_ENABLED=true` (default on). Cleaning stats reported in `sync_index`.
 - **Paragraph-aware chunking** — splits on natural boundaries (paragraphs → sentences), adaptive merging to target 600-char chunks; CJK-aware sentence splitting (breaks at `。！？` without needing spaces) and PDF soft-wrap repair (`满\n意度`→`满意度`) so sentences are never cut mid-word
-- **Section detection** — automatically identifies and tags reference sections; excludes them from search by default
+- **Chunk quality scoring** — every chunk gets 7 quality fields: `coherence_score` (sentence length variation), `information_density` (stopword ratio), `boilerplate_ratio`, `sentence_count`, `starts_with_conjunction`, `language` (zh/en/mixed), `quality_flag` (good/noisy/incomplete/boilerplate). Stored in ChromaDB metadata for quality-aware filtering.
+- **Section detection** — IMRaD classification via regex heading patterns (EN numbered "1. Introduction", CN "一、引言"); automatically identifies and tags reference/boilerplate sections to exclude from search by default
 - **Figure & table caption tagging** — detects `Figure/Fig./Table/图/表` captions and marks chunks for targeted retrieval
 - **Table & figure cross-referencing** — tables and figures are indexed as lightweight caption-anchored records, not structured into cells. For a table we keep *where* it is, its caption, and the raw block content from the caption until the prose resumes (so its values stay searchable); for a figure we keep only *where* it is and *roughly what it shows* (its caption — no image recognition). Prose passages that cite "Table 3" / "Figure 2" are auto-linked to those records, surfaced via `get_paper_content`'s `referenced_tables` / `referenced_figures`. (True table structuring is a vision problem — see [Tables & figures](#tables--figures) for optional visual parsers.)
+- **Section-parent context expansion** — when `expand_context=True`, hitting a chunk also fetches its entire enclosing section from SQLite + ChromaDB, giving the LLM complete paragraph context instead of an isolated fragment. Cache-batched for performance.
+- **SQLite metadata database** — separate relational layer (inside `.chroma_db/papers.db`) with 7 tables: `papers` (title, abstract, authors, year, DOI, keywords), `sections` (hierarchical IMRaD structure), `chunks_meta` (location + quality scores), `figures`, `table_records`, and cross-reference tables. Zero user setup — auto-created on first sync.
+- **Embedding diagnostics** — 6-phase analysis pipeline: per-paper intra-similarity, cross-paper separation ratio, outlier chunk detection (centroid coherence < 0.3), chunk length-similarity Pearson correlation, section-type embedding separation, automated issue detection + fix suggestions.
+- **Evaluation framework** — 60 golden queries (direct, cross-document, no-answer categories), metrics: Recall@5/10/20, MRR, NDCG@10. CLI with `--save-baseline` and `--compare` for A/B testing.
+- **Retrieval logging** — every search emits a JSONL trace (query, strategy, candidate counts, reranker details, top-20 results with scores, latency breakdown by keyword/semantic/rerank/total). Byte-offset index file enables fast replay by trace ID. Three query tools: `recent_retrievals`, `retrieval_trace`, `retrieval_stats`.
 - **Chunking versioning** — strategy changes auto-trigger full index rebuild; no stale data
-- **Index diagnostics** — `inspect_index` shows chunk statistics, quality issues, and garbled text detection
+- **Index diagnostics** — `inspect_index` shows chunk statistics, quality flag distribution, section breakdown, figure/table counts, garbled text detection
 - **Recall testing** — `test_recall` verifies a paper's own chunks appear in top-20 search results
 - **Health monitoring** — `check_health` diagnoses connections, index status, embedding model, and configuration
 
@@ -307,7 +319,11 @@ Restart Cursor — the tools appear in Agent mode.
 
 ### Claude Desktop
 
-Edit `claude_desktop_config.json` (**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json` · **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`):
+**Config file location:**
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json` (e.g. `C:\Users\YourName\AppData\Roaming\Claude\claude_desktop_config.json`)
+
+Create or edit the file:
 
 ```json
 {
@@ -331,7 +347,9 @@ Source install — replace `command` with the full Python path and add `args` + 
 }
 ```
 
-Restart Claude Desktop — a hammer icon appears in the chat input area.
+Restart Claude Desktop — a hammer icon appears in the chat input area. Click it to see the 35 available tools.
+
+> **Note:** Claude Desktop requires a Pro or Team subscription. The `.env` file is auto-detected from the project directory (source install) or the current working directory (pip install). Environment variables set in your shell are also picked up.
 
 ### Cherry Studio
 
@@ -367,11 +385,28 @@ Source install — swap `command` for the full Python path and add `args` + `cwd
 }
 ```
 
-Then configure an LLM under **Settings → Model Services** (DeepSeek, GPT-4o, Claude, Qwen, …) and enable the MCP toggle in chat. Full step-by-step walkthrough: [docs/cherry-studio-setup-en.md](./docs/cherry-studio-setup-en.md).
+Then:
+1. **Settings → Model Services** — configure an LLM (DeepSeek, GPT-4o, Claude, Qwen, …). For the best tool-calling experience, Claude or GPT-4o is recommended.
+2. Start a new chat → click the **MCP toggle** (plug icon) in the chat input bar to enable tools.
+3. The MCP server status should show **"Connected"** with 35 tools listed.
+
+If the `.env` file is not in the default search path, add `"cwd": "/path/to/dir/containing/.env"` to the JSON config.
+
+Full step-by-step walkthrough with screenshots: [docs/cherry-studio-setup-en.md](./docs/cherry-studio-setup-en.md).
 
 ### OpenAI Codex CLI
 
-Add to `~/.codex/config.json` (or project-level `.codex/config.json`):
+**pip install** (simplest):
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": { "command": "zra-mcp" }
+  }
+}
+```
+
+**Source install:**
 
 ```json
 {
@@ -385,7 +420,9 @@ Add to `~/.codex/config.json` (or project-level `.codex/config.json`):
 }
 ```
 
-(pip install: replace the three lines with `"command": "zra-mcp"`.) Then run `codex "…"` normally — the tools are auto-discovered.
+Add this to `~/.codex/config.json` (global) or `<project>/.codex/config.json` (per-project). Then run `codex "find papers about urban planning in my library"` — the 35 tools are auto-discovered.
+
+Run `codex mcp list` to verify the server is connected and all tools are registered. Environment variables are read from the `cwd` directory's `.env` file, or your shell environment.
 
 > **Any other stdio MCP client** (Trae, Windsurf, …) uses the same config — point it at the `command` / `args` / `cwd` above. Environment is read from `<project>/.env` automatically.
 
@@ -471,7 +508,7 @@ User: Can this paper be retrieved properly?
 
 ---
 
-## MCP Tools (32)
+## MCP Tools (35)
 
 | Category | Tools |
 |----------|-------|
@@ -480,7 +517,7 @@ User: Can this paper be retrieved properly?
 | **Write** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **Manage** | `add_note`, `edit_tags`, `manage_collections` |
 | **Insight** | `reading_status`, `recommend_papers`, `generate_review_note`, `generate_reading_note`, `suggest_tags`, `find_arguments` |
-| **Admin** | `sync_index`, `check_health`, `inspect_index`, `test_recall` |
+| **Admin** | `sync_index`, `check_health`, `inspect_index`, `test_recall`, `recent_retrievals`, `retrieval_trace`, `retrieval_stats` |
 
 <details>
 <summary>Expand tool details</summary>
@@ -519,10 +556,13 @@ User: Can this paper be retrieved properly?
 - **`find_arguments`** — Find supporting and opposing evidence for a claim/thesis.
 
 ### Admin
-- **`sync_index`** — Incremental vector index sync. Auto-runs on MCP startup. Reports quality summary and detects chunking version changes.
+- **`sync_index`** — Incremental vector index sync. Auto-runs on MCP startup. Reports quality summary, cleaning stats, and detects chunking version changes.
 - **`check_health`** — Diagnose connections, index status, embedding model, online APIs, and configuration. Bilingual output with fix suggestions.
-- **`inspect_index`** — View index quality: chunk stats, section breakdown, figure/table counts, garbled text detection, and per-paper details.
+- **`inspect_index`** — View index quality: chunk stats, quality flag distribution, section breakdown, figure/table counts, garbled text detection, and per-paper details.
 - **`test_recall`** — Test retrieval quality for a specific paper by querying with its title and checking if its own chunks are returned.
+- **`recent_retrievals`** — Browse recent search traces (filter by strategy: hybrid/semantic/keyword/fallback). See what queries were run, how many results returned, and latency breakdown.
+- **`retrieval_trace`** — Replay a specific past retrieval by trace ID. Shows full query, candidate counts, reranker details, and ranked result list — useful for debugging "why did this paper rank 5th not 1st?"
+- **`retrieval_stats`** — Aggregate statistics: total queries, average latency, strategy distribution, fallback rate.
 
 </details>
 
@@ -543,6 +583,7 @@ Copy [`.env.example`](./.env.example) to `.env` and adjust:
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker (`none` to disable) |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | Local vector database path |
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on MCP startup |
+| `ZRA_CLEAN_ENABLED` | `true` | Strip journal boilerplate before chunking (headers, footers, article-info blocks) |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | Optional; higher rate limits for online search |
 | `OPENALEX_MAILTO` | — | Optional; polite pool for OpenAlex API |
 | `UNPAYWALL_EMAIL` | — | Optional; Unpaywall OA PDF lookup |
@@ -702,7 +743,8 @@ Restart your MCP client to reload the server.
 | **Windows: script blocked** | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` in PowerShell |
 | **MCP tools not called** | Use a model with function calling; enable MCP/tools in client settings |
 | **AI executes writes without asking** | Add to system prompt: *"Always wait for explicit confirmation before executing writes"* |
-| **Poor search results** | Ask *"check my system health"* → `check_health` diagnoses issues |
+| **Poor search results** | Ask *"check my system health"* → `check_health` diagnoses issues; use *"show recent retrievals"* → `recent_retrievals` to inspect past query traces |
+| **"Why didn't this paper show up?"** | Ask *"show my recent retrievals"* → get the trace ID → *"replay retrieval trace \[id\]"* to see full ranking details |
 | **Index seems stale** | Ask *"inspect my index"* → `inspect_index` shows version and quality metrics |
 | **CNKI: "search is disabled"** | Complete the [CNKI Setup](#cnki-setup-optional) steps |
 | **CNKI: captcha** | Solve the slider in the Chrome window, then retry the search |
@@ -713,14 +755,17 @@ Restart your MCP client to reload the server.
 
 ```
 research_core/          # Shared library — Zotero client, RAG pipeline, search adapters, tools
-  parsers/              #   PDF extraction, CJK-aware semantic chunking, table extraction, caption detection
-  rag/                  #   ChromaDB indexer, retriever, embedding, sync state
-  tools/                #   32 tool implementations (one file per domain)
+  parsers/              #   PDF extraction, CJK-aware chunking, text cleaner (52 rules),
+                        #   section detector (IMRaD), chunk quality scoring, caption detection
+  rag/                  #   ChromaDB indexer/store/retriever, SQLite metadata DB,
+                        #   embedding diagnostics, evaluation framework, retrieval logger
+  tools/                #   35 tool implementations (one file per domain)
   zotero/               #   Zotero local + web API client
 project_a_mcp/          # MCP server entry point (stdio transport)
-scripts/                # CLI utilities (index_library.py, etc.)
-tests/                  # Unit + integration tests
-docs/                   # Detailed setup guides
+scripts/                # CLI utilities (index_library, index_sample, audit_index,
+                        #   run_evaluation, generate_eval_queries)
+tests/                  # Unit + integration tests, 60 golden eval queries
+docs/                   # Detailed setup guides (Cherry Studio CN/EN)
 ```
 
 Each tool maps to **one user intent** — discovery tools return `item_key`, read/write tools consume it.

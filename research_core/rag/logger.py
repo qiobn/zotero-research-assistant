@@ -36,6 +36,7 @@ class RetrievalLog:
     trace_id: str = ""
     timestamp: str = ""
     query: str = ""
+    expanded_queries: list[dict] = field(default_factory=list)  # [{text, weight}]
     strategy: str = "hybrid"  # hybrid / semantic / keyword / fallback
     parameters: dict = field(default_factory=dict)
 

@@ -61,11 +61,8 @@ class Indexer:
             "has_figure_table": c.metadata.get("has_figure_table", False),
             "is_table": c.metadata.get("is_table", False),
             "is_figure": c.metadata.get("is_figure", False),
-            # Quality metadata (v2.9.0+)
+            # Basic tags (v3.0.0+)
             "quality_flag": c.quality_flag,
-            "coherence_score": c.coherence_score,
-            "information_density": c.information_density,
-            "boilerplate_ratio": c.boilerplate_ratio,
             "sentence_count": c.sentence_count,
             "language": c.language,
         }

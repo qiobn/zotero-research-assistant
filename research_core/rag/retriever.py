@@ -10,6 +10,28 @@ from research_core.rag.store import get_collection
 
 
 @dataclass
+class SectionContext:
+    """Expanded context for a chunk — its containing section."""
+    heading: str = ""
+    section_type: str = "unknown"
+    full_text: str = ""           # all chunks in this section concatenated
+    chunk_ids: list[str] = field(default_factory=list)
+    page_start: int = 0
+    page_end: int = 0
+
+
+@dataclass
+class NeighborContext:
+    """Expanded context for a chunk — its immediate neighbors (±N chunks)."""
+    hit_chunk_idx: int = 0
+    prev_chunk_ids: list[str] = field(default_factory=list)
+    next_chunk_ids: list[str] = field(default_factory=list)
+    full_text: str = ""  # neighbors + hit chunk concatenated in order
+    page_start: int = 0
+    page_end: int = 0
+
+
+@dataclass
 class RetrievalResult:
     text: str
     item_key: str
@@ -19,6 +41,16 @@ class RetrievalResult:
     score: float
     chunk_idx: int = 0
     metadata: dict = field(default_factory=dict)
+    section_context: SectionContext | None = None
+    neighbor_context: NeighborContext | None = None
+    # Paper-level context (populated by enrich())
+    paper_abstract: str = ""
+    paper_authors: str = ""
+    paper_year: int = 0
+    paper_doi: str = ""
+    paper_keywords: str = ""
+    section_heading: str = ""
+    section_type: str = ""
 
 
 class Retriever:
@@ -33,6 +65,7 @@ class Retriever:
         self._collection = collection or get_collection(
             persist_dir, collection_name
         )
+        self._persist_dir = persist_dir
 
     def search(
         self,
@@ -40,11 +73,21 @@ class Retriever:
         n_results: int = 8,
         where: dict | None = None,
         include_references: bool = False,
+        expand_context: bool = False,
+        expand_neighbors: bool = False,
     ) -> list[RetrievalResult]:
         """Semantic search across all indexed chunks.
 
         By default excludes reference/bibliography sections to reduce noise.
         Set include_references=True to search across all sections.
+
+        When expand_context=True, each result's section_context is populated
+        with the full text of its containing section, providing the LLM with
+        complete paragraph context instead of a single isolated chunk.
+
+        When expand_neighbors=True, each result's neighbor_context is populated
+        with the hit chunk ±N surrounding chunks within the same section —
+        a lighter alternative to full section expansion (~500 chars vs ~2000).
         """
         effective_where = self._build_where(
             where, include_references
@@ -53,7 +96,217 @@ class Retriever:
         if effective_where:
             kwargs["where"] = effective_where
         results = self._collection.query(**kwargs)
-        return self._to_results(results)
+        hits = self._to_results(results)
+
+        if expand_context and hits:
+            self._attach_section_contexts(hits)
+        elif expand_neighbors and hits:
+            self._attach_neighbor_contexts(hits)
+
+        # Always enrich with paper + section metadata from SQLite
+        if hits:
+            self.enrich(hits)
+
+        return hits
+
+    def expand_to_section(
+        self,
+        item_key: str,
+        chunk_idx: int,
+    ) -> SectionContext | None:
+        """Expand a single chunk to its containing section.
+
+        Looks up the chunk's section in SQLite, fetches ALL chunks in that
+        section from ChromaDB, and returns the concatenated full section text.
+
+        Returns None if no section is found for this chunk.
+        """
+        chunk_id = f"{item_key}:{chunk_idx}"
+        try:
+            from research_core.rag.database import get_db
+            conn = get_db(self._persist_dir)
+            row = conn.execute(
+                "SELECT section_id, page_start, page_end "
+                "FROM chunks_meta WHERE id = ?",
+                (chunk_id,),
+            ).fetchone()
+            if not row or not row[0]:
+                return None
+
+            section_id = row[0]
+            sec_row = conn.execute(
+                "SELECT heading, section_type, page_start, page_end "
+                "FROM sections WHERE id = ?",
+                (section_id,),
+            ).fetchone()
+            if not sec_row:
+                return None
+
+            # Get all chunks in this section
+            chunk_rows = conn.execute(
+                "SELECT id, chunk_idx FROM chunks_meta "
+                "WHERE section_id = ? ORDER BY chunk_idx",
+                (section_id,),
+            ).fetchall()
+
+            # Fetch chunk texts from ChromaDB
+            chunk_ids = [cr[0] for cr in chunk_rows]
+            raw = self._collection.get(ids=chunk_ids, include=["documents"])
+            docs = raw.get("documents", []) or []
+
+            # Concatenate in order
+            full_text = "\n\n".join(docs) if docs else ""
+
+            return SectionContext(
+                heading=sec_row[0] or "",
+                section_type=sec_row[1] or "unknown",
+                full_text=full_text,
+                chunk_ids=chunk_ids,
+                page_start=sec_row[2] or 0,
+                page_end=sec_row[3] or 0,
+            )
+        except Exception:
+            return None
+
+    def expand_to_neighbors(
+        self,
+        item_key: str,
+        chunk_idx: int,
+        n: int = 1,
+    ) -> NeighborContext | None:
+        """Expand a single chunk to include its immediate neighbors (±N chunks).
+
+        A lightweight alternative to full section expansion — returns the hit
+        chunk plus its surrounding paragraphs. Uses SQLite chunks_meta to find
+        neighbor chunk IDs within the same section, then fetches texts from
+        ChromaDB.
+
+        Returns None if no neighbors are found (single-chunk sections).
+        """
+        chunk_id = f"{item_key}:{chunk_idx}"
+        try:
+            from research_core.rag.database import get_db
+            conn = get_db(self._persist_dir)
+
+            # Find the section for this chunk
+            row = conn.execute(
+                "SELECT section_id, page_start, page_end FROM chunks_meta WHERE id = ?",
+                (chunk_id,),
+            ).fetchone()
+            if not row or not row[0]:
+                return None
+
+            section_id = row[0]
+            page_start = row[1] or 0
+            page_end = row[2] or 0
+
+            # Get neighbor chunk IDs in this section
+            chunk_rows = conn.execute(
+                "SELECT id, chunk_idx, page_start, page_end FROM chunks_meta "
+                "WHERE section_id = ? AND chunk_idx >= ? AND chunk_idx <= ? "
+                "ORDER BY chunk_idx",
+                (section_id, chunk_idx - n, chunk_idx + n),
+            ).fetchall()
+
+            if not chunk_rows:
+                return None
+
+            all_ids = [cr[0] for cr in chunk_rows]
+            # Fetch texts from ChromaDB
+            raw = self._collection.get(ids=all_ids, include=["documents"])
+            docs = raw.get("documents", []) or []
+
+            # Build full text in chunk_idx order
+            id_to_text = {cid: txt for cid, txt in zip(all_ids, docs, strict=True)}
+            ordered_texts = [id_to_text.get(cr[0], "") for cr in chunk_rows]
+            full_text = "\n\n".join(t for t in ordered_texts if t)
+
+            # Classify neighbors relative to hit chunk
+            prev_ids = [cr[0] for cr in chunk_rows if cr[1] < chunk_idx]
+            next_ids = [cr[0] for cr in chunk_rows if cr[1] > chunk_idx]
+
+            return NeighborContext(
+                hit_chunk_idx=chunk_idx,
+                prev_chunk_ids=prev_ids,
+                next_chunk_ids=next_ids,
+                full_text=full_text,
+                page_start=min(cr[2] or page_start for cr in chunk_rows),
+                page_end=max(cr[3] or page_end for cr in chunk_rows),
+            )
+        except Exception:
+            return None
+
+    def _attach_section_contexts(self, results: list[RetrievalResult]) -> None:
+        """Populate section_context for each result. Uses a cache to avoid
+        duplicate DB + ChromaDB lookups for chunks in the same section."""
+        cache: dict[tuple[str, int], SectionContext | None] = {}
+
+        for r in results:
+            cache_key = (r.item_key, r.chunk_idx)
+            if cache_key in cache:
+                r.section_context = cache[cache_key]
+                continue
+
+            ctx = self.expand_to_section(r.item_key, r.chunk_idx)
+            cache[cache_key] = ctx
+            r.section_context = ctx
+
+    def _attach_neighbor_contexts(self, results: list[RetrievalResult]) -> None:
+        """Populate neighbor_context for each result. Uses a cache to avoid
+        duplicate DB + ChromaDB lookups."""
+        cache: dict[tuple[str, int], NeighborContext | None] = {}
+
+        for r in results:
+            cache_key = (r.item_key, r.chunk_idx)
+            if cache_key in cache:
+                r.neighbor_context = cache[cache_key]
+                continue
+
+            ctx = self.expand_to_neighbors(r.item_key, r.chunk_idx)
+            cache[cache_key] = ctx
+            r.neighbor_context = ctx
+
+    def enrich(self, results: list[RetrievalResult]) -> None:
+        """Batch-fetch paper + section metadata from SQLite and inject into
+        each RetrievalResult. Always-on — zero cost beyond a SQLite JOIN.
+
+        Populates: paper_abstract, paper_authors, paper_year, paper_doi,
+                   paper_keywords, section_heading, section_type.
+        """
+        chunk_ids = [f"{r.item_key}:{r.chunk_idx}" for r in results]
+        if not chunk_ids:
+            return
+
+        try:
+            from research_core.rag.database import enrich_results, get_db
+            enriched = enrich_results(get_db(self._persist_dir), chunk_ids)
+        except Exception:
+            return
+
+        by_id: dict[str, dict] = {}
+        for er in enriched:
+            if er.chunk_id:
+                by_id[er.chunk_id] = {
+                    "paper_abstract": er.paper_abstract,
+                    "paper_authors": er.paper_authors,
+                    "paper_year": er.paper_year,
+                    "paper_doi": er.paper_doi,
+                    "paper_keywords": er.paper_keywords,
+                    "section_heading": er.section_heading,
+                    "section_type": er.section_type,
+                }
+
+        for r in results:
+            chunk_id = f"{r.item_key}:{r.chunk_idx}"
+            ctx = by_id.get(chunk_id, {})
+            if ctx:
+                r.paper_abstract = ctx.get("paper_abstract", "")
+                r.paper_authors = ctx.get("paper_authors", "")
+                r.paper_year = ctx.get("paper_year", 0)
+                r.paper_doi = ctx.get("paper_doi", "")
+                r.paper_keywords = ctx.get("paper_keywords", "")
+                r.section_heading = ctx.get("section_heading", "")
+                r.section_type = ctx.get("section_type", "")
 
     def search_within_item(
         self,

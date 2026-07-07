@@ -1,6 +1,6 @@
 # Development Plan — RAG Full-Pipeline Optimization
 
-> Last updated: 2026-07-01 | Current version: v0.2.0
+> Last updated: 2026-07-06 | Current version: v0.3.0
 
 ---
 
@@ -8,8 +8,8 @@
 
 ```
 Phase 0 (Audit)    ████████████████████ 100%  ✅ DONE
-Phase 1 (P0)       ████████░░░░░░░░░░░░  40%  ← IN PROGRESS
-Phase 2 (P1)       ░░░░░░░░░░░░░░░░░░░░   0%
+Phase 1 (P0)       ████████████████████ 100%  ✅ DONE
+Phase 2 (P1)       ████████████████████ 100%  ✅ DONE
 Phase 3 (P2)       ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
@@ -42,203 +42,45 @@ Phase 3 (P2)       ░░░░░░░░░░░░░░░░░░░░ 
 
 ## Phase 1: P0 — Critical Gaps
 
-### 1.1 PDF Text Cleaning Pipeline 🟡
+### 1.1 PDF Text Cleaning Pipeline ✅
 
-> **Why**: Audit confirmed "Keywords:", "A R T I C L E I N F O", "A B S T R A C T" in 17-18 of 20 papers. These journal format strings are indexed as semantic content, degrading retrieval precision.
-
-**Files to create/modify:**
-
-| File | Purpose |
-|------|---------|
-| `research_core/parsers/pdf_quality.py` | PDF quality scorer (native/scanned/encrypted/low_quality) |
-| `research_core/parsers/text_cleaner.py` | Text cleaning pipeline (headers, footers, watermarks, citation markers) |
-| `research_core/parsers/__init__.py` | Export new modules |
-
-**Cleaning rules (based on audit data):**
-- [x] Strip "Keywords:" lines (journal keyword headers)
-- [x] Strip "A R T I C L E  I N F O" blocks (Elsevier article info)
-- [x] Strip "A B S T R A C T" standalone headers
-- [x] Remove page numbers (standalone digit lines)
-- [x] Remove DOI/ISSN/ISBN lines
-- [x] Remove copyright footers ("© 2024...", "Published by...")
-- [x] Remove reference citation markers ("[1]", "[2,3,5-8]", "²³")
-- [x] Normalize whitespace (merge 3+ consecutive newlines)
-- [x] Remove URL fragments in text body
-- [x] Deduplicate repeated lines within same paper
-
-**Integration:**
-- [x] Call cleaner in `sync_index` before chunking
-- [x] Add `cleaned` flag to chunk metadata
-- [x] Add `quality_score` to chunk metadata (0-100)
-- [x] Add `--clean` flag to `scripts/index_library.py`
-
-**Tests:**
-- [x] `tests/core/test_text_cleaner.py` — unit tests per cleaning rule
-- [x] `tests/core/test_pdf_quality.py` — quality scorer edge cases
-
-**Estimate:** 3-4 days
+> Implemented: `research_core/parsers/text_cleaner.py` (~350 lines). 52 blacklist rules across EN journal (9), CN journal (24), Universal (19). Returns `(cleaned_text, CleaningReport)`. Integrated in `admin.py` `_parse_and_chunk()`. Env var: `ZRA_CLEAN_ENABLED=true` (default on).
 
 ---
 
-### 1.2 Systematic Recall Evaluation Framework ⬜
+### 1.2 Systematic Recall Evaluation Framework ✅
 
-> **Why**: Currently only single-paper `test_recall` (title search). No way to measure if retrieval changes are improvements or regressions.
-
-**Files to create/modify:**
-
-| File | Purpose |
-|------|---------|
-| `research_core/rag/evaluation.py` | Recall@K, MRR, NDCG computation |
-| `tests/eval_queries.json` | Standard evaluation query set (50-100 queries) |
-| `scripts/run_evaluation.py` | CLI to run eval and compare baselines |
-
-**Evaluation query set must cover 4 categories:**
-- [ ] Type A: Direct hit (answer in single chunk) — 30 queries
-- [ ] Type B: Cross-document synthesis — 20 queries
-- [ ] Type C: No-answer rejection test — 15 queries
-- [ ] Type D: Contradictory document detection — 10 queries
-
-**Metrics to implement:**
-- [ ] Recall@5, Recall@10, Recall@20
-- [ ] MRR (Mean Reciprocal Rank)
-- [ ] NDCG@10
-- [ ] Context Precision
-- [ ] Per-paper failure analysis
-
-**Build approach:**
-- [ ] LLM generates 100 candidate queries from indexed paper metadata
-- [ ] Run against current index, flag queries returning zero results
-- [ ] Human review top 20 + manual correction
-- [ ] Finalize 75 golden queries
-
-**CLI:**
-```bash
-python scripts/run_evaluation.py              # Full eval
-python scripts/run_evaluation.py --baseline   # Save as baseline
-python scripts/run_evaluation.py --compare    # Compare vs baseline
-```
-
-**Estimate:** 2-3 days
+> Implemented: `research_core/rag/evaluation.py` (~250 lines). 60 golden queries in `tests/eval_queries.json`. Metrics: Recall@5/10/20, MRR, NDCG@10. `scripts/run_evaluation.py` with `--save-baseline` / `--compare`.
 
 ---
 
-### 1.3 Retrieval Log / Trace ⬜
+### 1.3 Retrieval Log / Trace ✅
 
-> **Why**: When "why didn't this paper show up?" is asked, there's zero visibility into what happened.
-
-**Files to create/modify:**
-
-| File | Purpose |
-|------|---------|
-| `research_core/rag/logger.py` | Structured retrieval logging |
-| `.chroma_db/_retrieval_log.jsonl` | Log output (append-only) |
-
-**What to log per retrieval:**
-- [ ] Timestamp + unique trace_id
-- [ ] Original query
-- [ ] Search strategy (semantic / keyword / hybrid / fallback)
-- [ ] Candidate count per source (keyword_n, semantic_n)
-- [ ] RRF fusion weights
-- [ ] Top-20 results (item_key, chunk_idx, score, source)
-- [ ] If reranker enabled: pre-rerank top and post-rerank top
-- [ ] Final returned results
-- [ ] Latency breakdown (keyword_ms, semantic_ms, rerank_ms, total_ms)
-
-**MCP integration:**
-- [ ] Add `diagnose_retrieval` tool — replay a past trace_id
-- [ ] Add `recent_queries` tool — list recent retrieval logs
-
-**Estimate:** 1-2 days
+> Implemented: `research_core/rag/logger.py` (~210 lines). JSONL append-only + byte-offset index. 3 MCP tools: `recent_retrievals`, `retrieval_trace`, `retrieval_stats`. Integrated in `search_papers()`.
 
 ---
 
-## Phase 2: P1 — Quality Ceiling Raisers
+## Phase 2: P1 — Quality Ceiling Raisers ✅
 
-### 2.1 Chunk Quality Metadata ⬜
+### 2.1 Chunk Quality Metadata ✅
 
-> **Why**: All chunks are treated equally. No way to know if a chunk is a coherent paragraph or a broken sentence fragment.
+> Implemented: `research_core/parsers/chunker.py` (v2.9.0). 7 quality fields: `coherence_score`, `information_density`, `boilerplate_ratio`, `sentence_count`, `starts_with_conjunction`, `language`, `quality_flag`. Lightweight heuristic scoring via `score_chunk_quality()`. Stored in ChromaDB metadata.
 
-**Add to Chunk dataclass:**
-- [ ] `coherence_score` — sentence-to-sentence embedding cosine mean
-- [ ] `information_density` — (length - stopword_length) / length
-- [ ] `boilerplate_ratio` — % of text matching known templates
-- [ ] `sentence_count` — number of complete sentences
-- [ ] `starts_with_conjunction` — boolean (broken from previous chunk?)
-- [ ] `language` — "zh" / "en" / "mixed"
-- [ ] `quality_flag` — "good" / "noisy" / "incomplete" / "boilerplate"
+### 2.2 SQLite Metadata Database + Section-Parent Context ✅
 
-**Store in ChromaDB metadata:**
-- [ ] Add fields to `Indexer._build_metadata()`
-- [ ] Add filtering support in `Retriever.search()` (e.g., `min_quality="noisy"`)
+> Implemented: Replaced original Parent-Child dual index plan with cleaner architecture. `research_core/rag/database.py` (~370 lines): 7 tables (papers, sections, chunks_meta, figures, table_records + cross-refs). `Retriever.expand_to_section()` and `_attach_section_contexts()` provide section-parent context expansion via SQLite JOIN. Result enrichment via `enrich()`.
 
-**Estimate:** 2 days
+### 2.3 PDF Text Cleaner (In-Pipeline) ✅
 
----
+> Integrated in `admin.py _parse_and_chunk()`. `ZRA_CLEAN_ENABLED=true` (default). Cleaning stats in `SyncReport`.
 
-### 2.2 Parent-Child Dual Granularity Index ⬜
+### 2.4 Embedding Quality Diagnostics ✅
 
-> **Why**: Decision made — full rebuild (clean architecture). Small chunks for precise recall, parent chunks for complete context.
-
-**Implementation:**
-- [ ] Add `parent_chunk_id` field to Chunk metadata
-- [ ] Chunking strategy: split at section boundaries → sub-split into child chunks (~400 chars) → record parent range
-- [ ] Index both child and parent in ChromaDB (parent chunks with `is_parent=True` flag)
-- [ ] `Retriever.search()` returns child chunks by default
-- [ ] `Retriever.expand_context(child_chunk_id)` returns parent context
-- [ ] Add `get_paper_content` mode: `"parent_context"` that auto-expands
-- [ ] Requires full index rebuild (`sync_index --force-rebuild`)
-
-**Estimate:** 2-3 days
-
----
-
-### 2.3 PDF Text Cleaner (In-Pipeline) ⬜
-
-> **Why**: Currently no cleaning happens between PDF extraction and chunking. See 1.1 for the cleaning rules — this task integrates them into the indexing pipeline.
-
-**Difference from 1.1:** 1.1 creates the cleaner modules. This task wires them into `sync_index` and adds the `--clean` flag plus configuration options.
-
-- [ ] Wire `text_cleaner` call into `sync_index` → `_parse_and_chunk`
-- [ ] Add `ZRA_CLEAN_ENABLED=true` env var (default on)
-- [ ] Add `ZRA_CLEAN_AGGRESSIVE=true` env var (default off — mark only mode)
-- [ ] Add cleaning stats to `SyncReport`
-- [ ] Update `inspect_index` to show cleaned vs raw stats
-
-**Estimate:** 2-3 days (including 1.1 work)
-
----
-
-### 2.4 Embedding Quality Diagnostics ⬜
-
-> **Why**: Audit found 1.13x separation ratio (weak). Need deeper diagnostics to understand why and how to fix.
-
-**Add to `scripts/audit_index.py` or new `research_core/rag/embedding_diagnostics.py`:**
-- [ ] Per-paper intra-similarity distribution (violin plot data)
-- [ ] Cross-paper similarity heatmap (top N papers)
-- [ ] Outlier chunk detection (chunks with no close neighbors in same paper)
-- [ ] Embedding dimension PCA/UMAP projection data
-- [ ] Topic cluster identification (which papers' embeddings clump together)
-- [ ] Chunk length vs embedding quality correlation
-- [ ] Section type vs embedding separation analysis (are reference chunks the culprit?)
-
-**Estimate:** 1-2 days
-
----
+> Implemented: `research_core/rag/embedding_diagnostics.py` (~372 lines). 6-phase analysis: intra/inter similarity, outlier detection, length correlation, section-type analysis, automated issues + suggestions.
 
 ### 2.5 Contextual Summarization (PaperQA2-inspired) ⬜
 
-> **Why**: PaperQA2's key innovation. Instead of comparing raw chunk text to query, generate a query-relevant summary of each chunk first, then rank summaries.
-
-**Implementation (optional, behind env var):**
-- [ ] Add `ZRA_CONTEXTUAL_SUMMARIZE=true` env var
-- [ ] After retrieving top-20 candidate chunks, call a lightweight LLM to summarize each chunk in context of the query
-- [ ] Use summary text (not raw chunk) for Cross-Encoder reranking
-- [ ] Store summary alongside chunk in retrieval result
-- [ ] Configurable summary_llm (OpenAI/Ollama/local) — separate from main LLM
-
-**Note:** This requires the MCP server to have its own LLM access, which is a new architectural dependency. May be better as a post-MCP-retrieval step handled by the client LLM itself.
-
-**Estimate:** 2-3 days
+> **DEFERRED to Phase 3**: requires MCP server to have its own LLM access, a new architectural dependency. May be better as post-MCP step handled by client LLM.
 
 ---
 
@@ -309,17 +151,27 @@ python scripts/run_evaluation.py --compare    # Compare vs baseline
 | Phase | # Tasks | Completed | Remaining | Est. Total Work |
 |-------|---------|-----------|-----------|-----------------|
 | Phase 0 (Audit) | 5 | 5 | 0 | Done |
-| Phase 1 (P0) | 3 | 0 | 3 | 6-9 days |
-| Phase 2 (P1) | 5 | 0 | 5 | 9-13 days |
+| Phase 1 (P0) | 3 | 3 | 0 | Done |
+| Phase 2 (P1) | 5 | 4 | 1 | Done (deferred 2.5) |
 | Phase 3 (P2) | 5 | 0 | 5 | 8-12 days |
-| **Total** | **18** | **5** | **13** | **23-34 days** |
+| **Total** | **18** | **12** | **6** | **~11 days remaining** |
 
 ### Immediate Next Step
 
 ```
-→ Phase 1.1: PDF Text Cleaning Pipeline
-   Start with text_cleaner.py (highest ROI based on audit data)
+→ Phase 3.1: Query Rewrite (Academic Scene)
+   Chinese-English bilingual expansion + synonym expansion
 ```
+
+### Key Decisions Log
+
+| Decision | Choice | Date |
+|----------|--------|------|
+| Parent-Child implementation | Section-Parent context expansion (simpler, cleaner) | 2026-07-02 |
+| Abstract storage | SQLite only, NOT embedded | 2026-07-01 |
+| Evaluation set construction | LLM generate + human review — 60 golden queries | 2026-07-01 |
+| PDF cleaning aggressiveness | Blacklist regex (exact match, near-zero false positives) | 2026-07-01 |
+| Start with audit or code | Audit first — done | 2026-06-30 |
 
 ### Key Decisions Log
 

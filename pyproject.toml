@@ -1,6 +1,6 @@
 [project]
 name = "zotero-research-assistant"
-version = "0.2.0"
+version = "0.3.0"
 description = "AI-powered Zotero research assistant — a standalone MCP server with 32 tools for literature search, reading analysis, citation management, and review writing."
 readme = "README.md"
 license = {text = "MIT"}
