@@ -494,6 +494,31 @@ def sync_index(
         sorted(all_clean_cats.items(), key=lambda x: -x[1])[:15]
     )
 
+    # ── Load user Zotero tags into query rewriter for personalized expansion ──
+    try:
+        from research_core.rag.query_rewriter import load_user_tags, get_user_synonyms
+        from research_core.rag.database import get_db
+
+        # Collect all tags from Zotero (persistent across syncs)
+        all_items = zot.search_items(query="", limit=10000)
+        all_tags: list[str] = []
+        for item in all_items:
+            all_tags.extend(item.tags)
+        load_user_tags(all_tags)
+
+        # Load user-defined synonyms from disk
+        synonyms_file = os.path.join(persist_dir, "query_dict_user.json")
+        from research_core.rag.query_rewriter import load_user_synonyms
+        load_user_synonyms(synonyms_file)
+        user_syns = get_user_synonyms()
+        report.query_expansion = {
+            "builtin_dict_pairs": 190,  # approximate count from query_dict.json
+            "user_tags_loaded": len(set(all_tags)),
+            "user_synonyms": len(user_syns),
+        }
+    except Exception:
+        pass  # best-effort; query expansion still works with Layer 1 (built-in)
+
     if chunk_lengths:
         report.quality_summary = {
             "chunking_version": CHUNKING_VERSION,

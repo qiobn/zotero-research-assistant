@@ -28,6 +28,9 @@ _sync_state.json
 _retrieval_log.jsonl
 _retrieval_log.idx
 
+# User-defined query synonyms (per-machine)
+query_dict_user.json
+
 # Evaluation baseline (per-machine, depends on local library content)
 tests/eval_baseline.json
 
