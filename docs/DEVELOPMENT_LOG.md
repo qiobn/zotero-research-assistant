@@ -290,6 +290,15 @@ python scripts/run_evaluation.py --compare    # vs 基线 A/B 对比
 
 ---
 
+#### ONNX INT8 嵌入后端 (2026-07-08, `embedding.py`)
+
+- 新增 `ONNXInt8Embedding` — 基于 ONNX Runtime 的 INT8 量化嵌入
+- 使用社区预量化模型 `skatzR/USER-BGE-M3-ONNX-INT8`（347MB vs FP32 2.3GB）
+- `EMBEDDING_BACKEND=auto`（默认）：优先 ONNX INT8，不可用时回退到 sentence-transformers
+- 基准测试：3.7x 编码加速，0.95 embedding fidelity，74% chunk@10 重叠
+- 零用户配置——`auto` 模式自动选择最佳后端
+- **解决的问题**：首次安装体积从 ~4.3GB 降至 ~370MB；索引速度 2-3x
+
 #### MMR 多样性重排序 (2026-07-07, `980ab81` / `ac925fd`)
 
 - Chunk 级 MMR：λ=0.6（60% 相关性 + 40% 多样性）

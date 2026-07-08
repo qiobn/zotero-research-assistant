@@ -575,7 +575,8 @@ echo "$PWD\.venv\Scripts\python.exe"
 | `ZOTERO_LOCAL` | `true` | 从本地 Zotero API 读取（快） |
 | `ZOTERO_API_KEY` | — | 写操作必需（混合模式） |
 | `ZOTERO_LIBRARY_ID` | `0` | 你的 Zotero 用户 ID |
-| `EMBEDDING_MODEL` | `BAAI/bge-m3` | 语义搜索用的 sentence-transformer |
+| `EMBEDDING_BACKEND` | `auto` | 后端选择：`auto`（优先 ONNX INT8）、`onnx_int8`、`sentence_transformers` |
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | 语义搜索用的 sentence-transformer（仅 FP32 后端；ONNX INT8 自动使用预量化模型） |
 | `EMBEDDING_MAX_SEQ_LEN` | `1024` | 嵌入序列长度上限；防止异常长输入撑爆 GPU/MPS 显存 |
 | `HF_ENDPOINT` | — | HuggingFace 镜像地址（国内用户用 `https://hf-mirror.com` 加速模型下载） |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 重排序模型（设 `none` 禁用） |

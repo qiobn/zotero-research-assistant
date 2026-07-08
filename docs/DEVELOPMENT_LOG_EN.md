@@ -225,6 +225,15 @@ Text cleaning + overlap changes:
 
 ---
 
+#### ONNX INT8 Embedding Backend (2026-07-08)
+
+- New `ONNXInt8Embedding` class — ONNX Runtime INT8 quantized inference
+- Uses community pre-quantized model (~347MB vs 2.3GB FP32)
+- `EMBEDDING_BACKEND=auto` (default): prefers ONNX INT8, falls back to sentence-transformers
+- Benchmark: 3.7x encode speedup, 0.95 fidelity, 74% chunk@10 overlap with FP32
+- Zero-config — `auto` mode selects best backend automatically
+- Reduces first-install disk footprint from ~4.3GB to ~370MB
+
 #### MMR Diversity Reranking (2026-07-07, `980ab81` / `ac925fd`)
 
 - Chunk-level MMR: lambda=0.6, uses existing bge-m3 embeddings from ChromaDB (~15ms)

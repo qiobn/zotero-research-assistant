@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **ONNX INT8 embedding backend** (`EMBEDDING_BACKEND=auto` / `onnx_int8`) —
+  optional 2-3x faster, 4x smaller (347MB vs 2.3GB) embedding inference via
+  ONNX Runtime with pre-quantized bge-m3 model. Zero-config: `auto` mode
+  attempts ONNX INT8 first, falls back to sentence-transformers FP32.
+  Benchmark: 3.7x encode speedup, 0.95 embedding fidelity, 74% chunk@10
+  overlap with FP32. Cross-Encoder + MMR absorb minor ranking differences.
 - **MMR (Maximal Marginal Relevance) diversity reranking** — chunk-level MMR
   with per-document cap (max 3 chunks per paper) and per-document penalty.
   Operates on existing bge-m3 embeddings (~15ms overhead). Enabled by default

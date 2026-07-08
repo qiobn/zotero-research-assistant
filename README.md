@@ -577,7 +577,8 @@ Copy [`.env.example`](./.env.example) to `.env` and adjust:
 | `ZOTERO_LOCAL` | `true` | Read from local Zotero API (fast) |
 | `ZOTERO_API_KEY` | — | Required for write operations (hybrid mode) |
 | `ZOTERO_LIBRARY_ID` | `0` | Your Zotero user ID |
-| `EMBEDDING_MODEL` | `BAAI/bge-m3` | Sentence-transformer for semantic search |
+| `EMBEDDING_BACKEND` | `auto` | Backend: `auto` (ONNX INT8 preferred), `onnx_int8`, `sentence_transformers` |
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | Sentence-transformer for semantic search (FP32 backend only) |
 | `EMBEDDING_MAX_SEQ_LEN` | `1024` | Cap on embedding sequence length; bounds GPU/MPS memory on pathological long inputs |
 | `HF_ENDPOINT` | — | HuggingFace mirror for model downloads (e.g. `https://hf-mirror.com` for users in China) |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker (`none` to disable) |
