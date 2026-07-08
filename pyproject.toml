@@ -40,6 +40,9 @@ dev = [
 cnki = [
     "playwright>=1.49",
 ]
+onnx = [
+    "onnxruntime>=1.19",
+]
 
 [project.urls]
 Homepage = "https://github.com/qiobn/zotero-research-assistant"
