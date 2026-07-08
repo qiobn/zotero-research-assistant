@@ -126,13 +126,21 @@ class ONNXInt8Embedding(EmbeddingFunction[Documents]):
 
         import numpy as np
         import onnxruntime as ort
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import snapshot_download, try_to_load_from_cache
         from transformers import AutoTokenizer
 
         self._apply_hf_mirror()
 
-        logger.info(f"Downloading ONNX INT8 model: {_ONNX_INT8_MODEL}")
-        model_path = snapshot_download(_ONNX_INT8_MODEL)
+        # Try local cache first — avoids network check on every startup
+        cached = try_to_load_from_cache(
+            _ONNX_INT8_MODEL, "model_quantized.onnx"
+        )
+        if cached:
+            model_path = os.path.dirname(cached)
+            logger.info(f"Using cached ONNX model: {model_path}")
+        else:
+            logger.info(f"Downloading ONNX INT8 model: {_ONNX_INT8_MODEL}")
+            model_path = snapshot_download(_ONNX_INT8_MODEL)
 
         logger.info(f"Loading ONNX model from {model_path}")
         self._session = ort.InferenceSession(
