@@ -28,6 +28,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "loguru>=0.7",
     "pydantic>=2.10",
+    "onnxruntime>=1.19",
 ]
 
 [project.optional-dependencies]
@@ -39,9 +40,6 @@ dev = [
 ]
 cnki = [
     "playwright>=1.49",
-]
-onnx = [
-    "onnxruntime>=1.19",
 ]
 
 [project.urls]
