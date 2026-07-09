@@ -2,13 +2,13 @@
 
 ## Project Overview
 
-This is **Zotero Research Assistant** — an MCP (Model Context Protocol) server that turns a Zotero reference library into an AI-searchable knowledge base. 35 MCP tools across 6 categories (Discover, Read, Write, Manage, Insight, Admin).
+This is **Zotero Research Assistant** — an MCP (Model Context Protocol) server that turns a Zotero reference library into an AI-searchable knowledge base. 36 MCP tools across 6 categories. **Core focus: production-grade RAG pipeline (chunking + retrieval quality) for academic papers.**
 
 - **Author:** qiobn
 - **Language:** Python 3.11+
 - **Package:** `zotero-research-assistant`
 - **Entry:** `project_a_mcp/server.py` → `zra-mcp` CLI command
-- **Key deps:** ChromaDB, sentence-transformers (bge-m3), PyMuPDF, FastMCP, PyZotero
+- **Key deps:** ChromaDB, onnxruntime (INT8 default), sentence-transformers (FP32 fallback), PyMuPDF, FastMCP, PyZotero
 
 ## Architecture
 

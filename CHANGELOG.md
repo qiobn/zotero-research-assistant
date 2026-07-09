@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fragments below the FloTorch 2026 threshold for e2e accuracy.
 
 ### Changed
+- **MMR diversity_weight tuned: 0.6 → 0.4** — grid search on 10 queries showed
+  λ=0.4 as the sweet spot: +54% paper diversity with zero core paper loss.
 - **Chunk quality scoring simplified** — dropped unused heuristic fields
   (coherence_score, information_density, boilerplate_ratio) that were
   never consumed by retrieval. Now only tags language, sentence_count,
