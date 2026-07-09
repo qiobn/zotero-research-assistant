@@ -44,7 +44,7 @@ def search_papers(
     limit: int = 10,
     expand_context: bool = False,
     expand_neighbors: bool = False,
-    diversity_weight: float = 0.6,
+    diversity_weight: float = 0.4,
 ) -> list[PaperHit]:
     """Hybrid search: keyword (Zotero API) + semantic (vector store) merged via RRF.
 
