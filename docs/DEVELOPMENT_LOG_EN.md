@@ -11,6 +11,43 @@
 
 ## v0.3.0 — RAG Pipeline Upgrade (2026-07-06)
 
+### Dual-Format Output: JSON + Markdown Context Block (2026-07-10, `706afff`)
+
+**Problem:** All MCP tools returned pure JSON, causing three issues for LLMs:
+1. Token waste — JSON syntax overhead (quotes, brackets, keys) inflates token count
+2. Attention dilution — LLMs struggle to distinguish evidence text from metadata in flat JSON
+3. Unreadable scores — `score: 0.0321` has no intuitive meaning for LLMs
+
+**Solution:** Per [Anthropic MCP Best Practices](https://github.com/anthropics/skills/blob/main/skills/mcp-builder/reference/mcp_best_practices.md), added pre-rendered Markdown `context_block` to core retrieval tools as dual-format output alongside JSON items. Markdown is the LLM consumption channel; JSON is the programmatic channel.
+
+**Design decisions:**
+- Blockquote (`>`) for cited evidence — highest LLM attention weight among formats
+- `###` numbered headings — tree-structured mental model of result sets
+- ★★★/★★/★ instead of raw floats — Cross-Encoder score percentile bucketing (>75th → high, >25th → medium)
+- `_snippet()` sentence-boundary truncation — CJK `。！？；` + EN `.!?` bidirectional
+- CJK name format detection — Unicode range `"一" <= c <= "鿿"` for surname-first detection
+
+**Token analysis (6 papers, cl100k_base):**
+- Old pure JSON: 1,559 tokens
+- New JSON+MD: 1,762 tokens (+13% — dual format overhead)
+- Context block alone: 931 tokens (40% savings vs old JSON)
+- Verdict: accepted ~13% overhead; LLM comprehension gains justify the cost. A future
+  `response_format` parameter will let users choose JSON-only or markdown-only.
+
+**Least confident about:**
+1. Dual-format redundancy — `items` and `context_block` duplicate info, actually 13% more total tokens
+2. No A/B LLM response quality test — inferring Markdown superiority without hard data
+3. Percentile-based tiering with <4 results may produce inaccurate tier assignments
+
+**Future work:**
+- Add `response_format="json"` / `"markdown"` / `"both"` parameter
+- A/B test LLM citation accuracy: JSON vs Markdown
+- Extend to `generate_reading_note`, `find_arguments`
+
+---
+
+## v0.3.0 — RAG Pipeline Upgrade (2026-07-06)
+
 ### Why This Release
 
 The v0.2.0 RAG pipeline was "it works" quality: PDF extraction → chunk → embed → index → search.

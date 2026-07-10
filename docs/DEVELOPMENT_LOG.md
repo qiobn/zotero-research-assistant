@@ -9,6 +9,44 @@
 
 ## v0.3.0 — RAG 质量管线全面升级 (2026-07-06)
 
+### 双格式输出: JSON + Markdown Context Block (2026-07-10, `706afff`)
+
+**问题：** 所有 MCP 工具返回纯 JSON。对 LLM 存在三个问题：
+1. Token 浪费——JSON 的引号、方括号、逗号、key 名消耗大量 token
+2. 注意力稀释——LLM 难以从扁平 JSON 中区分证据文本和元数据
+3. 分数不可理解——`score: 0.0321` 对 LLM 没有直觉意义
+
+**方案：** 参考 [Anthropic MCP 最佳实践](https://github.com/anthropics/skills/blob/main/skills/mcp-builder/reference/mcp_best_practices.md)，给核心检索工具添加 pre-rendered Markdown `context_block` 字段，与 JSON items 双通道输出：
+- Markdown → LLM 消费主通道（blockquote 证据、★★★ 分级、句边界截断）
+- JSON → 程序化消费通道（结构化元数据、日志、统计）
+
+**技术决策：**
+- Blockquote (`>`) 用于引用文本——LLM attention 权重最高
+- `###` 三级标题编号——树形心理模型
+- ★★★/★★/★ 替代浮点分数——基于 Cross-Encoder 百分位分桶（>75th → high, >25th → medium）
+- `_snippet()` 句边界截断——CJK `。！？；` + EN `.!?` 双向感知
+- CJK 人名格式检测——Unicode 范围 `"一" <= c <= "鿿"` 判断姓在前/后
+
+**Token 实测（6 篇论文，cl100k_base）：**
+- 旧纯 JSON: 1,559 tokens
+- 新 JSON+MD: 1,762 tokens (+13%，双格式冗余)
+- context_block 单独: 931 tokens（比旧 JSON 少 40%）
+- 结论：双格式有 ~13% 冗余开销，但 LLM 从 Markdown 提取信息的准确率更高。后续可选 `response_format` 参数让用户选择。
+
+**最没把握的点：**
+1. 双格式冗余——`items` 和 `context_block` 有信息重复，总 token 量反而增加了 13%
+2. 没有做 A/B LLM 响应质量对比测试——只能推断 Markdown 格式更好，没有硬数据
+3. `relevance_tier` 在少量结果时（<4 条）百分位分桶可能不准确
+
+**后续方向：**
+- 添加 `response_format="json"` / `"markdown"` / `"both"` 参数
+- A/B 测试对比 JSON vs Markdown 的 LLM 引用准确率
+- 将 `generate_reading_note` 和 `find_arguments` 也接入 context_block
+
+---
+
+## v0.3.0 — RAG 质量管线全面升级 (2026-07-06)
+
 ### 背景
 
 v0.2.0 的 RAG 管线是"能跑就行"的状态：PDF 提取后直接分块、embedding、入库搜索。通过对 20 篇论文的审计发现：
