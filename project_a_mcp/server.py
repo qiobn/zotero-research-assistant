@@ -901,7 +901,7 @@ def cnki_navigate_pages(
 
 @mcp.tool()
 @_safe_tool
-def find_similar_papers(item_key: str, limit: int = 10) -> list[dict]:
+def find_similar_papers(item_key: str, limit: int = 10) -> dict:
     """Find papers similar to a SPECIFIC paper the user has identified.
 
     Use this when the user says things like "find more papers like THIS one",
@@ -917,11 +917,38 @@ def find_similar_papers(item_key: str, limit: int = 10) -> list[dict]:
         limit: Max number of similar papers to return.
 
     Returns:
-        Ranked list of similar papers, each with key, title, authors, year,
-        relevance score, and a representative passage from each match.
+        A dict with count, source_key, source_title, items (JSON metadata),
+        and context_block (LLM-optimized Markdown with blockquote evidence).
     """
+    try:
+        source = _get_zot().get_item(item_key)
+        source_title = source.title
+    except Exception:
+        source_title = f"paper {item_key}"
+
     hits = _find_similar_papers(item_key, _get_zot(), _get_retriever(), limit=limit)
-    return [h.__dict__ for h in hits]
+
+    from research_core.rag.rendering import get_renderer
+
+    renderer = get_renderer()
+    context_block = renderer.render_similar_papers(source_title, hits, limit)
+
+    return {
+        "count": len(hits),
+        "source_key": item_key,
+        "source_title": source_title,
+        "items": [
+            {
+                "key": h.key, "title": h.title, "authors": h.authors,
+                "year": h.year, "doi": h.doi, "tags": h.tags,
+                "score": h.score, "matched_page": h.matched_page,
+                "source": h.source, "relevance_tier": h.relevance_tier,
+                "section_heading": h.section_heading, "section_type": h.section_type,
+            }
+            for h in hits
+        ],
+        "context_block": context_block,
+    }
 
 
 @mcp.tool()
@@ -1630,10 +1657,16 @@ def suggest_tags(
     Args:
         item_keys: Papers to analyze for tag suggestions.
     """
-    return _suggest_tags(
+    data = _suggest_tags(
         item_keys=normalize_list(item_keys, "item_keys") or [],
         zot=_get_zot(),
     )
+
+    from research_core.rag.rendering import get_renderer
+
+    renderer = get_renderer()
+    data["context_block"] = renderer.render_tag_suggestions(data)
+    return data
 
 
 @mcp.tool()
@@ -1664,13 +1697,19 @@ def generate_reading_note(
              "limitations", "contribution"].
         passages_per_section: Max passages per section (default 2).
     """
-    return _generate_reading_note(
+    data = _generate_reading_note(
         item_key=item_key,
         retriever=_get_retriever(),
         zot=_get_zot(),
         sections=normalize_list(sections, "sections"),
         passages_per_section=passages_per_section,
     )
+
+    from research_core.rag.rendering import get_renderer
+
+    renderer = get_renderer()
+    data["context_block"] = renderer.render_reading_note(data)
+    return data
 
 
 @mcp.tool()
@@ -1699,13 +1738,19 @@ def find_arguments(
         item_keys: Optional — restrict search to specific papers.
         top_k: Max total evidence passages (default 10).
     """
-    return _find_arguments(
+    data = _find_arguments(
         claim=claim,
         retriever=_get_retriever(),
         zot=_get_zot(),
         top_k=top_k,
         item_keys=normalize_list(item_keys, "item_keys"),
     )
+
+    from research_core.rag.rendering import get_renderer
+
+    renderer = get_renderer()
+    data["context_block"] = renderer.render_argument_evidence(data)
+    return data
 
 
 @mcp.tool()

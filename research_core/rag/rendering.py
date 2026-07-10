@@ -605,6 +605,246 @@ class ContextBlockRenderer:
 
         return "\n".join(lines)
 
+    # ── find_similar_papers ─────────────────────────────────────
+
+    def render_similar_papers(
+        self,
+        source_title: str,
+        hits: list,  # list[PaperHit]
+        limit: int = 10,
+    ) -> str:
+        """Render find_similar_papers results as a Markdown context block."""
+        title_display = source_title[:80] + "..." if len(source_title) > 80 else source_title
+        lines: list[str] = [
+            f"## Similar Papers to: \"{title_display}\"",
+            f"**Strategy:** semantic search by title + abstract | **{len(hits)} found**",
+            "",
+        ]
+
+        if not hits:
+            lines.append(
+                "> [NO SIMILAR PAPERS] No semantically similar papers found in "
+                "the library. Try expanding the library with `search_online_literature`."
+            )
+            return "\n".join(lines)
+
+        for i, h in enumerate(hits[:limit], 1):
+            authors_short = _format_authors_short(h.authors)
+            stars = _tier_stars(h.relevance_tier)
+            lines.append(f"### {i}. {h.title} ({authors_short}, {h.year}) {stars}")
+            lines.append(f"**DOI:** {h.doi}" if h.doi else f"**Key:** `{h.key}`")
+
+            passage, _ = _snippet(h.matched_passage, 300)
+            if passage:
+                lines.append("")
+                lines.append(f"> {passage}")
+
+            if h.matched_page:
+                lines.append(f"— *p.{h.matched_page} | score: {h.score:.3f}*")
+            else:
+                lines.append(f"— *score: {h.score:.3f}*")
+            lines.append("")
+
+        lines.append("---")
+        lines.append(
+            "The source paper's title and abstract were used as the search query. "
+            "Use `get_paper_content(key)` to read any paper in full."
+        )
+        return "\n".join(lines)
+
+    # ── find_arguments ──────────────────────────────────────────
+
+    def render_argument_evidence(self, data: dict) -> str:
+        """Render find_arguments output as a Markdown context block."""
+        if "error" in data:
+            return (
+                f"## Argument Evidence\n\n"
+                f"> **Error:** {data['error']}\n\n"
+                f"Try a different claim or broadening your search."
+            )
+
+        claim = data.get("claim", "")
+        claim_display = claim[:100] + "..." if len(claim) > 100 else claim
+        support_n = data.get("support_count", 0)
+        oppose_n = data.get("oppose_count", 0)
+        neutral_n = data.get("neutral_count", 0)
+        total = data.get("total_evidence", 0)
+
+        lines: list[str] = [
+            f"## Argument Evidence: \"{claim_display}\"",
+            "",
+            f"**Summary:** {support_n} supporting | {oppose_n} opposing | {neutral_n} neutral ({total} total passages)",
+            "",
+        ]
+
+        for stance_key, stance_label, emoji in [
+            ("supporting", "Supporting Evidence", "+"),
+            ("opposing", "Opposing Evidence", "-"),
+            ("neutral", "Neutral / Contextual", "~"),
+        ]:
+            items = data.get(stance_key, [])
+            if not items:
+                continue
+
+            lines.append(f"### {emoji} {stance_label} ({len(items)})")
+            lines.append("")
+
+            for i, ev in enumerate(items, 1):
+                citation = ev.get("citation", "")
+                title = ev.get("title", "Untitled")
+                text = ev.get("text", "")
+                page = ev.get("page", "")
+                relevance = ev.get("relevance", 0)
+
+                lines.append(f"**{i}. {title}**")
+                if citation:
+                    lines.append(f"*{citation}*")
+
+                if text:
+                    lines.append("")
+                    lines.append(f"> {text}")
+
+                attr_parts = []
+                if page:
+                    attr_parts.append(f"p.{page}")
+                attr_parts.append(f"relevance: {relevance:.2f}")
+                lines.append(f"— *{', '.join(attr_parts)}*")
+                lines.append("")
+
+        instruction = data.get("synthesis_instruction", "")
+        if instruction:
+            lines.append("---")
+            lines.append("### Synthesis Guidance")
+            lines.append("")
+            instruction_lines = instruction.strip().split("\n")
+            lines.append("\n".join(instruction_lines[:6]))
+
+        return "\n".join(lines)
+
+    # ── generate_reading_note ───────────────────────────────────
+
+    _SECTION_LABELS = {
+        "research_question": "Research Question",
+        "methodology": "Methodology",
+        "data": "Data",
+        "key_findings": "Key Findings",
+        "limitations": "Limitations",
+        "contribution": "Contribution",
+    }
+
+    def render_reading_note(self, data: dict) -> str:
+        """Render generate_reading_note output as a Markdown context block."""
+        if "error" in data:
+            return (
+                f"## Reading Note\n\n"
+                f"> **Error:** {data['error']}\n\n"
+                f"Ensure the paper has an indexed PDF (run `sync_index` if needed)."
+            )
+
+        title = data.get("title", "Untitled")
+        citation = data.get("citation", "")
+        doi = data.get("doi", "")
+        year = data.get("year", "")
+
+        lines: list[str] = [
+            f"## Reading Note: {title}",
+            "",
+            f"**Citation:** {citation}" if citation else "",
+            f"**Year:** {year} | **DOI:** {doi}" if doi else f"**Year:** {year}",
+            f"**Key:** `{data.get('item_key', '')}`",
+            "",
+        ]
+
+        sections = data.get("sections", {})
+        if not sections:
+            lines.append("> *(No passages extracted — paper may not be indexed.)*")
+        else:
+            for section_key in [
+                "research_question", "methodology", "data",
+                "key_findings", "limitations", "contribution",
+            ]:
+                passages = sections.get(section_key, [])
+                if not passages:
+                    continue
+
+                label = self._SECTION_LABELS.get(section_key, section_key)
+                lines.append(f"### {label}")
+                lines.append("")
+
+                for p in passages:
+                    text = p.get("text", "")
+                    page = p.get("page", "")
+                    relevance = p.get("relevance", 0)
+
+                    attr = f"p.{page}" if page else ""
+                    attr += f", relevance: {relevance:.2f}" if attr else f"relevance: {relevance:.2f}"
+
+                    lines.append(f"> ({attr}) {text}")
+                    lines.append("")
+
+        instruction = data.get("note_template_instruction", "")
+        if instruction:
+            lines.append("---")
+            lines.append("### Writing Guidelines")
+            lines.append("")
+            instruction_lines = instruction.strip().split("\n")
+            lines.append("\n".join(instruction_lines[:4]))
+
+        return "\n".join(lines)
+
+    # ── suggest_tags ─────────────────────────────────────────────
+
+    def render_tag_suggestions(self, data: dict) -> str:
+        """Render suggest_tags output as a Markdown context block."""
+        if "error" in data:
+            return (
+                f"## Tag Suggestions\n\n"
+                f"> **Error:** {data['error']}"
+            )
+
+        suggestions = data.get("suggestions", [])
+        total = data.get("total_papers", len(suggestions))
+
+        lines: list[str] = [
+            f"## Tag Suggestions ({total} papers)",
+            "",
+        ]
+
+        if not suggestions:
+            lines.append("> [NO SUGGESTIONS] No tags could be suggested for these papers.")
+            return "\n".join(lines)
+
+        for i, s in enumerate(suggestions, 1):
+            title = s.get("title", "Untitled")
+            current = s.get("current_tags", [])
+            new_tags = s.get("suggested_new", [])
+            from_lib = s.get("suggested_from_library", [])
+
+            lines.append(f"### {i}. {title}")
+            if current:
+                lines.append(f"**Current:** `{'`, `'.join(current)}`")
+
+            if new_tags:
+                lines.append(f"**Suggested new:** `{'`, `'.join(new_tags)}`")
+            else:
+                lines.append("**Suggested new:** *(none)*")
+
+            if from_lib:
+                lines.append(f"**Existing library tags:** `{'`, `'.join(from_lib)}`")
+
+            lines.append("")
+
+        action_hint = data.get("action_hint", "")
+        if action_hint:
+            lines.append("---")
+            lines.append(action_hint)
+
+        lines.append("")
+        lines.append(
+            "To apply tags, use `edit_tags(item_keys=[...], add=[...], confirm=true)`."
+        )
+        return "\n".join(lines)
+
 
 # ── Singleton ───────────────────────────────────────────────────────
 
