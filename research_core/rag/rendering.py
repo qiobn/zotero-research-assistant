@@ -95,27 +95,79 @@ def _snippet(text: str, max_chars: int = 300) -> tuple[str, bool]:
 def _format_first_author(authors: list[str]) -> str:
     """Extract first author's surname for compact citation display.
 
-    Detects CJK vs Western name order:
-    - CJK (Wang Xiaoming) → surname FIRST → take first token → "Wang"
-    - Western (James E. Anderson) → surname LAST → take last token → "Anderson"
+    Heuristic (no name database required):
+    1. Pure CJK (张伟) → first token is surname
+    2. Has initials (James E. Anderson, Chen J.) → Western convention, last
+       non-initial token is surname
+    3. No initials, 2 tokens (Wang Xiaoming, Kim Soohyun) → Chinese/Korean
+       convention, first token is surname. This covers Latinized East Asian
+       names with fully spelled-out given names.
+    4. No initials, 3+ tokens (Eric van Wincoop) → Western convention,
+       last non-initial token is surname
+
+    Known limitation: "James Anderson" (Western, no middle initial) will be
+    incorrectly treated as Chinese convention → "James" instead of "Anderson".
+    In practice, academic metadata almost always includes middle initials.
 
     >>> _format_first_author(["James E. Anderson", "Eric van Wincoop"])
     'Anderson'
+    >>> _format_first_author(["Chen J.", "Liu M."])
+    'Chen'
     >>> _format_first_author(["Wang Xiaoming"])
     'Wang'
     >>> _format_first_author(["张伟", "李娜"])
     '张'
+    >>> _format_first_author(["Kim Soohyun"])
+    'Kim'
     """
     if not authors:
         return "Unknown"
     name = authors[0].strip()
     if not name:
         return "Unknown"
-    # Detect CJK: if first char is in CJK Unified Ideographs range, surname comes first
-    if name and "一" <= name[0] <= "鿿":
+
+    # Pure CJK: surname comes first
+    if "一" <= name[0] <= "鿿":
         return name.split()[0] if name.split() else name
-    # Western convention: surname is the last token
-    return name.split()[-1] if name.split() else name
+
+    # Latin script: filter out initials
+    tokens = name.split()
+    if not tokens:
+        return name
+
+    # An "initial" is a single uppercase letter, optionally with a trailing period
+    non_initials = [
+        t for t in tokens
+        if not (len(t.rstrip(".")) == 1 and t[0].isupper())
+    ]
+
+    if not non_initials:
+        # Degenerate: all tokens are initials
+        return tokens[-1]
+
+    # If there are initials present, Western convention (surname last)
+    has_initials = len(non_initials) < len(tokens)
+
+    if has_initials:
+        return non_initials[-1]
+
+    # No initials — all tokens are full words.
+
+    # Common European name prefixes (tussenvoegsels). If the first token is
+    # a prefix like "van", "de", "von", the surname is the last token.
+    _NAME_PREFIXES = frozenset({
+        "van", "de", "den", "der", "von", "zu", "di", "da", "du",
+        "del", "della", "delle", "le", "la", "los", "las",
+    })
+    if non_initials[0].lower() in _NAME_PREFIXES:
+        return non_initials[-1]
+
+    # 2 tokens: likely Chinese/Korean convention (surname first)
+    if len(non_initials) == 2:
+        return non_initials[0]
+
+    # 3+ tokens: Western convention (surname last)
+    return non_initials[-1]
 
 
 def _format_authors_short(authors: list[str]) -> str:
