@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dual-format output (JSON + Markdown context_block)** — key retrieval tools now
+  return a `context_block` field containing pre-rendered LLM-optimized Markdown
+  alongside the existing JSON items. Markdown uses blockquote (>) for evidence
+  text, star ratings (★★★) for relevance tiers, and sentence-boundary truncation.
+  Up to ~80% token savings vs pure JSON for the same information. Covers:
+  `search_papers`, `get_paper_content`, `generate_review_note`, `suggest_citations`.
+  Per Anthropic MCP best practice: Markdown is the LLM consumption channel, JSON
+  is the programmatic channel.
+- **Relevance tiers** — each `search_papers` result now carries a `relevance_tier`
+  field ("high"/"medium"/"low") computed from Cross-Encoder score percentiles. More
+  intuitive for LLMs than raw float scores like 0.0321.
 - **ONNX INT8 embedding backend** (`EMBEDDING_BACKEND=auto` / `onnx_int8`) —
   optional 2-3x faster, 4x smaller (347MB vs 2.3GB) embedding inference via
   ONNX Runtime with pre-quantized bge-m3 model. Zero-config: `auto` mode

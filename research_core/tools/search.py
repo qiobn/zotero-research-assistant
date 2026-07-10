@@ -30,6 +30,7 @@ class PaperHit:
     paper_abstract: str = ""
     section_heading: str = ""
     section_type: str = ""
+    relevance_tier: str = ""  # "high" | "medium" | "low" — for LLM-friendly display
 
 
 def search_papers(
@@ -144,10 +145,15 @@ def search_papers(
         t_semantic = (time.time() - t0) * 1000
 
     pre_rerank_n = len(semantic_hits)
+    ce_scores: dict[str, float] = {}  # item_key → Cross-Encoder score
     if reranker and semantic_hits and has_query:
         t0 = time.time()
         docs = [h.text for h in semantic_hits]
         reranked = reranker.rerank(query, docs, top_k=limit * 3)
+        # Capture CE scores for tier assignment
+        for idx, ce_score in reranked:
+            key = semantic_hits[idx].item_key
+            ce_scores[key] = float(ce_score)
         semantic_hits = [semantic_hits[idx] for idx, _ in reranked]
         t_rerank = (time.time() - t0) * 1000
 
@@ -168,6 +174,33 @@ def search_papers(
         log_params["mmr_weight"] = diversity_weight
         log_params["mmr_papers_before"] = pre_mmr_n
         log_params["mmr_papers_after"] = post_mmr_papers
+
+    # ── Compute relevance tiers (percentile-based) ──
+    _TIER_HIGH = 0
+    _TIER_MED = 0
+    if ce_scores:
+        all_scores = sorted(ce_scores.values())
+        n = len(all_scores)
+        _TIER_HIGH = all_scores[int(n * 0.75)] if n >= 4 else all_scores[-1]
+        _TIER_MED = all_scores[int(n * 0.25)] if n >= 4 else all_scores[0]
+
+    def _assign_tier(item_key: str, source: str) -> str:
+        """Assign a relevance tier: high/medium/low."""
+        if item_key in ce_scores:
+            s = ce_scores[item_key]
+            if s >= _TIER_HIGH:
+                return "high"
+            if s >= _TIER_MED:
+                return "medium"
+            return "low"
+        # No CE score — fall back to source-based tiering
+        if source == "hybrid":
+            return "medium"
+        if source == "semantic":
+            return "medium"
+        if source == "keyword":
+            return "low"
+        return "low"  # fallback
 
     keyword_ranks = {item.key: rank + 1 for rank, item in enumerate(keyword_items)}
     semantic_ranks: dict[str, int] = {}
@@ -260,6 +293,7 @@ def search_papers(
                 paper_abstract=enriched_meta.get("paper_abstract", ""),
                 section_heading=enriched_meta.get("section_heading", ""),
                 section_type=enriched_meta.get("section_type", ""),
+                relevance_tier=_assign_tier(item.key, src),
             )
         )
         if len(hits) >= limit:
@@ -298,6 +332,7 @@ def search_papers(
                     tags=item.tags,
                     score=0.0,
                     source="fallback",
+                    relevance_tier="low",
                 )
             )
             if len(hits) >= limit:

@@ -478,7 +478,7 @@ def search_papers(
     expand_context: bool = False,
     expand_neighbors: bool = False,
     diversity_weight: float = 0.4,
-) -> list[dict]:
+) -> dict:
     """Find papers in the user's Zotero library by topic, keywords, or filters.
 
     This is the PRIMARY discovery tool. Use it whenever the user wants to find papers
@@ -516,9 +516,15 @@ def search_papers(
                           Set to 0 when doing targeted single-paper retrieval.
 
     Returns:
-        List of papers ordered by relevance (or date if no query), each with key,
-        title, authors, year, DOI, tags, score, source ('keyword' | 'semantic' |
-        'hybrid'), and the best matching passage with its page number when available.
+        A dict with:
+        - count: number of results
+        - query: the original query string
+        - items: list of paper metadata (key, title, authors, year, DOI, tags, score,
+                 source, relevance_tier, section info)
+        - context_block: pre-rendered Markdown optimized for LLM reading — use this
+          as your primary source when presenting results to the user. Each paper is
+          formatted with title heading, evidence blockquote (>), star ratings (★★★),
+          and source attribution. Read context_block first, use items for lookups.
     """
     hits = _search_papers(
         query=query,
@@ -534,7 +540,34 @@ def search_papers(
         expand_neighbors=expand_neighbors,
         diversity_weight=diversity_weight,
     )
-    return [h.__dict__ for h in hits]
+
+    from research_core.rag.rendering import get_renderer
+
+    renderer = get_renderer()
+    context_block = renderer.render_search_results(query, hits, limit)
+
+    return {
+        "count": len(hits),
+        "query": query,
+        "items": [
+            {
+                "key": h.key,
+                "title": h.title,
+                "authors": h.authors,
+                "year": h.year,
+                "doi": h.doi,
+                "tags": h.tags,
+                "score": h.score,
+                "matched_page": h.matched_page,
+                "source": h.source,
+                "relevance_tier": h.relevance_tier,
+                "section_heading": h.section_heading,
+                "section_type": h.section_type,
+            }
+            for h in hits
+        ],
+        "context_block": context_block,
+    }
 
 
 @mcp.tool()
@@ -1049,7 +1082,9 @@ def get_paper_content(
 
     Returns:
         {item_key, title, passages, annotations, outline, fulltext,
-         referenced_tables, referenced_figures}. When a returned passage cites a
+         referenced_tables, referenced_figures, context_block}. context_block is
+        a pre-rendered Markdown block optimized for LLM reading — use it as your
+        primary source for presenting paper content. When a returned passage cites a
          table or figure (e.g. "as shown in Table 3 / Figure 2"), that table's
          content / figure's caption is resolved into `referenced_tables` /
          `referenced_figures`, and the passage lists the labels in
@@ -1067,7 +1102,15 @@ def get_paper_content(
         mode=mode,
         limit=limit,
     )
-    return content.__dict__
+
+    from research_core.rag.rendering import get_renderer
+
+    renderer = get_renderer()
+    context_block = renderer.render_paper_content(content, mode=mode, query=query)
+
+    result = content.__dict__
+    result["context_block"] = context_block
+    return result
 
 
 @mcp.tool()
@@ -1152,7 +1195,7 @@ def create_annotation(
 
 @mcp.tool()
 @_safe_tool
-def suggest_citations(draft_text: str, top_k: int = 5) -> list[dict]:
+def suggest_citations(draft_text: str, top_k: int = 5) -> dict:
     """For a passage from the USER'S OWN WRITING, suggest papers from their library
     that could be cited to support each claim.
 
@@ -1173,11 +1216,33 @@ def suggest_citations(draft_text: str, top_k: int = 5) -> list[dict]:
         top_k: Max number of papers to suggest (1 best chunk per paper).
 
     Returns:
-        List of suggestions with item_key, title, authors, year, evidence_text,
-        page, and relevance score.
+        A dict with:
+        - count: number of suggestions
+        - items: list of suggestion metadata (item_key, title, authors, year, page, relevance)
+        - context_block: pre-rendered Markdown with evidence blockquotes and citations
     """
     suggestions = _suggest_citations(draft_text, _get_retriever(), _get_zot(), top_k=top_k)
-    return [s.__dict__ for s in suggestions]
+
+    from research_core.rag.rendering import get_renderer
+
+    renderer = get_renderer()
+    context_block = renderer.render_citation_suggestions(draft_text, suggestions)
+
+    return {
+        "count": len(suggestions),
+        "items": [
+            {
+                "item_key": s.item_key,
+                "title": s.title,
+                "authors": s.authors,
+                "year": s.year,
+                "page": s.page,
+                "relevance": s.relevance,
+            }
+            for s in suggestions
+        ],
+        "context_block": context_block,
+    }
 
 
 @mcp.tool()
@@ -1530,13 +1595,19 @@ def generate_review_note(
             returns the most important passages from each paper.
         passages_per_paper: Max passages per paper (default 5).
     """
-    return _generate_review_note(
+    data = _generate_review_note(
         item_keys=normalize_list(item_keys, "item_keys") or [],
         retriever=_get_retriever(),
         zot=_get_zot(),
         focus=focus,
         passages_per_paper=passages_per_paper,
     )
+
+    from research_core.rag.rendering import get_renderer
+
+    renderer = get_renderer()
+    data["context_block"] = renderer.render_review_materials(data)
+    return data
 
 
 @mcp.tool()

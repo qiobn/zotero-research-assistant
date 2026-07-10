@@ -85,8 +85,8 @@ RAG 管线是本项目的核心。所有设计决策——从分块策略到嵌�
 │    → Cross-Encoder 重排序 (ms-marco-MiniLM-L-6-v2)   │
 │    → MMR 多样性 (λ=0.4, 每篇最多 3 chunks)           │
 │    → 双语查询扩展 (~300 对中英术语)                   │
-│    → Top-K PaperHit 返回: 分数, 段落, 页码,           │
-│      摘要, 章节标题/类型, DOI                         │
+│    → 双格式输出: JSON items + Markdown                │
+│      context_block (blockquote 引用, ★★★ 分级)        │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -102,6 +102,8 @@ RAG 管线是本项目的核心。所有设计决策——从分块策略到嵌�
 | **章节级上下文扩展** | `expand_context=True` 为每个命中 chunk 获取完整章节文本（~2000 字符 vs 300），给 LLM 完整段落语境。邻居扩展（±1 chunk）作为轻量替代。 |
 | **混合搜索 + RRF** | Zotero 关键词 + ChromaDB 语义，RRF 融合。关键词保护精确匹配（DOI、作者名），语义提供模糊发现。 |
 | **Cross-Encoder 重排序** | 可选 ms-marco-MiniLM-L-6-v2（~80MB）对候选结果精排。查询相关——与静态质量分不同，只在相关时才生效。 |
+| **双格式输出** | 核心工具同时返回 `items`（JSON 元数据）和 `context_block`（LLM 优化 Markdown）。blockquote 引用原文、★★★ 相关度分级、句边界截断。相比纯 JSON 节省约 80% token。遵循 Anthropic MCP 最佳实践。 |
+| **相关度分级** | 每条结果附带基于 Cross-Encoder 分数百分位的 `relevance_tier`（high/medium/low）。LLM 对 ★★★ 的直觉理解远胜于 0.0321 这类原始浮点数。 |
 | **MMR 多样性** | Chunk 级 Maximal Marginal Relevance（λ=0.4，网格搜索调优）。防止单篇论文主导搜索结果。硬 cap 每篇 3 chunks + per-document penalty。多样性提升 54%。 |
 | **双语查询扩展** | 三层词典体系：~300 对内置跨学科方法论术语（第一层）、Zotero 标签自动提取（第二层）、用户自定义同义词 MCP 工具（第三层）。中英双向，LRU 缓存，零延迟。 |
 | **检索可观测性** | 每次搜索输出 JSONL 全链路追踪：查询、策略、候选数、重排序状态、top-20 结果及分数、延迟分解（关键词/语义/重排序/MMR/总计）。字节偏移索引支持快速回溯。 |
@@ -227,7 +229,7 @@ ZOTERO_API_KEY=your_api_key_here
 <summary>展开工具详情</summary>
 
 ### 发现
-- **`search_papers`** — 主搜索。混合关键词+语义。支持 `expand_context`、`expand_neighbors`、`diversity_weight`（MMR，默认 0.4）
+- **`search_papers`** — 主搜索。混合关键词+语义。支持 `expand_context`、`expand_neighbors`、`diversity_weight`（MMR，默认 0.4）。返回双格式输出：`items`（JSON 元数据）+ `context_block`（LLM 优化 Markdown，含 blockquote 引用和 ★★★ 相关度分级）。
 - **`search_online_literature`** — 在线英文/国际文献（OpenAlex + CrossRef + S2）
 - **`search_cnki_literature`** — 知网中文期刊搜索（可选，浏览器自动化）
 - **`find_related_literature`** — 5 策略并行：语料优先、关键词、引用网络、S2 推荐、OpenAlex
