@@ -89,8 +89,8 @@ Your Zotero Library
 │    ↓                                                  │
 │    Bilingual query expansion (~300 CN↔EN pairs)      │
 │    ↓                                                  │
-│    Top-K PaperHits with: score, passage, page,       │
-│    abstract, section heading/type, DOI               │
+│    Dual-format output: JSON items + Markdown          │
+│    context_block (blockquote evidence, ★★★ tiers)    │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -106,6 +106,8 @@ Your Zotero Library
 | **Section-Parent Expansion** | `expand_context=True` fetches the full enclosing section for each hit chunk (~2000 chars vs 300), giving the LLM complete paragraph context. Neighbor expansion (±1 chunk) as lighter alternative. |
 | **Hybrid Search + RRF** | Zotero keyword search + ChromaDB semantic search merged via Reciprocal Rank Fusion. Keyword protects exact matches (DOIs, author names); semantic provides fuzzy discovery. |
 | **Cross-Encoder Reranking** | Optional ms-marco-MiniLM-L-6-v2 (~80MB) re-scores top candidates for higher precision. Query-dependent — unlike static quality scores, only fires when relevant. |
+| **Dual-Format Output** | Key tools return both `items` (JSON metadata) and `context_block` (LLM-optimized Markdown). Blockquote for evidence text, ★★★ star ratings for relevance tiers, sentence-boundary truncation. ~80% token savings vs pure JSON. Per Anthropic MCP best practice. |
+| **Relevance Tiers** | Each result gets a percentile-based `relevance_tier` (high/medium/low) computed from Cross-Encoder scores. LLMs understand ★★★ more intuitively than raw floats like 0.0321. |
 | **MMR Diversity** | Maximal Marginal Relevance at the chunk level (λ=0.4, tuned via grid search). Prevents single-paper dominance in top results. Hard cap of 3 chunks per paper + per-document penalty. +54% paper diversity vs un-diversified. |
 | **Bilingual Query Expansion** | 3-layer dictionary system: ~300 built-in cross-disciplinary methodology pairs (Layer 1), auto-extracted Zotero tags (Layer 2), user-defined synonyms via MCP tool (Layer 3). CN↔EN bidirectional, LRU-cached, zero latency. |
 | **Retrieval Observability** | Every search emits a JSONL trace: query, strategy, candidate counts, reranker state, top-20 results with scores, latency breakdown (keyword/semantic/rerank/MMR/total). Byte-offset index for fast replay. 3 query tools: `recent_retrievals`, `retrieval_trace`, `retrieval_stats`. |
@@ -231,7 +233,7 @@ Verify: `codex mcp list`.
 <summary>Expand tool details</summary>
 
 ### Discover
-- **`search_papers`** — Primary search. Hybrid keyword + semantic. Supports `expand_context`, `expand_neighbors`, `diversity_weight` (MMR, default 0.4).
+- **`search_papers`** — Primary search. Hybrid keyword + semantic. Supports `expand_context`, `expand_neighbors`, `diversity_weight` (MMR, default 0.4). Returns dual-format output: `items` (JSON metadata) + `context_block` (LLM-optimized Markdown with blockquote evidence and ★★★ relevance tiers).
 - **`search_online_literature`** — OpenAlex + CrossRef + Semantic Scholar (English/international).
 - **`search_cnki_literature`** — CNKI Chinese journal search (optional, browser automation).
 - **`find_related_literature`** — 5 parallel strategies: Corpus-First, keyword, citation, S2 recommendations, OpenAlex.
