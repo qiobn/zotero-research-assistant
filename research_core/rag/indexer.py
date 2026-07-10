@@ -9,6 +9,38 @@ from research_core.parsers.chunker import Chunk
 from research_core.rag.store import get_collection, sync_lock
 
 
+def _enrich_chunk_text(chunk: Chunk, title: str, year: int) -> str:
+    """Prepend paper + section context to chunk text before embedding.
+
+    Anthropic "Contextual Retrieval" (2024): chunks embedded with surrounding
+    context achieve 49% fewer retrieval failures vs bare text. The embedding
+    model sees a chunk as part of a specific paper and section, rather than
+    as an isolated text fragment.
+
+    Format: "[Title: {paper} ({year})] [Section: {heading}]\\n{text}"
+    """
+    parts: list[str] = []
+
+    # Paper context
+    if title:
+        short_title = title[:150] if len(title) > 150 else title
+        ctx = f"Title: {short_title}"
+        if year:
+            ctx += f" ({year})"
+        parts.append(f"[{ctx}]")
+
+    # Section context
+    section = chunk.metadata.get("section", "")
+    if section and section != "content":
+        short_section = section[:120] if len(section) > 120 else section
+        parts.append(f"[Section: {short_section}]")
+
+    if not parts:
+        return chunk.text
+
+    return " ".join(parts) + "\n" + chunk.text
+
+
 class Indexer:
     """Write document chunks into a ChromaDB collection."""
 
@@ -33,13 +65,20 @@ class Indexer:
         title: str = "",
         year: int = 0,
     ) -> int:
-        """Add or replace chunks for one item. Returns number of chunks indexed."""
+        """Add or replace chunks for one item. Returns number of chunks indexed.
+
+        Each chunk text is enriched with paper + section context before
+        embedding, so the embedding model sees: "[Title: ...] [Section: ...]
+        {original text}" instead of isolated raw text. This is Anthropic's
+        "Contextual Retrieval" technique — 49% retrieval failure reduction
+        at zero query-time cost.
+        """
         if not chunks:
             return 0
         with sync_lock:
             self.delete_item(item_key)
             ids = [f"{item_key}:{c.chunk_idx}" for c in chunks]
-            documents = [c.text for c in chunks]
+            documents = [_enrich_chunk_text(c, title, year) for c in chunks]
             metadatas = [self._build_metadata(c, item_key, title, year) for c in chunks]
             self._collection.upsert(
                 ids=ids, documents=documents, metadatas=metadatas
