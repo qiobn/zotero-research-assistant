@@ -42,6 +42,7 @@ class RetrievalLog:
 
     # Candidate counts per source
     candidate_keyword_n: int = 0
+    candidate_bm25_n: int = 0
     candidate_semantic_n: int = 0
     candidate_merged_n: int = 0
 
@@ -61,6 +62,7 @@ class RetrievalLog:
 
     # Latency (milliseconds)
     latency_keyword_ms: float = 0.0
+    latency_bm25_ms: float = 0.0
     latency_semantic_ms: float = 0.0
     latency_rerank_ms: float = 0.0
     latency_mmr_ms: float = 0.0

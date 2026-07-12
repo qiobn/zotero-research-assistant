@@ -144,6 +144,14 @@ def search_papers(
                                               expand_neighbors=expand_neighbors)
         t_semantic = (time.time() - t0) * 1000
 
+    # ── BM25 Sparse Keyword Search (chunk text) ──
+    bm25_hits = []
+    t_bm25 = 0.0
+    if has_query:
+        t0 = time.time()
+        bm25_hits = retriever.search_bm25(query, top_k=limit * overfetch * 3)
+        t_bm25 = (time.time() - t0) * 1000
+
     pre_rerank_n = len(semantic_hits)
     ce_scores: dict[str, float] = {}  # item_key → Cross-Encoder score
     if reranker and semantic_hits and has_query:
@@ -231,7 +239,19 @@ def search_papers(
             "section_type": getattr(hit, "section_type", "") or "",
         }
 
-    candidate_keys = set(keyword_ranks) | set(semantic_ranks)
+    # ── BM25 ranks (chunk-level → paper-level best rank) ──
+    bm25_ranks: dict[str, int] = {}
+    bm25_seen: set[str] = set()
+    for rank, hit in enumerate(bm25_hits):
+        if hit.item_key in bm25_seen:
+            continue
+        bm25_seen.add(hit.item_key)
+        bm25_ranks[hit.item_key] = rank + 1
+        # Capture BM25-matched passage if semantic didn't already
+        if hit.item_key not in semantic_best_passage and hit.text:
+            semantic_best_passage[hit.item_key] = (hit.text[:300], 0)
+
+    candidate_keys = set(keyword_ranks) | set(semantic_ranks) | set(bm25_ranks)
     rrf_k = 60
     scored: list[tuple[float, str]] = []
     for key in candidate_keys:
@@ -240,6 +260,8 @@ def search_papers(
             score += 1.0 / (rrf_k + keyword_ranks[key])
         if key in semantic_ranks:
             score += 1.0 / (rrf_k + semantic_ranks[key])
+        if key in bm25_ranks:
+            score += 1.0 / (rrf_k + bm25_ranks[key])
         scored.append((score, key))
     scored.sort(reverse=True)
 
@@ -273,11 +295,14 @@ def search_papers(
             continue
         passage, page = semantic_best_passage.get(key, ("", 0))
         enriched_meta = semantic_enriched.get(key, {})
-        src = (
-            "hybrid"
-            if (key in keyword_ranks and key in semantic_ranks)
-            else ("keyword" if key in keyword_ranks else "semantic")
-        )
+        has_keyword = key in keyword_ranks or key in bm25_ranks
+        has_semantic = key in semantic_ranks
+        if has_keyword and has_semantic:
+            src = "hybrid"
+        elif has_keyword:
+            src = "keyword"
+        else:
+            src = "semantic"
         hits.append(
             PaperHit(
                 key=item.key,
@@ -343,10 +368,11 @@ def search_papers(
         query=query,
         expanded_queries=[{"text": eq[0], "weight": eq[1]} for eq in expanded_queries]
                           if len(expanded_queries) > 1 else [],
-        strategy="hybrid" if (has_query and keyword_items and semantic_hits)
-        else ("semantic" if semantic_hits else "keyword" if keyword_items else "fallback"),
+        strategy="hybrid" if (has_query and (keyword_items or bm25_hits) and semantic_hits)
+        else ("semantic" if semantic_hits else "keyword" if (keyword_items or bm25_hits) else "fallback"),
         parameters=log_params,
         candidate_keyword_n=len(keyword_items),
+        candidate_bm25_n=len(bm25_hits),
         candidate_semantic_n=pre_rerank_n,
         candidate_merged_n=len(hits),
         reranker_enabled=reranker is not None,
@@ -362,6 +388,7 @@ def search_papers(
         fallback_triggered=fallback_triggered,
         fallback_count=len(fallback_items),
         latency_keyword_ms=round(t_keyword, 1),
+        latency_bm25_ms=round(t_bm25, 1),
         latency_semantic_ms=round(t_semantic, 1),
         latency_rerank_ms=round(t_rerank, 1),
         latency_mmr_ms=round(t_mmr, 1),

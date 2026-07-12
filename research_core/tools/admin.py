@@ -283,6 +283,7 @@ class SyncReport:
     removed: list[str] = field(default_factory=list)
     failed: list[dict] = field(default_factory=list)
     total_chunks_after: int = 0
+    bm25_indexed: int = 0
     incremental: bool = True
     quality_summary: dict = field(default_factory=dict)
     rebuild_reason: str = ""
@@ -518,6 +519,20 @@ def sync_index(
         }
     except Exception:
         pass  # best-effort; query expansion still works with Layer 1 (built-in)
+
+    # ── Rebuild BM25 sparse index (on full chunk corpus) ──
+    bm25_count = 0
+    try:
+        from research_core.rag.bm25_index import BM25Index
+        bm25 = BM25Index(persist_dir)
+        bm25_count = bm25.build_from_collection(indexer.collection)
+        report.bm25_indexed = bm25_count
+        # Invalidate retriever's cached BM25 so next search picks up fresh index
+        retriever._bm25 = None  # noqa: SLF001
+        logger.info(f"BM25 index rebuilt: {bm25_count} chunks")
+    except Exception as e:
+        logger.warning(f"BM25 index rebuild failed (non-fatal): {e}")
+        report.bm25_indexed = 0
 
     if chunk_lengths:
         report.quality_summary = {

@@ -61,7 +61,10 @@ class RetrievalResult:
 
 
 class Retriever:
-    """Query the ChromaDB collection for semantically similar chunks."""
+    """Query the ChromaDB collection for semantically similar chunks.
+
+    Also owns the BM25 sparse index for hybrid keyword + semantic retrieval.
+    """
 
     def __init__(
         self,
@@ -73,6 +76,26 @@ class Retriever:
             persist_dir, collection_name
         )
         self._persist_dir = persist_dir
+        self._bm25 = None  # Lazy-loaded BM25Index
+
+    @property
+    def bm25(self):
+        """Lazy-load the BM25 index. Returns None if not built yet."""
+        if self._bm25 is None:
+            from research_core.rag.bm25_index import BM25Index
+            self._bm25 = BM25Index(self._persist_dir)
+            self._bm25.load()  # Try loading; stays unready if file missing
+        return self._bm25 if self._bm25.ready else None
+
+    def search_bm25(self, query: str, top_k: int = 50) -> list:
+        """Keyword (BM25) search across all indexed chunk texts.
+
+        Returns list of BM25Hit. Returns empty list if BM25 index is not built.
+        """
+        idx = self.bm25
+        if idx is None:
+            return []
+        return idx.search(query, top_k=top_k)
 
     def search(
         self,

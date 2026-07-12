@@ -29,6 +29,7 @@ dependencies = [
     "loguru>=0.7",
     "pydantic>=2.10",
     "onnxruntime>=1.19",
+    "rank-bm25>=0.2",
 ]
 
 [project.optional-dependencies]
