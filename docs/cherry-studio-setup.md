@@ -80,7 +80,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 set HF_ENDPOINT=https://hf-mirror.com
 ```
 
-然后运行 `pip install zra-mcp`。之后第 3 步会写入 `.env` 文件，就不需要每次手动设置了。
+然后运行 `pip install zra-mcp`。之后在第 4 步的 MCP 环境变量中设置，就不需要每次手动设置了。
 
 ---
 
@@ -93,31 +93,15 @@ set HF_ENDPOINT=https://hf-mirror.com
 3. 勾选 **"Allow other applications on this computer to communicate with Zotero"**
 4. 验证：浏览器打开 http://localhost:23119/api/，应该看到 JSON 格式的文字
 
-### 3.2 创建配置文件（.env）
+### 3.2 获取 Zotero API Key（可选，启用写操作）
 
-选一个文件夹存放配置——比如 `D:\zotero-ai`（Windows）或 `~/zotero-ai`（macOS）。
+如果只需要搜索和阅读论文，这一步可以跳过。
 
-在该文件夹下创建一个名为 **`.env`** 的文件，内容如下：
-
-```
-ZOTERO_LOCAL=true
-HF_ENDPOINT=https://hf-mirror.com
-```
-
-> 如果你还想通过 AI **添加论文、写笔记、管理标签**，需要先获取 Zotero API Key：
-> 1. 打开 https://www.zotero.org/settings/keys 并登录
-> 2. 点 "Create new private key"，勾选 "Allow write access"
-> 3. 复制生成的 key，记下页面顶部的 userID 数字
-> 4. 在 `.env` 文件中追加两行：
-> ```
-> ZOTERO_LIBRARY_ID=12345678
-> ZOTERO_API_KEY=你的key
-> ```
-> （把 `12345678` 换成你的 userID 数字）
-
-**如何创建 .env 文件：**
-- **Windows：** 在文件夹里右键 → 新建 → 文本文档，改名为 `.env`（删掉 `.txt` 后缀），用记事本编辑
-- **macOS：** 终端运行 `cd ~/zotero-ai && echo "ZOTERO_LOCAL=true" > .env`
+如果还想通过 AI **添加论文、写笔记、管理标签**：
+1. 打开 https://www.zotero.org/settings/keys 并登录
+2. 点 "Create new private key"，勾选 "Allow write access"
+3. 复制生成的 key（一长串字母数字）
+4. 记下页面顶部 "userID" 旁边的数字（如 12345678）
 
 ---
 
@@ -138,39 +122,54 @@ HF_ENDPOINT=https://hf-mirror.com
 
 ### 4.3 添加 MCP 服务器
 
-打开 **Cherry Studio → 设置 → MCP 服务器**，点击 **添加**，填写：
+打开 **Cherry Studio → 设置 → MCP 服务器**，点击 **添加 MCP 服务器**：
 
 | 字段 | 值 |
 |------|-----|
 | 名称 | `zra-mcp` |
 | 描述 | `Zotero Research Assistant` |
 | 命令 | `zra-mcp` |
-| 参数 | *（留空）* |
-| 环境变量 | *（留空——已在 .env 文件中设置）* |
+| 参数 | *(留空)* |
+| 环境变量 | `ZOTERO_LOCAL` = `true` |
 
-点击 **保存**。
+> **只读使用（搜索+阅读）** → 只需上面这一行环境变量就够了。
+>
+> **需要写操作（添加论文、笔记、标签）** → 再加两行：
+> `ZOTERO_LIBRARY_ID` = `你的 userID 数字`
+> `ZOTERO_API_KEY` = `你的 key`
+>
+> **国内用户** → 再加一行加速模型下载：
+> `HF_ENDPOINT` = `https://hf-mirror.com`
 
-> **源码安装？** 如果你是 clone 源码而不是 pip 安装的，填写方式不同：
-> - **命令：** Python 的完整路径（如 `D:\project\.venv\Scripts\python.exe` 或 `/home/user/project/.venv/bin/python`）
-> - **参数：** `-m`，`project_a_mcp.server`
+点击 **保存**。不需要创建任何文件，所有配置都在这里。
 
-> **需要用 JSON 导入？** 如果 Cherry Studio 要求粘贴 JSON，使用以下格式：
-> ```json
-> {
->   "mcpServers": {
->     "zra-mcp": {
->       "name": "zra-mcp",
->       "description": "Zotero Research Assistant",
->       "baseUrl": "",
->       "command": "zra-mcp",
->       "args": [],
->       "env": {},
->       "isActive": true
->     }
->   }
-> }
-> ```
-> 源码安装：把 `"command": "zra-mcp"` 替换为 Python 路径，并在 `"args"` 中添加 `["-m", "project_a_mcp.server"]`。
+> **源码安装？** 把"命令"改为 Python 的完整路径（如 `D:\project\.venv\Scripts\python.exe`），"参数"填 `-m` 和 `project_a_mcp.server`。
+
+---
+
+#### 如果 Cherry Studio 要求用 JSON 格式粘贴
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "name": "zra-mcp",
+      "description": "Zotero Research Assistant",
+      "baseUrl": "",
+      "command": "zra-mcp",
+      "args": [],
+      "env": {
+        "ZOTERO_LOCAL": "true",
+        "HF_ENDPOINT": "https://hf-mirror.com"
+      },
+      "isActive": true
+    }
+  }
+}
+```
+
+> 需要写操作时在 `env` 里加上 `"ZOTERO_LIBRARY_ID": "12345678"` 和 `"ZOTERO_API_KEY": "你的key"`。
+> 源码安装把 `"command": "zra-mcp"` 换成 Python 路径，`"args": []` 换成 `"args": ["-m", "project_a_mcp.server"]`。
 
 ### 4.4 验证连接
 
@@ -182,6 +181,7 @@ HF_ENDPOINT=https://hf-mirror.com
 **如果连不上？**
 - Zotero 是否在运行？（窗口必须开着，不是最小化到托盘）
 - 添加 MCP 服务器后是否重启了 Cherry Studio？
+- MCP 环境变量是否设置正确？（至少要有 `ZOTERO_LOCAL=true`）
 - 在终端直接运行 `zra-mcp` 看是否有报错
 
 ---
@@ -234,7 +234,7 @@ MCP 服务自动启动，索引自动同步。不需要开终端。
 告诉 AI "同步索引"。新加的 PDF 需要先索引。
 
 **Q: 无法添加论文 / 写笔记？**
-需要配置 Zotero API Key——见第 3.2 步。没有的话只能搜索和阅读。
+需要配置 Zotero API Key——见第 3.2 步，然后在 MCP 环境变量中加上 ZOTERO_LIBRARY_ID 和 ZOTERO_API_KEY。没有的话只能搜索和阅读。
 
 **Q: 提示"Connection refused"？**
 Zotero 桌面端必须正在运行。检查第 3.1 步。

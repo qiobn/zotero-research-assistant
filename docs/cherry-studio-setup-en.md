@@ -82,7 +82,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 set HF_ENDPOINT=https://hf-mirror.com
 ```
 
-Then run `pip install zra-mcp`. You'll also add this to your config file in Step 3 so it persists.
+Then run `pip install zra-mcp`. You'll add this to Cherry Studio's MCP env vars in Step 4 so it persists.
 
 ---
 
@@ -95,27 +95,15 @@ Then run `pip install zra-mcp`. You'll also add this to your config file in Step
 3. Check **"Allow other applications on this computer to communicate with Zotero"**
 4. Verify: open http://localhost:23119/api/ in your browser. You should see JSON text.
 
-### 3.2 Create a config file (.env)
+### 3.2 Get a Zotero API Key (optional, for write access)
 
-Pick a folder for your config — for example `D:\zotero-ai` (Windows) or `~/zotero-ai` (macOS).
+Skip this if you only need to search and read papers.
 
-Create a file named **`.env`** in that folder with this content:
-
-```
-ZOTERO_LOCAL=true
-HF_ENDPOINT=https://hf-mirror.com
-```
-
-> If you also want to **add papers, write notes, or manage tags** via AI, you need a Zotero API key. Get one at https://www.zotero.org/settings/keys, then add these lines:
-> ```
-> ZOTERO_LIBRARY_ID=12345678
-> ZOTERO_API_KEY=your-key-here
-> ```
-> (Replace `12345678` with the number next to "userID" on that page.)
-
-**How to create a .env file:**
-- **Windows:** Right-click → New → Text Document. Rename to `.env` (remove `.txt`). Edit with Notepad.
-- **macOS:** In Terminal: `cd ~/zotero-ai && echo "ZOTERO_LOCAL=true" > .env`
+To **add papers, write notes, or manage tags** via AI:
+1. Go to https://www.zotero.org/settings/keys and log in
+2. Click "Create new private key", check "Allow write access"
+3. Copy the generated key (a long string of letters and numbers)
+4. Note the number next to "userID" at the top of the page (e.g. 12345678)
 
 ---
 
@@ -136,7 +124,7 @@ Recommended models:
 
 ### 4.3 Add the MCP server
 
-Open **Cherry Studio → Settings → MCP Servers**, click **Add**, and fill in:
+Open **Cherry Studio → Settings → MCP Servers**, click **Add MCP Server**:
 
 | Field | Value |
 |-------|-------|
@@ -144,31 +132,46 @@ Open **Cherry Studio → Settings → MCP Servers**, click **Add**, and fill in:
 | Description | `Zotero Research Assistant` |
 | Command | `zra-mcp` |
 | Args | *(leave empty)* |
-| Env | *(leave empty — set in .env file)* |
+| Env | `ZOTERO_LOCAL` = `true` |
 
-Click **Save**.
+> **Read-only (search + read)?** The one env var above is all you need.
+>
+> **Need write access (add papers, notes, tags)?** Add two more env vars:
+> `ZOTERO_LIBRARY_ID` = `your userID number`
+> `ZOTERO_API_KEY` = `your key`
+>
+> **In China?** Add one more for faster model downloads:
+> `HF_ENDPOINT` = `https://hf-mirror.com`
 
-> **Source install?** If you installed from source instead of pip, use these values instead:
-> - **Command:** Full path to Python (e.g. `D:\project\.venv\Scripts\python.exe` or `/home/user/project/.venv/bin/python`)
-> - **Args:** `-m`, `project_a_mcp.server`
+Click **Save**. No files to create — everything lives in this config.
 
-> **JSON mode?** If Cherry Studio asks for JSON, paste:
-> ```json
-> {
->   "mcpServers": {
->     "zra-mcp": {
->       "name": "zra-mcp",
->       "description": "Zotero Research Assistant",
->       "baseUrl": "",
->       "command": "zra-mcp",
->       "args": [],
->       "env": {},
->       "isActive": true
->     }
->   }
-> }
-> ```
-> Source install: replace `"command": "zra-mcp"` with `"command": "/path/to/python"` and add `"args": ["-m", "project_a_mcp.server"]`.
+> **Source install?** Change "Command" to the full Python path (e.g. `D:\project\.venv\Scripts\python.exe`), and "Args" to `-m`, `project_a_mcp.server`.
+
+---
+
+#### If Cherry Studio asks for JSON format
+
+```json
+{
+  "mcpServers": {
+    "zra-mcp": {
+      "name": "zra-mcp",
+      "description": "Zotero Research Assistant",
+      "baseUrl": "",
+      "command": "zra-mcp",
+      "args": [],
+      "env": {
+        "ZOTERO_LOCAL": "true",
+        "HF_ENDPOINT": "https://hf-mirror.com"
+      },
+      "isActive": true
+    }
+  }
+}
+```
+
+> For write access, add `"ZOTERO_LIBRARY_ID": "12345678"` and `"ZOTERO_API_KEY": "your-key"` to `env`.
+> Source install: replace `"command": "zra-mcp"` with Python path, `"args": []` with `"args": ["-m", "project_a_mcp.server"]`.
 
 ### 4.4 Verify it works
 
@@ -178,8 +181,9 @@ Click **Save**.
 4. If the AI responds with your collection names — done!
 
 **Not working?**
-- Is Zotero running? (Check the taskbar — the Zotero window must be open)
+- Is Zotero running? (The Zotero window must be open, not minimized to tray)
 - Restart Cherry Studio after adding the MCP server
+- Check the MCP server env vars are set correctly (ZOTERO_LOCAL=true at minimum)
 - Run `zra-mcp` directly in a terminal to see error messages
 
 ---
@@ -232,7 +236,7 @@ The MCP server auto-starts. The index updates automatically. No terminal needed.
 Tell the AI "sync my index". New PDFs need to be indexed first.
 
 **Q: Can't add papers or write notes?**
-You need a Zotero API key — see Step 3.2. Without it, you can still search and read.
+You need a Zotero API key — see Step 3.2, then add the env vars to MCP config. Without them, you can still search and read.
 
 **Q: "Connection refused" error?**
 Zotero desktop must be running. Check Step 3.1.
