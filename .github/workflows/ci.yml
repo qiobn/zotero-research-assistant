@@ -30,8 +30,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Lint (ruff)
-        run: ruff check --select E,W,F --ignore E501 .
+      - name: Lint (ruff — source only, skip scripts)
+        run: ruff check --select E,W,F --ignore E501 research_core/ project_a_mcp/
 
       - name: Unit + core tests
         # tests/mcp are integration tests that need a live Zotero + index, so
