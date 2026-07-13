@@ -19,7 +19,7 @@ import json
 import os
 import sqlite3
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 DB_FILENAME = "papers.db"

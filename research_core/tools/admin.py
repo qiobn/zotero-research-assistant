@@ -12,7 +12,6 @@ from loguru import logger
 from research_core.parsers.chunker import CHUNKING_VERSION, chunk_text
 from research_core.parsers.pdf import extract_pdf
 from research_core.parsers.section_detector import (
-    DetectedSection,
     build_section_map,
 )
 from research_core.rag.database import (
@@ -24,9 +23,6 @@ from research_core.rag.database import (
     insert_chunk_figure_refs,
     insert_chunk_table_refs,
     insert_chunks_meta,
-    insert_figures,
-    insert_sections,
-    insert_tables,
     upsert_paper,
 )
 from research_core.rag.indexer import Indexer
@@ -100,7 +96,6 @@ def _index_metadata(
     Called after chunking, before ChromaDB indexing.
     Returns stats dict for the SyncReport.
     """
-    from research_core.parsers.chunker import Chunk
 
     conn = get_db(persist_dir)
 
@@ -509,8 +504,7 @@ def sync_index(
 
     # ── Load user Zotero tags into query rewriter for personalized expansion ──
     try:
-        from research_core.rag.query_rewriter import load_user_tags, get_user_synonyms
-        from research_core.rag.database import get_db
+        from research_core.rag.query_rewriter import get_user_synonyms, load_user_tags
 
         # Collect all tags from Zotero (persistent across syncs)
         all_items = zot.search_items(query="", limit=10000)

@@ -167,18 +167,15 @@ def search_papers(
 
     # ── MMR Diversity Reranking (post Cross-Encoder) ──
     t_mmr = 0.0
-    mmr_applied = False
     if diversity_weight > 0 and semantic_hits and has_query:
         t0 = time.time()
         pre_mmr_n = len(semantic_hits)
-        pre_mmr_papers = len(set(h.item_key for h in semantic_hits))
         semantic_hits = retriever.mmr_diversify(
             semantic_hits,
             diversity_weight=diversity_weight,
         )
         post_mmr_papers = len(set(h.item_key for h in semantic_hits))
         t_mmr = (time.time() - t0) * 1000
-        mmr_applied = True
         log_params["mmr_weight"] = diversity_weight
         log_params["mmr_papers_before"] = pre_mmr_n
         log_params["mmr_papers_after"] = post_mmr_papers

@@ -14,7 +14,6 @@ to recompute vectors for a sampled subset of chunks.
 
 from __future__ import annotations
 
-import math
 import random
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -324,18 +323,18 @@ def format_diagnostic_report(report: EmbeddingDiagnosticReport) -> str:
     lines.append(f"  Chunks sampled : {report.total_chunks_sampled}")
     lines.append(f"  Embedding dim  : {report.embedding_dim}")
 
-    lines.append(f"\n  -- Global Separation --")
+    lines.append("\n  -- Global Separation --")
     lines.append(f"  Intra-paper mean  : {report.intra_paper_mean:.4f}")
     lines.append(f"  Inter-paper mean  : {report.inter_paper_mean:.4f}")
     ratio_label = "GOOD" if report.separation_ratio > 1.3 else "WEAK"
     lines.append(f"  Separation ratio  : {report.separation_ratio:.2f}x [{ratio_label}]")
 
     if report.length_sim_correlation != 0:
-        lines.append(f"\n  -- Chunk Length Correlation --")
+        lines.append("\n  -- Chunk Length Correlation --")
         lines.append(f"  Length-Sim Pearson r : {report.length_sim_correlation:.3f}")
 
     if report.papers_with_outliers > 0:
-        lines.append(f"\n  -- Outlier Chunks (sim to centroid < 0.3) --")
+        lines.append("\n  -- Outlier Chunks (sim to centroid < 0.3) --")
         lines.append(f"  Papers affected : {report.papers_with_outliers}")
         lines.append(f"  Total outliers  : {report.total_outlier_chunks}")
         for ps in report.paper_stats[:5]:
@@ -345,7 +344,7 @@ def format_diagnostic_report(report: EmbeddingDiagnosticReport) -> str:
                              f"intra_mean={ps.intra_mean:.3f}")
 
     if report.by_section_type:
-        lines.append(f"\n  -- By Section Type --")
+        lines.append("\n  -- By Section Type --")
         for sec, stats in report.by_section_type.items():
             lines.append(
                 f"    {sec}: {stats['chunk_count']} chunks, "
@@ -354,18 +353,18 @@ def format_diagnostic_report(report: EmbeddingDiagnosticReport) -> str:
             )
 
     if report.most_similar_pairs:
-        lines.append(f"\n  -- Most Similar Paper Pairs --")
+        lines.append("\n  -- Most Similar Paper Pairs --")
         for p in report.most_similar_pairs[:5]:
             lines.append(f"    {p['centroid_similarity']:.3f} | "
                          f"{p['title_a'][:25]} ↔ {p['title_b'][:25]}")
 
     if report.issues:
-        lines.append(f"\n  -- Issues --")
+        lines.append("\n  -- Issues --")
         for issue in report.issues:
             lines.append(f"    [!] {issue}")
 
     if report.suggestions:
-        lines.append(f"\n  -- Suggestions --")
+        lines.append("\n  -- Suggestions --")
         for sug in report.suggestions:
             lines.append(f"    [*] {sug}")
 

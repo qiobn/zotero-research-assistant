@@ -1903,10 +1903,10 @@ def add_query_synonym(cn_term: str, en_terms: list[str]) -> dict:
     """
     import json
     import os
+
     from research_core.rag.query_rewriter import (
         add_user_synonym,
         get_user_synonyms,
-        get_rewriter,
     )
 
     persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")

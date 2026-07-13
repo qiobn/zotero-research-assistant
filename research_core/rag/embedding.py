@@ -124,7 +124,6 @@ class ONNXInt8Embedding(EmbeddingFunction[Documents]):
         if self._loaded:
             return
 
-        import numpy as np
         import onnxruntime as ort
         from huggingface_hub import snapshot_download, try_to_load_from_cache
         from transformers import AutoTokenizer
