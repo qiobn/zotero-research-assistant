@@ -128,7 +128,7 @@ RAG 管线是本项目的核心。所有设计决策——从分块策略到嵌�
 ### 1. 安装
 
 ```bash
-pip install zotero-research-assistant
+pip install zra-mcp
 ```
 
 > 默认使用 ONNX INT8 嵌入（~347MB），CPU 上比 FP32 快 2-3 倍，体积小 4 倍。
@@ -336,7 +336,7 @@ ZOTERO_API_KEY=your_api_key_here
 ## 升级方式
 
 ```bash
-pip install --upgrade zotero-research-assistant
+pip install --upgrade zra-mcp
 ```
 
 > 若新版本更新了分块策略，`sync_index` 自动检测版本变更并重建索引。

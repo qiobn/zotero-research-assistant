@@ -1,5 +1,5 @@
 [project]
-name = "zotero-research-assistant"
+name = "zra-mcp"
 version = "0.3.0"
 description = "AI-powered Zotero research assistant — a standalone MCP server with 36 tools for literature search, reading analysis, citation management, and review writing."
 readme = "README.md"

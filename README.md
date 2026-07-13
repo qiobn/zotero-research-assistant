@@ -132,7 +132,7 @@ Your Zotero Library
 ### 1. Install
 
 ```bash
-pip install zotero-research-assistant
+pip install zra-mcp
 ```
 
 > ONNX INT8 embedding (~347MB) is the default. It is 2-3x faster on CPU and uses 4x less disk than FP32.
@@ -340,7 +340,7 @@ For true structured tables, preprocess PDFs with [MinerU](https://github.com/ope
 ## Updating
 
 ```bash
-pip install --upgrade zotero-research-assistant
+pip install --upgrade zra-mcp
 ```
 
 > If the chunking strategy has been updated, `sync_index` auto-detects the version change and rebuilds.
