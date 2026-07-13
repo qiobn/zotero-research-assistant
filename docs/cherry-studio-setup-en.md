@@ -77,17 +77,17 @@ Step 2: Install the Project
 
 Run in your terminal/cmd:
 
-    pip install zotero-research-assistant
+    pip install zra-mcp
 
 Notes:
-  - If pip is not found, try: pip3 install zotero-research-assistant
+  - If pip is not found, try: pip3 install zra-mcp
   - macOS users typically need pip3 instead of pip
   - If you have multiple Python versions, pip3 ensures the correct one
 
 For optional CNKI (Chinese academic database) support:
 
-    pip install "zotero-research-assistant[cnki]"
-    (or: pip3 install "zotero-research-assistant[cnki]")
+    pip install "zra-mcp[cnki]"
+    (or: pip3 install "zra-mcp[cnki]")
 
 Verify installation:
 
@@ -450,7 +450,7 @@ Q: "Connection refused" error during indexing?
 A: Make sure Zotero desktop is running with local API enabled (step 3.1).
 
 Q: pip command not found?
-A: Try: pip3 install zotero-research-assistant
+A: Try: pip3 install zra-mcp
    macOS users typically need pip3.
    Windows users: if both pip and pip3 don't work, reinstall Python and
    check "Add python.exe to PATH".
@@ -470,8 +470,8 @@ A: Check:
    3. Is the MCP server status showing "Connected"?
 
 Q: How to upgrade?
-A: Run: pip install --upgrade zotero-research-assistant
-   (or: pip3 install --upgrade zotero-research-assistant)
+A: Run: pip install --upgrade zra-mcp
+   (or: pip3 install --upgrade zra-mcp)
    Then restart your Cherry Studio conversation.
 
 Q: Moving to a new computer?
@@ -574,7 +574,7 @@ If you're in mainland China, these tips may help:
 
 1. pip install (installing this project)
    - PyPI is usually accessible from China
-   - If slow, use Tsinghua mirror: pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zotero-research-assistant
+   - If slow, use Tsinghua mirror: pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zra-mcp
 
 2. Downloading the embedding model (~2.3 GB, most likely to get stuck)
    - HuggingFace is often inaccessible from China

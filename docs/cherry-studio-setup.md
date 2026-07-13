@@ -94,17 +94,17 @@ Windows（cmd 中运行）：
 
 在同一个终端窗口中继续运行（不要关闭，保持上面的镜像设置生效）：
 
-    pip install zotero-research-assistant
+    pip install zra-mcp
 
 注意：
-  - 如果 pip 命令提示"未找到"，试试 pip3 install zotero-research-assistant
+  - 如果 pip 命令提示"未找到"，试试 pip3 install zra-mcp
   - macOS 用户通常需要用 pip3 而非 pip
   - 如果 pip 和 pip3 都找不到，说明第 1 步的 Python 没装好
 
 如果需要知网检索功能（可选）：
 
-    pip install "zotero-research-assistant[cnki]"
-    （或 pip3 install "zotero-research-assistant[cnki]"）
+    pip install "zra-mcp[cnki]"
+    （或 pip3 install "zra-mcp[cnki]"）
 
 
 -------- 2.3 验证安装 --------
@@ -460,7 +460,7 @@ Q: 索引时报错 "Connection refused"？
 A: 确保 Zotero 桌面端正在运行，且已开启本地 API（第 3.1 步）。
 
 Q: 安装时 pip 命令找不到？
-A: 试试 pip3 install zotero-research-assistant。
+A: 试试 pip3 install zra-mcp。
    macOS 用户通常需要用 pip3。
    Windows 用户如果 pip 和 pip3 都不行，说明安装 Python 时没勾选
    "Add python.exe to PATH"，重新安装并勾选。
@@ -484,8 +484,8 @@ A: 检查：
    3. MCP 服务器状态是否显示为"已连接"
 
 Q: 项目更新了怎么升级？
-A: 运行：pip install --upgrade zotero-research-assistant
-   （或 pip3 install --upgrade zotero-research-assistant）
+A: 运行：pip install --upgrade zra-mcp
+   （或 pip3 install --upgrade zra-mcp）
    然后重启 Cherry Studio 的对话即可生效。
 
 Q: 换了电脑怎么办？
@@ -593,7 +593,7 @@ Windows：
 
 1. pip install（安装本项目）
    - PyPI 国内通常可以正常访问
-   - 如果慢可以用清华镜像：pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zotero-research-assistant
+   - 如果慢可以用清华镜像：pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zra-mcp
 
 2. 下载嵌入模型（约 2.3GB）
    - 已在第 2 步和 .env 中配置了 hf-mirror.com 镜像，正常 3-5 分钟可完成
