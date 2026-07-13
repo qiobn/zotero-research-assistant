@@ -354,7 +354,7 @@ pip install --upgrade zra-mcp
 ```
 research_core/
   parsers/     — PDF 提取、文本清洗器 (52 规则)、中文感知分块器、
-                IMRaD 章节检测、chunk 质量标记
+                IMRaD 章节检测、chunk 标记
   rag/         — ChromaDB 存储+检索、ONNX INT8 + FP32 嵌入、
                 SQLite 元数据库、Cross-Encoder + MMR 重排序、
                 双语查询扩展、评估、检索日志、嵌入诊断

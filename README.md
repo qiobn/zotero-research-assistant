@@ -56,7 +56,7 @@ Your Zotero Library
 │    Soft-wrap repair (满\n意度→满意度)                │
 │    IMRaD section classification (11 types)           │
 │    200-char min floor (FloTorch 2026 benchmark)      │
-│    Per-chunk: language tag (zh/en/mixed), quality flag│
+│    Per-chunk: language tag (zh/en/mixed), completeness│
 ├──────────────────────────────────────────────────────┤
 │ 4. EMBEDDING (bge-m3, ONNX INT8)                     │
 │    1024-dim dense vectors, 100+ languages            │
@@ -254,7 +254,7 @@ Verify: `codex mcp list`.
 ### Admin
 - **`sync_index`** — Incremental vector index sync. Auto-runs on startup.
 - **`check_health`** — Connection, index, embedding model, API diagnostics.
-- **`inspect_index`** — Chunk stats, quality flags, section breakdown, per-paper details.
+- **`inspect_index`** — Chunk stats, completeness flags, section breakdown, per-paper details.
 - **`test_recall`** — Retrieval quality test for a specific paper.
 - **`recent_retrievals`** / **`retrieval_trace`** / **`retrieval_stats`** — Retrieval observability.
 - **`add_query_synonym`** — Add bilingual query expansion pairs.
