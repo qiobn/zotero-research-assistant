@@ -8,9 +8,7 @@ This guide is for users with no coding experience. Follow along step by step —
 Once configured, no maintenance is needed. Just open Cherry Studio and start chatting.
 
 
-========================================
-What You'll Get
-========================================
+## What You'll Get
 
 After setup, you can interact with your Zotero library using natural language in Cherry Studio:
 
@@ -25,9 +23,7 @@ After setup, you can interact with your Zotero library using natural language in
   - "Is the system healthy? Check connection and index"
 
 
-========================================
-Overview
-========================================
+## Overview
 
 Step 1  Install Python                        ~3 min
 Step 2  Install this project                  ~2 min
@@ -36,9 +32,7 @@ Step 4  Connect Cherry Studio                 ~3 min
 Step 5  Start using
 
 
-========================================
-Step 1: Install Python (3.11 or higher)
-========================================
+## Step 1: Install Python (3.11 or higher)
 
 Check if already installed:
 
@@ -71,9 +65,7 @@ If it shows Python 3.11.x or higher (e.g. 3.12, 3.13), skip to Step 2. Otherwise
     3. Then: brew install python
 
 
-========================================
-Step 2: Install the Project
-========================================
+## Step 2: Install the Project
 
 Run in your terminal/cmd:
 
@@ -104,11 +96,9 @@ Alternatively, copy the model folder from someone who already has it:
     Windows: C:\Users\YourUsername\.cache\huggingface\hub\models--skatzR--USER-BGE-M3-ONNX-INT8/
 
 
-========================================
-Step 3: Configure Zotero Connection
-========================================
+## Step 3: Configure Zotero Connection
 
--------- 3.1 Enable Zotero Local API --------
+### 3.1 Enable Zotero Local API
 
 1. Open Zotero desktop (requires Zotero 7 or later)
 2. Menu → Edit → Preferences (macOS: Zotero → Settings) → Advanced
@@ -118,7 +108,7 @@ Step 3: Configure Zotero Connection
    - If "connection refused" → make sure Zotero is running and step 3 is checked
 
 
--------- 3.2 Get Zotero Web API Key (optional, for write operations) --------
+### 3.2 Get Zotero Web API Key (optional, for write operations)
 
 Skip this if you only need to search and read papers.
 Required if you want to add papers, write notes, or manage tags via AI.
@@ -132,7 +122,7 @@ Required if you want to add papers, write notes, or manage tags via AI.
 7. Library ID: the number next to "userID" at the top of the same page (e.g. 12345678)
 
 
--------- 3.3 Create Configuration File --------
+### 3.3 Create Configuration File
 
 For pip users, create a .env file in a working directory of your choice.
 
@@ -169,16 +159,14 @@ macOS — create .env file:
 Save and close. Remember the directory where your .env file is — you'll need it for Cherry Studio.
 
 
-========================================
-Step 4: Connect Cherry Studio
-========================================
+## Step 4: Connect Cherry Studio
 
--------- 4.1 Install Cherry Studio --------
+### 4.1 Install Cherry Studio
 
 Download from https://cherry-ai.com/ and install for your system.
 
 
--------- 4.2 Configure LLM (Large Language Model) --------
+### 4.2 Configure LLM (Large Language Model)
 
 Cherry Studio needs an AI model to power conversations.
 Go to Cherry Studio → Settings → Model Services and configure your model + API Key.
@@ -190,62 +178,21 @@ Recommended models:
   GPT-4o          All-around stable                https://platform.openai.com/
 
 
--------- 4.3 Add MCP Server --------
+### 4.3 Add MCP Server
 
 1. Open Cherry Studio → Settings → MCP Servers
-2. Click "Add", switch to JSON mode
-3. Paste the following JSON:
-
-    {
-      "mcpServers": {
-        "zra-mcp": {
-          "name": "zra-mcp",
-          "type": "stdio",
-          "isActive": true,
-          "command": "zra-mcp"
-        }
-      }
-    }
-
-That's it! After pip install, the zra-mcp command is globally available — no path configuration needed.
-
-If your .env file is not in the default search path (i.e. zra-mcp can't connect to Zotero),
-add a cwd pointing to the directory containing your .env:
-
-macOS example:
-
-    {
-      "mcpServers": {
-        "zra-mcp": {
-          "name": "zra-mcp",
-          "type": "stdio",
-          "isActive": true,
-          "command": "zra-mcp",
-          "cwd": "/Users/yourname/research-tools"
-        }
-      }
-    }
-
-Windows example:
-
-    {
-      "mcpServers": {
-        "zra-mcp": {
-          "name": "zra-mcp",
-          "type": "stdio",
-          "isActive": true,
-          "command": "zra-mcp",
-          "cwd": "D:\\research-tools"
-        }
-      }
-    }
-
-Note: Windows paths in JSON use double backslashes (\\).
+2. Click "Add MCP Server" and fill in:
+   - Name: zra-mcp
+   - Description: Zotero Research Assistant
+   - Command: zra-mcp
+   - Args: (leave empty)
+   - Env: CHROMA_PERSIST_DIR = path to your .chroma_db
+   (Cherry Studio auto-generates the correct config)
 
 4. Save the configuration
 
 
--------- 4.4 Verify Connection --------
+### 4.4 Verify Connection
 
 Make sure Zotero desktop is running, then start a new chat in Cherry Studio and type:
 
@@ -255,17 +202,15 @@ If the AI returns your collection list, congratulations — setup is complete!
 
 Troubleshooting:
   1. Is Zotero running?
-  2. Is your .env file in the right place? Does cwd point to it?
+  2. Is your .env file in the right place? Is CHROMA_PERSIST_DIR set?
   3. Did you restart Cherry Studio after changing MCP config?
   4. Try running zra-mcp directly in terminal/cmd to see any error messages
   5. If zra-mcp command is not found, close and reopen your terminal (pip needs a terminal restart)
 
 
-========================================
-Daily Usage
-========================================
+## Daily Usage
 
--------- Before Each Session --------
+### Before Each Session
 
 1. Open Zotero desktop (keep it running)
 2. Open Cherry Studio, chat normally
@@ -318,7 +263,7 @@ exact per-row/per-column values):
     relies on table data — your call.
 
 
--------- Usage Scenarios --------
+### Usage Scenarios
 
 [Search Literature]
 
@@ -373,7 +318,7 @@ exact per-row/per-column values):
     Can this paper be properly retrieved?
 
 
--------- Tips --------
+### Tips
 
 1. Search first, then read: find a paper first, then ask specific questions
 2. Citation workflow: paste your paragraph → pick citations → export BibTeX
@@ -386,9 +331,7 @@ exact per-row/per-column values):
 8. Diagnostics: say "check system health" for automatic diagnosis and fix suggestions
 
 
-========================================
-Available Tools (36)
-========================================
+## Available Tools (36)
 
 Search & Discovery
   search_papers           Search local library (keyword + semantic hybrid)
@@ -435,9 +378,7 @@ System Maintenance & Diagnostics
   test_recall             Recall test (verify paper retrieval in top-20)
 
 
-========================================
-FAQ
-========================================
+## FAQ
 
 Q: Can't find a paper I just added?
 A: Tell AI "sync my index". Normally the MCP service auto-syncs on startup.
@@ -483,13 +424,11 @@ A: Tell AI "check system health" — it will diagnose connection, index, and con
    issues and suggest fixes. Also try "check my index quality" for detailed stats.
 
 
-========================================
-About CNKI (Chinese Academic Database)
-========================================
+## About CNKI (Chinese Academic Database)
 
 The CNKI module is disabled by default and does not affect other features.
 
--------- Why Disabled by Default --------
+### Why Disabled by Default
 
   - CNKI has no public API; this module uses browser automation (less stable)
   - Requires additional Playwright dependencies
@@ -497,7 +436,7 @@ The CNKI module is disabled by default and does not affect other features.
   - CNKI may change its page structure at any time, breaking the module
   - Improper use may trigger CNKI's anti-scraping mechanisms
 
--------- If You Need Chinese Literature --------
+### If You Need Chinese Literature
 
 In most cases, online search (OpenAlex/CrossRef/S2) covers major Chinese and English
 academic papers. If you specifically need CNKI Chinese journal papers, ask AI:
@@ -506,7 +445,7 @@ academic papers. If you specifically need CNKI Chinese journal papers, ask AI:
 
 AI will guide you through the full setup for your OS.
 
--------- Risk Notes --------
+### Risk Notes
 
   - Browser automation is inherently fragile
   - CNKI page structure changes may temporarily break functionality
@@ -514,9 +453,7 @@ AI will guide you through the full setup for your OS.
   - Enable only when needed; disable with CNKI_ENABLED=false in .env
 
 
-========================================
-Appendix A: Install from Source (Developers)
-========================================
+## Appendix A: Install from Source (Developers)
 
 If you're a developer or need to customize the code:
 
@@ -529,7 +466,7 @@ Don't have uv? Install it first:
     macOS:   curl -LsSf https://astral.sh/uv/install.sh | sh
     Windows: powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-Source install users need to specify the full Python path in Cherry Studio MCP config:
+For source installs, add the MCP server via Cherry Studio UI (not JSON paste) and set:
 
 macOS:
 
@@ -537,7 +474,6 @@ macOS:
       "mcpServers": {
         "zra-mcp": {
           "name": "zra-mcp",
-          "type": "stdio",
           "isActive": true,
           "command": "/your/project/path/zotero-research-assistant/.venv/bin/python",
           "args": ["-m", "project_a_mcp.server"],
@@ -552,7 +488,6 @@ Windows:
       "mcpServers": {
         "zra-mcp": {
           "name": "zra-mcp",
-          "type": "stdio",
           "isActive": true,
           "command": "D:\\your\\project\\path\\zotero-research-assistant\\.venv\\Scripts\\python.exe",
           "args": ["-m", "project_a_mcp.server"],
@@ -566,9 +501,7 @@ Get the full path (run inside the project directory):
   Windows: echo %cd%\.venv\Scripts\python.exe
 
 
-========================================
-Appendix B: Network Notes (China Mainland)
-========================================
+## Appendix B: Network Notes (China Mainland)
 
 If you're in mainland China, these tips may help:
 
