@@ -257,6 +257,138 @@ def evaluate_retrieval(
     return result
 
 
+def evaluate_full_pipeline(
+    retriever: Retriever,
+    zot: ZoteroClient,
+    queries: list[EvalQuery],
+    top_k: int = 20,
+    baseline_label: str = "",
+) -> EvalResult:
+    """Run evaluation using the FULL retrieval pipeline.
+
+    Unlike evaluate_retrieval() which tests only semantic search, this calls
+    search_papers() — the same function exposed as the MCP tool. This means
+    BM25, Cross-Encoder reranking, MMR diversity, and RRF fusion are all
+    exercised during evaluation.
+
+    Args:
+        retriever: Configured Retriever instance (BM25 index should be built).
+        zot: ZoteroClient.
+        queries: List of evaluation queries with expected item keys.
+        top_k: Maximum results per query (passed as limit to search_papers).
+        baseline_label: Label for this evaluation run.
+    """
+    from research_core.tools.search import search_papers
+
+    result = EvalResult(
+        total_queries=len(queries),
+        baseline_label=baseline_label or "full-pipeline",
+    )
+    all_recall_5: list[float] = []
+    all_recall_10: list[float] = []
+    all_recall_20: list[float] = []
+    all_mrr: list[float] = []
+    all_ndcg_10: list[float] = []
+
+    t0 = time.time()
+
+    for i, q in enumerate(queries):
+        sqr = SingleQueryResult(
+            query_id=q.query_id,
+            query_text=q.query_text,
+            category=q.category,
+            total_expected=len(q.expected_item_keys),
+        )
+
+        try:
+            t_query = time.time()
+            hits = search_papers(
+                query=q.query_text,
+                zot=zot,
+                retriever=retriever,
+                limit=top_k,
+                # Use defaults matching the production MCP tool
+                expand_context=False,
+                expand_neighbors=False,
+                diversity_weight=0.4,
+            )
+            sqr.latency_ms = (time.time() - t_query) * 1000
+
+            retrieved_keys = [h.key for h in hits]
+            expected = set(q.expected_item_keys)
+
+            def _recall_at(k: int) -> float:
+                if not expected:
+                    return 1.0
+                hits_n = len(set(retrieved_keys[:k]) & expected)
+                return hits_n / len(expected)
+
+            sqr.recall_at_5 = _recall_at(5)
+            sqr.recall_at_10 = _recall_at(10)
+            sqr.recall_at_20 = _recall_at(20)
+            sqr.hits_at_5 = retrieved_keys[:5]
+            sqr.hits_at_10 = retrieved_keys[:10]
+            sqr.hits_at_20 = retrieved_keys[:20]
+
+            # MRR
+            sqr.reciprocal_rank = 0.0
+            for rank, key in enumerate(retrieved_keys, start=1):
+                if key in expected:
+                    sqr.reciprocal_rank = 1.0 / rank
+                    sqr.first_hit_rank = rank
+                    break
+
+            # NDCG
+            sqr.ndcg_10 = _ndcg(retrieved_keys, expected, 10)
+
+        except Exception as e:
+            sqr.error = str(e)
+            result.queries_with_errors += 1
+            logger.warning(f"Query '{q.query_id}' failed (full pipeline): {e}")
+
+        all_recall_5.append(sqr.recall_at_5)
+        all_recall_10.append(sqr.recall_at_10)
+        all_recall_20.append(sqr.recall_at_20)
+        all_mrr.append(sqr.reciprocal_rank)
+        all_ndcg_10.append(sqr.ndcg_10)
+        result.per_query.append(sqr)
+
+    result.elapsed_seconds = time.time() - t0
+
+    # Aggregate
+    n = len(queries)
+    if n > 0:
+        result.recall_at_5 = sum(all_recall_5) / n
+        result.recall_at_10 = sum(all_recall_10) / n
+        result.recall_at_20 = sum(all_recall_20) / n
+        result.mrr = sum(all_mrr) / n
+        result.ndcg_at_10 = sum(all_ndcg_10) / n
+
+    # By category
+    cat_results: dict[str, dict] = {}
+    for sqr in result.per_query:
+        cat = sqr.category or "unknown"
+        if cat not in cat_results:
+            cat_results[cat] = {
+                "count": 0, "recall_at_5": 0.0, "recall_at_10": 0.0,
+                "recall_at_20": 0.0, "mrr": 0.0, "ndcg_at_10": 0.0,
+            }
+        cat_results[cat]["count"] += 1
+        cat_results[cat]["recall_at_5"] += sqr.recall_at_5
+        cat_results[cat]["recall_at_10"] += sqr.recall_at_10
+        cat_results[cat]["recall_at_20"] += sqr.recall_at_20
+        cat_results[cat]["mrr"] += sqr.reciprocal_rank
+        cat_results[cat]["ndcg_at_10"] += sqr.ndcg_10
+
+    for cat, stats in cat_results.items():
+        c = stats["count"]
+        for metric in ["recall_at_5", "recall_at_10", "recall_at_20", "mrr", "ndcg_at_10"]:
+            stats[metric] = round(stats[metric] / c, 4) if c > 0 else 0.0
+    result.by_category = cat_results
+
+    return result
+
+
 def compare_results(before: EvalResult, after: EvalResult) -> dict:
     """Compare two evaluation runs, returning the delta for each metric."""
     def _delta(new: float, old: float) -> str:

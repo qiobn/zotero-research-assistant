@@ -1,6 +1,6 @@
 # Development Plan — RAG Full-Pipeline Optimization
 
-> Last updated: 2026-07-06 | Current version: v0.3.0
+> Last updated: 2026-07-13 | Current version: v0.4.0-dev
 
 ---
 
@@ -10,172 +10,142 @@
 Phase 0 (Audit)    ████████████████████ 100%  ✅ DONE
 Phase 1 (P0)       ████████████████████ 100%  ✅ DONE
 Phase 2 (P1)       ████████████████████ 100%  ✅ DONE
-Phase 3 (P2)       ░░░░░░░░░░░░░░░░░░░░   0%
+Phase 3 (P2)       ████████░░░░░░░░░░░░  40%  (completed: 3.1, 3.3; remaining: 3.2, 3.4, 3.5)
+Phase 4 (v0.4.0)   ░░░░░░░░░░░░░░░░░░░░   0%  Architecture audit findings
 ```
 
 ---
 
-## Phase 0: Baseline Audit ✅
+## Phase 3: P2 — Refinements (Partial)
 
-| # | Task | Status | Output |
-|---|------|--------|--------|
-| 0.1 | `scripts/index_sample.py` — sample N papers for testing | ✅ Done | `scripts/index_sample.py` |
-| 0.2 | `scripts/audit_index.py` — full-library quality audit | ✅ Done | `scripts/audit_index.py` |
-| 0.3 | venv setup + deps install | ✅ Done | `.venv/` |
-| 0.4 | 20-paper test index built | ✅ Done | 2102 chunks, `.chroma_db/` |
-| 0.5 | First audit report generated | ✅ Done | See audit results below |
+### 3.1 Query Rewrite (Academic Scene) ✅
 
-### Audit Baseline (20 papers / 2102 chunks)
-
-| Metric | Value | Verdict |
-|--------|-------|---------|
-| Garbled chunks | 0% | Excellent |
-| Long chunks (>1500) | 0% | Cap working |
-| Short chunks (<50) | 2.8% | Acceptable |
-| Figure/Table chunks | 16.9% | Extraction working |
-| Embedding separation | 1.13x | **WEAK** (threshold 1.3x) |
-| Noise patterns | "Keywords:", "A R T I C L E I N F O", "A B S T R A C T" | Confirmed across 85%+ papers |
-| Avg chunks/paper | 105.1 | Too fine-grained |
-| Health score | 65/100 (B) | Needs improvement |
-
----
-
-## Phase 1: P0 — Critical Gaps
-
-### 1.1 PDF Text Cleaning Pipeline ✅
-
-> Implemented: `research_core/parsers/text_cleaner.py` (~350 lines). 52 blacklist rules across EN journal (9), CN journal (24), Universal (19). Returns `(cleaned_text, CleaningReport)`. Integrated in `admin.py` `_parse_and_chunk()`. Env var: `ZRA_CLEAN_ENABLED=true` (default on).
-
----
-
-### 1.2 Systematic Recall Evaluation Framework ✅
-
-> Implemented: `research_core/rag/evaluation.py` (~250 lines). 60 golden queries in `tests/eval_queries.json`. Metrics: Recall@5/10/20, MRR, NDCG@10. `scripts/run_evaluation.py` with `--save-baseline` / `--compare`.
-
----
-
-### 1.3 Retrieval Log / Trace ✅
-
-> Implemented: `research_core/rag/logger.py` (~210 lines). JSONL append-only + byte-offset index. 3 MCP tools: `recent_retrievals`, `retrieval_trace`, `retrieval_stats`. Integrated in `search_papers()`.
-
----
-
-## Phase 2: P1 — Quality Ceiling Raisers ✅
-
-### 2.1 Chunk Quality Metadata ✅
-
-> Implemented: `research_core/parsers/chunker.py` (v2.9.0). 7 quality fields: `coherence_score`, `information_density`, `boilerplate_ratio`, `sentence_count`, `starts_with_conjunction`, `language`, `quality_flag`. Lightweight heuristic scoring via `score_chunk_quality()`. Stored in ChromaDB metadata.
-
-### 2.2 SQLite Metadata Database + Section-Parent Context ✅
-
-> Implemented: Replaced original Parent-Child dual index plan with cleaner architecture. `research_core/rag/database.py` (~370 lines): 7 tables (papers, sections, chunks_meta, figures, table_records + cross-refs). `Retriever.expand_to_section()` and `_attach_section_contexts()` provide section-parent context expansion via SQLite JOIN. Result enrichment via `enrich()`.
-
-### 2.3 PDF Text Cleaner (In-Pipeline) ✅
-
-> Integrated in `admin.py _parse_and_chunk()`. `ZRA_CLEAN_ENABLED=true` (default). Cleaning stats in `SyncReport`.
-
-### 2.4 Embedding Quality Diagnostics ✅
-
-> Implemented: `research_core/rag/embedding_diagnostics.py` (~372 lines). 6-phase analysis: intra/inter similarity, outlier detection, length correlation, section-type analysis, automated issues + suggestions.
-
-### 2.5 Contextual Summarization (PaperQA2-inspired) ⬜
-
-> **DEFERRED to Phase 3**: requires MCP server to have its own LLM access, a new architectural dependency. May be better as post-MCP step handled by client LLM.
-
----
-
-## Phase 3: P2 — Refinements
-
-### 3.1 Query Rewrite (Academic Scene) ⬜
-
-- [ ] Chinese-English bilingual query expansion
-- [ ] Synonym expansion using Zotero tags/keywords as vocabulary
-- [ ] Query decomposition for complex multi-clause questions
-- [ ] Add `query_rewrite` parameter to `search_papers`
-
-**Estimate:** 2-3 days
-
----
+> Implemented: `research_core/rag/query_rewriter.py`. Three-layer bilingual expansion (built-in ~310 pairs + Zotero tags + user synonyms). LRU-cached. `research_core/rag/query_dict.json`.
 
 ### 3.2 Adaptive Chunk Granularity ⬜
 
-> **Why**: Audit found avg 105 chunks/paper. For methods sections, small chunks are fine; for discussion sections, larger chunks preserve argument flow.
+> **RESEARCHED & DEFERRED**: 2025-2026 literature (NAACL, Chroma, PaperQA2) shows fixed-size chunking is the strong baseline. Semantic/adaptive chunking does not consistently beat it. PaperQA2 uses fixed ~9000 chars with downstream LLM reranking. Chunk size is the dominant variable, not the splitter method.
 
-- [ ] Content type classifier (methods / results / discussion / introduction) based on section heading keywords
-- [ ] Adaptive target sizes: methods=400, results=500, discussion=700, intro=600
-- [ ] Integrate into `chunk_text()` without breaking existing logic
+### 3.3 Search Result Post-Processing ✅
 
-**Estimate:** 2-3 days
-
----
-
-### 3.3 Search Result Post-Processing ⬜
-
-- [ ] **MMR diversity re-ranking** — prevent single-paper dominance in top-K
-  - Port MMR algorithm from PaperQA2 or implement directly
-  - Configurable lambda (diversity vs relevance trade-off)
-- [ ] **Auto context expansion** — return adjacent chunks alongside hit chunk
-  - Add `expand_context` parameter to `search_papers` and `get_paper_content`
-- [ ] **Source diversity guarantee** — ensure top-10 spans at least 3 different papers
-- [ ] **Freshness boost** — configurable year weighting
-
-**Estimate:** 1-2 days
-
----
+> All three originally planned items completed:
+> - MMR diversity (λ=0.4, grid-search tuned, max 3 chunks/paper)
+> - Neighbor chunk expansion (±1 chunk, section-constrained)
+> - Source diversity (MMR cap + per-document penalty)
 
 ### 3.4 Comprehensive Diagnostic MCP Tool ⬜
 
-- [ ] New MCP tool: `diagnose_rag` — runs audit + returns human-readable report
-- [ ] Integration with existing `check_health` to avoid duplication
-- [ ] Output includes: health score, top issues, actionable fix list
-- [ ] Supports `--json` for programmatic use
-
-**Estimate:** 1-2 days
-
----
+> **DEFERRED**: Normal users don't trace why results ranked a certain way. De-prioritized.
 
 ### 3.5 Metadata-Enhanced Re-Ranking ⬜
 
-> **Why**: PaperQA2 uses citation counts, journal quality, and retraction status in ranking. Your project has access to Zotero metadata plus CrossRef/OpenAlex enrichment.
+> **RESEARCHED & DEFERRED**: Marginal improvement for personal libraries (5-10%). The strongest signals (citation count, journal tier) are external and add latency. Not worth the complexity at this scale.
 
-- [ ] Add `citation_count`, `journal_quality`, `is_retracted` to paper metadata cache
-- [ ] Weighted scoring: relevance_score * metadata_boost
-- [ ] Configurable metadata weight in search parameters
+---
 
-**Estimate:** 1-2 days
+## Phase 4: v0.4.0 — Architecture Audit Findings (2026-07-13)
+
+Issues identified during full architecture review:
+
+### 4.1 Evaluation Tests Full Pipeline 🔴 HIGH (in progress)
+
+> **Problem**: `evaluate_retrieval()` only tests `retriever.search()` (pure semantic). BM25, CE reranker, MMR, and RRF fusion have NEVER been evaluated. Every retrieval component you've built lacks quantitative validation.
+>
+> **Fix**: Add `--full-pipeline` mode to `run_evaluation.py` that calls `search_papers()` instead of `retriever.search()`. Compare semantic-only vs full-pipeline metrics. Save baselines for future regression testing.
+
+**Estimate:** 1 day
+
+---
+
+### 4.2 Log Rotation ⬜ 🟡 MEDIUM
+
+> **Problem**: `_retrieval_log.jsonl` grows unboundedly. Large libraries could hit GB-scale log files.
+>
+> **Fix**: Add size-based rotation (e.g., keep last 100MB / 10K entries). Or time-based (keep 30 days).
+
+**Estimate:** 0.5 day
+
+---
+
+### 4.3 Authors Field in SQLite ⬜ 🟡 MEDIUM
+
+> **Problem**: SQLite `papers.authors` is always `""`. Comment says "ZoteroItem doesn't expose authors as JSON" but `Item.authors` is `list[str]` — it's available.
+>
+> **Fix**: `json.dumps(item.authors)` when writing to SQLite in `_index_metadata()`.
+
+**Estimate:** 5 minutes
+
+---
+
+### 4.4 Section Parent Linking ⬜ 🟡 MEDIUM
+
+> **Problem**: `section_detector.py` computes `parent_idx` (subsection hierarchy) but SQLite `sections.parent_id` is always NULL. Subsections of Methods, etc. are flattened.
+>
+> **Fix**: Store parent-child relationships in SQLite during `_index_metadata()`.
+
+**Estimate:** 0.5 day
+
+---
+
+### 4.5 Dead Parameters in sync_index ⬜ 🟢 LOW
+
+> **Problem**: `sync_index(chunk_size=800, chunk_overlap=120)` accepts parameters that the chunker ignores (uses its own `target_chunk_size=600` internally since v2).
+>
+> **Fix**: Remove dead parameters or add deprecation warning.
+
+**Estimate:** 5 minutes
+
+---
+
+### 4.6 Docstring Bug ⬜ 🟢 LOW
+
+> **Problem**: `search_papers()` docstring says `diversity_weight=0.6`, actual default is `0.4` (grid-search tuned).
+>
+> **Fix**: Update docstring.
+
+**Estimate:** 1 minute
+
+---
+
+### 4.7 BM25 Chinese Tokenization ⬜ 🟢 LOW
+
+> **Problem**: Character bigrams work but jieba segmentation would be more accurate for Chinese BM25 queries.
+>
+> **Fix**: Optional jieba dependency, use if available, fall back to bigrams.
+
+**Estimate:** 0.5 day
+
+---
+
+### 4.8 Personalized Re-Ranking ⬜ 🔵 FUTURE
+
+> **Problem**: User engagement signals (annotations, reading depth, saved notes) are never used for ranking.
+>
+> **Fix**: Light boost for papers with user annotations/notes. Available from Zotero local API.
+
+**Estimate:** 1 day
 
 ---
 
 ## Summary
 
-| Phase | # Tasks | Completed | Remaining | Est. Total Work |
-|-------|---------|-----------|-----------|-----------------|
-| Phase 0 (Audit) | 5 | 5 | 0 | Done |
-| Phase 1 (P0) | 3 | 3 | 0 | Done |
-| Phase 2 (P1) | 5 | 4 | 1 | Done (deferred 2.5) |
-| Phase 3 (P2) | 5 | 0 | 5 | 8-12 days |
-| **Total** | **18** | **12** | **6** | **~11 days remaining** |
+| Phase | # Tasks | Completed | Remaining |
+|-------|---------|-----------|-----------|
+| Phase 0 (Audit) | 5 | 5 | 0 |
+| Phase 1 (P0) | 3 | 3 | 0 |
+| Phase 2 (P1) | 5 | 4 | 1 (deferred) |
+| Phase 3 (P2) | 5 | 2 | 3 (deferred) |
+| Phase 4 (v0.4.0) | 8 | 0 | 8 |
+| **Total** | **26** | **14** | **12** |
 
-### Immediate Next Step
+### Immediate Next Steps
 
 ```
-→ Phase 3.1: Query Rewrite (Academic Scene)
-   Chinese-English bilingual expansion + synonym expansion
+→ Phase 4.1: Full-pipeline evaluation (in progress)
+→ Phase 4.3: Authors field fix (trivial, quick win)
+→ Phase 4.6: Docstring fix (trivial)
+→ Phase 4.5: Dead parameters cleanup
 ```
-
-### Key Decisions Log
-
-| Decision | Choice | Date |
-|----------|--------|------|
-| Parent-Child implementation | Section-Parent context expansion (simpler, cleaner) | 2026-07-02 |
-| Abstract storage | SQLite only, NOT embedded | 2026-07-01 |
-| Evaluation set construction | LLM generate + human review — 60 golden queries | 2026-07-01 |
-| PDF cleaning aggressiveness | Blacklist regex (exact match, near-zero false positives) | 2026-07-01 |
-| Start with audit or code | Audit first — done | 2026-06-30 |
-
-### Key Decisions Log
-
-| Decision | Choice | Date |
 |----------|--------|------|
 | Parent-Child implementation | Full rebuild (clean architecture) | 2026-06-30 |
 | Evaluation set construction | LLM generate + human review | 2026-06-30 |

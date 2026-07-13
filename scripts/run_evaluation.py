@@ -21,7 +21,6 @@ from research_core.rag.evaluation import (
     EvalQuery,
     EvalResult,
     compare_results,
-    evaluate_retrieval,
 )
 from research_core.rag.retriever import Retriever
 from research_core.zotero.client import ZoteroClient
@@ -55,6 +54,10 @@ def main():
     parser.add_argument("--compare", default="", help="Path to baseline JSON for comparison")
     parser.add_argument("--persist-dir", default=".chroma_db", help="ChromaDB dir")
     parser.add_argument("--label", default="", help="Label for this evaluation run")
+    parser.add_argument(
+        "--full-pipeline", action="store_true",
+        help="Test full search_papers() pipeline (BM25 + CE + MMR + RRF), not just semantic",
+    )
     args = parser.parse_args()
 
     # Resolve query file path
@@ -79,16 +82,29 @@ def main():
     zot = ZoteroClient(library_id="0", local=True)
     retriever = Retriever(persist_dir=args.persist_dir)
 
-    label = args.label or f"index-{retriever.count()}chunks"
-    print(f"Running evaluation ({retriever.count()} chunks indexed)...")
+    from research_core.rag.evaluation import evaluate_retrieval, evaluate_full_pipeline
 
-    result = evaluate_retrieval(
-        retriever=retriever,
-        zot=zot,
-        queries=queries,
-        top_k=20,
-        baseline_label=label,
-    )
+    if args.full_pipeline:
+        label = args.label or "full-pipeline"
+        print(f"Running FULL PIPELINE evaluation ({retriever.count()} chunks indexed)...")
+        print("  (BM25 + Cross-Encoder + MMR + RRF fusion)")
+        result = evaluate_full_pipeline(
+            retriever=retriever,
+            zot=zot,
+            queries=queries,
+            top_k=20,
+            baseline_label=label,
+        )
+    else:
+        label = args.label or f"index-{retriever.count()}chunks"
+        print(f"Running evaluation ({retriever.count()} chunks indexed)...")
+        result = evaluate_retrieval(
+            retriever=retriever,
+            zot=zot,
+            queries=queries,
+            top_k=20,
+            baseline_label=label,
+        )
 
     # Output
     if args.json:
@@ -110,8 +126,9 @@ def main():
 
     # Save baseline
     if args.save_baseline:
+        suffix = "_full" if args.full_pipeline else ""
         baseline_path = os.path.join(
-            os.path.dirname(query_path), "eval_baseline.json"
+            os.path.dirname(query_path), f"eval_baseline{suffix}.json"
         )
         with open(baseline_path, "w", encoding="utf-8") as f:
             json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
