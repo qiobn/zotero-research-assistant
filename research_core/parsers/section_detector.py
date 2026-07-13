@@ -22,19 +22,36 @@ from research_core.parsers.chunker import Chunk
 # ── Heading detection patterns ─────────────────────────────────────────
 
 # H1 patterns (top-level sections)
+# NOTE: all numbered patterns use [ \t]* (spaces/tabs only) between the
+# number and heading, NOT \s* which would greedily consume \n and match
+# body text on the next line as a heading.
 _H1_PATTERNS = [
     # Numbered: "1. Introduction", "1  Introduction", "1、引言"
-    re.compile(r"^\s*(\d+)[\.\s、．]\s*([A-Za-z一-鿿][^\n]{0,80})$", re.MULTILINE),
+    re.compile(r"^\s*(\d+)[\. \t、．][ \t]*([A-Za-z一-鿿][^\n]{0,80})$", re.MULTILINE),
     # Chinese numbered: "一、引言", "二、研究方法"
-    re.compile(r"^\s*([一二三四五六七八九十]+)[、．]\s*([^\n]{0,80})$", re.MULTILINE),
-    # Bare section keywords on their own line: "Introduction\n", "Methods\n"
+    re.compile(r"^\s*([一二三四五六七八九十]+)[、．][ \t]*([^\n]{0,80})$", re.MULTILINE),
+    # Roman numerals: "I. Introduction", "II. Methods", "IV. Results"
+    # I{1,3} (not I{0,3}) to prevent matching empty string
+    re.compile(
+        r"^\s*(M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{1,3}))"
+        r"[\. \t、][ \t]*([A-Za-z][^\n]{0,80})$",
+        re.MULTILINE,
+    ),
+    # Chapter prefix: "CHAPTER 1: Introduction", "Chapter 2. Methods"
+    re.compile(
+        r"^\s*(?:CHAPTER|Chapter|Ch\.)[ \t]*(\d+)[\. \t:、][ \t]*([A-Za-z][^\n]{0,80})$",
+        re.MULTILINE | re.IGNORECASE,
+    ),
+    # Section symbol: "§1. Introduction", "§2 Methods"
+    re.compile(r"^\s*§[ \t]*(\d+)[\. \t、][ \t]*([A-Za-z][^\n]{0,80})$", re.MULTILINE),
+    # Bare section keywords (EN)
     re.compile(
         r"^\s*(Introduction|Methods?|Methodology|Results?|Discussion|"
         r"Conclusion|References|Bibliography|Appendix|Appendices|"
         r"Acknowledgments?|Supplementary|Supporting\s+Information)\s*$",
         re.MULTILINE | re.IGNORECASE,
     ),
-    # Chinese bare section keywords
+    # Bare section keywords (CN)
     re.compile(
         r"^\s*(引言|绪论|研究方法|方法|结果|结果与分析|结果与讨论|讨论|"
         r"结论|总结|参考文献|附录|致谢|摘要)\s*$",
@@ -45,35 +62,78 @@ _H1_PATTERNS = [
 # H2/H3 patterns (sub-sections)
 _H2_PATTERNS = [
     # "1.1 Study Area", "2.3.1 Data Collection"
-    re.compile(r"^\s*(\d+\.\d+(?:\.\d+)?)[\.\s、]\s*([^\n]{0,80})$", re.MULTILINE),
+    re.compile(r"^\s*(\d+\.\d+(?:\.\d+)?)[\. \t、][ \t]*([^\n]{0,80})$", re.MULTILINE),
     # "（一）研究区域", "（1）样本选择"
-    re.compile(r"^\s*[（(][一二三四五六七八九十\d]+[）)]\s*([^\n]{0,80})$", re.MULTILINE),
+    re.compile(r"^\s*[（(][一二三四五六七八九十\d]+[）)][ \t]*([^\n]{0,80})$", re.MULTILINE),
     # "① 数据来源"
-    re.compile(r"^\s*[①②③④⑤⑥⑦⑧⑨⑩]\s*([^\n]{0,80})$", re.MULTILINE),
+    re.compile(r"^\s*[①②③④⑤⑥⑦⑧⑨⑩][ \t]*([^\n]{0,80})$", re.MULTILINE),
+    # Letter subsections: "A. Study Area", "B. Data Sources"
+    re.compile(r"^\s*([A-F])[\. \t、][ \t]*([A-Za-z][^\n]{0,80})$", re.MULTILINE),
+]
+
+# ── Fallback: number-only headings (no heading text after number) ──
+# Catches patterns like "1.", "2.3", "一、", "（三）" when there's
+# no descriptive heading text following the number. Used when all
+# standard patterns fail to match anything.
+_FALLBACK_NUMBER_PATTERNS = [
+    # "1.", "3.2", "2.3.1" — bare numbered heading
+    re.compile(r"^\s*(\d+(?:\.\d+)*)[\.\s、．]?\s*$", re.MULTILINE),
+    # "一、" — bare Chinese numbered heading
+    re.compile(r"^\s*([一二三四五六七八九十]+)[、．]?\s*$", re.MULTILINE),
+    # "（二）", "（3）" — bare parenthetical numbered heading
+    re.compile(r"^\s*[（(]([一二三四五六七八九十\d]+)[）)]\s*$", re.MULTILINE),
+    # "I.", "IV." — bare Roman numeral heading (must be non-empty)
+    re.compile(
+        r"^\s*(M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{1,3}))"
+        r"\s*[\.\s、]?\s*$",
+        re.MULTILINE,
+    ),
 ]
 
 # Section type keyword mapping (lowercase for case-insensitive matching)
 _TYPE_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("abstract", ["abstract", "摘要", "abstract", "a b s t r a c t"]),
+    ("abstract", ["abstract", "摘要", "a b s t r a c t"]),
     ("introduction", ["introduction", "intro", "引言", "绪论", "背景", "background",
-                       "问题提出", "研究背景"]),
+                       "问题提出", "研究背景", "研究意义", "问题的提出",
+                       "theoretical framework", "理论框架", "conceptual framework",
+                       "概念框架", "研究假设", "hypothesis", "hypotheses",
+                       "theoretical background", "理论背景", "理论基础"]),
     ("literature_review", ["literature review", "related work", "文献综述", "研究综述",
-                            "前人研究", "文献回顾", "related literature"]),
+                            "前人研究", "文献回顾", "related literature",
+                            "institutional background", "制度背景", "政策背景",
+                            "literature", "已有研究", "国内外研究"]),
     ("methods", ["method", "methods", "methodology", "研究方法", "方法", "实验设计",
                   "数据", "data", "study area", "研究区域", "研究区", "研究区概况",
-                  "材料", "materials", "数据来源", "样本", "sample"]),
+                  "材料", "materials", "数据来源", "样本", "sample",
+                  "empirical strategy", "empirical framework", "empirical approach",
+                  "实证策略", "实证框架", "模型设定", "模型构建", "计量模型",
+                  "变量定义", "变量选择", "变量说明", "identification",
+                  "estimation strategy", "estimation", "估计方法",
+                  "研究设计", "research design", "case study", "案例分析",
+                  "survey", "问卷", "调查设计", "measurement", "测量"]),
     ("results", ["result", "results", "finding", "findings", "结果", "结果与分析",
-                  "结果与讨论", "实证结果", "分析结果", "analysis"]),
+                  "结果与讨论", "实证结果", "分析结果", "analysis",
+                  "empirical results", "实证分析", "回归结果", "估计结果",
+                  "descriptive statistics", "描述性统计", "基准回归",
+                  "baseline results", "main results", "主要结果",
+                  "robustness checks", "robustness", "稳健性检验", "稳健性",
+                  "内生性", "endogeneity", "异质性", "heterogeneity",
+                  "机制分析", "mechanism", "进一步分析"]),
     ("discussion", ["discussion", "讨论", "discussions", "结果讨论", "综合讨论",
-                     "政策建议", "政策启示", "implications", "建议"]),
+                     "policy implications", "policy recommendations",
+                     "政策建议", "政策启示", "政策含义", "讨论与启示",
+                     "进一步讨论", "implications", "建议", "对策",
+                     "研究启示", "管理启示", "实践启示"]),
     ("conclusion", ["conclusion", "conclusions", "结论", "总结", "concluding",
-                     "研究结论", "主要结论", "总结与展望", "summary"]),
+                     "研究结论", "主要结论", "总结与展望", "summary",
+                     "结语", "结束语", "concluding remarks", "研究不足",
+                     "limitations", "研究局限", "未来研究", "future research"]),
     ("references", ["reference", "references", "bibliography", "参考文献",
-                     "引用文献", "文献", "references cited"]),
+                     "引用文献", "文献", "references cited", "注释"]),
     ("appendix", ["appendix", "appendices", "附录", "附表", "附图",
-                   "supplementary", "supporting information"]),
+                   "supplementary", "supporting information", "附件"]),
     ("acknowledgments", ["acknowledgment", "acknowledgements", "acknowledgement",
-                          "致谢", "感谢"]),
+                          "致谢", "感谢", "基金项目", "资助"]),
 ]
 
 
@@ -191,7 +251,22 @@ def detect_sections(chunks: list[Chunk]) -> SectionDetectionResult:
                 heading_hits.append((i, level, heading, _classify_section_type(heading)))
 
     if not heading_hits:
-        # No headings found — assign all chunks to one "unknown" section
+        # Phase 1 fallback: number-only patterns (bare "1.", "2.3", "一、")
+        # Uses relaxed validation — numbers alone are short but valid headings
+        for i, chunk in enumerate(chunks):
+            if chunk.quality_flag == "incomplete":
+                continue
+            search_text = chunk.text[:200] if len(chunk.text) > 200 else chunk.text
+            for pat in _FALLBACK_NUMBER_PATTERNS:
+                m = pat.search(search_text)
+                if m:
+                    num = m.group(1).strip()
+                    if num and 1 <= len(num) <= 20:
+                        heading_hits.append((i, 1, num, "unknown"))
+                        break
+
+    if not heading_hits:
+        # Phase 2 fallback: truly no headings — one "unknown" section
         result.sections.append(DetectedSection(
             heading="",
             section_type="unknown",
