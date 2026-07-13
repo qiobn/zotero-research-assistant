@@ -210,7 +210,6 @@ def search_papers(
             return "low"
         return "low"  # fallback
 
-    keyword_ranks = {item.key: rank + 1 for rank, item in enumerate(keyword_items)}
     semantic_ranks: dict[str, int] = {}
     semantic_best_passage: dict[str, tuple[str, int]] = {}
     semantic_enriched: dict[str, dict] = {}  # paper_abstract, section_heading, section_type
@@ -251,13 +250,12 @@ def search_papers(
         if hit.item_key not in semantic_best_passage and hit.text:
             semantic_best_passage[hit.item_key] = (hit.text[:300], 0)
 
-    candidate_keys = set(keyword_ranks) | set(semantic_ranks) | set(bm25_ranks)
+    # ── Two-way RRF: BM25 (lexical) + Dense (semantic) ──
+    candidate_keys = set(semantic_ranks) | set(bm25_ranks)
     rrf_k = 60
     scored: list[tuple[float, str]] = []
     for key in candidate_keys:
         score = 0.0
-        if key in keyword_ranks:
-            score += 1.0 / (rrf_k + keyword_ranks[key])
         if key in semantic_ranks:
             score += 1.0 / (rrf_k + semantic_ranks[key])
         if key in bm25_ranks:
@@ -295,11 +293,11 @@ def search_papers(
             continue
         passage, page = semantic_best_passage.get(key, ("", 0))
         enriched_meta = semantic_enriched.get(key, {})
-        has_keyword = key in keyword_ranks or key in bm25_ranks
+        has_bm25 = key in bm25_ranks
         has_semantic = key in semantic_ranks
-        if has_keyword and has_semantic:
+        if has_bm25 and has_semantic:
             src = "hybrid"
-        elif has_keyword:
+        elif has_bm25:
             src = "keyword"
         else:
             src = "semantic"
@@ -368,8 +366,8 @@ def search_papers(
         query=query,
         expanded_queries=[{"text": eq[0], "weight": eq[1]} for eq in expanded_queries]
                           if len(expanded_queries) > 1 else [],
-        strategy="hybrid" if (has_query and (keyword_items or bm25_hits) and semantic_hits)
-        else ("semantic" if semantic_hits else "keyword" if (keyword_items or bm25_hits) else "fallback"),
+        strategy="hybrid" if (has_query and bm25_hits and semantic_hits)
+        else ("semantic" if semantic_hits else "keyword" if bm25_hits else "fallback"),
         parameters=log_params,
         candidate_keyword_n=len(keyword_items),
         candidate_bm25_n=len(bm25_hits),
