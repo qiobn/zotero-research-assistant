@@ -56,7 +56,7 @@ def search_papers(
     chunks — a lighter alternative to full section expansion.
 
     Applies MMR (Maximal Marginal Relevance) diversity reranking by default
-    (diversity_weight=0.6). Chunk-level MMR with hard cap of 3 chunks per
+    (diversity_weight=0.4). Chunk-level MMR with hard cap of 3 chunks per
     paper and per-document penalty of 0.1. Set diversity_weight=0 to disable
     (e.g. for targeted single-paper retrieval).
 

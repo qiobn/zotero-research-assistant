@@ -141,7 +141,8 @@ def chunk_text(
     max_chunk_size: int = 1200,
     min_chunk_size: int = 100,
     overlap_chars: int = 100,
-    # Legacy params kept for backward compat (ignored in v2)
+    # Legacy params: chunk_size is ignored (v2 uses target_chunk_size);
+    # overlap is still used by the sliding-window fallback path
     chunk_size: int = 800,
     overlap: int = 120,
 ) -> list[Chunk]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -297,8 +298,6 @@ def sync_index(
     indexer: Indexer,
     retriever: Retriever,
     force_rebuild: bool = False,
-    chunk_size: int = 800,
-    chunk_overlap: int = 120,
 ) -> SyncReport:
     """Synchronize the vector index with the Zotero library.
 
@@ -460,7 +459,7 @@ def sync_index(
                         item_key=key,
                         title=item.title or "",
                         year=year,
-                        authors="",  # ZoteroItem doesn't expose authors as JSON
+                        authors=json.dumps(item.authors) if item.authors else "",
                         abstract=getattr(item, "abstract", "") or "",
                         keywords=keywords_str,
                         journal=getattr(item, "publicationTitle", "") or "",

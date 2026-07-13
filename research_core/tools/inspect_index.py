@@ -91,7 +91,7 @@ def _inspect_global(retriever: Retriever) -> dict:
     return {
         "status": "ok" if not issues else "has_issues",
         "chunking_version": CHUNKING_VERSION,
-        "total_chunks": len(docs),
+        "total_chunks": total_count,
         "total_papers": len(papers),
         "section_breakdown": dict(section_counts),
         "figure_table_chunks": figure_table_count,
@@ -106,8 +106,8 @@ def _inspect_global(retriever: Retriever) -> dict:
             ],
         },
         "avg_chunks_per_paper": round(
-            len(docs) / len(papers), 1
-        ),
+            total_count / len(papers), 1
+        ) if papers else 0,
         "papers_with_issues": len(issues),
         "issues": issues[:15],
         "top_papers_by_chunks": _top_papers(papers, n=5),

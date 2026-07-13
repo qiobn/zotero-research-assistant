@@ -41,6 +41,7 @@ def check_health(
     4. Embedding model availability
     5. Online API accessibility (OpenAlex)
     6. Environment configuration completeness
+    7. Chunk coverage (detect papers with PDFs but no indexed chunks)
 
     Args:
         zot: ZoteroClient instance (if available).
