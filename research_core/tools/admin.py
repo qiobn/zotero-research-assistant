@@ -437,8 +437,21 @@ def sync_index(
 
                 item = zot.get_item(key)
                 year = ZoteroClient.parse_year(item.date)
+
+                # Build keywords from Zotero tags — academic paper advantage
+                # Filter out organizational tags (to-*, single chars, status labels)
+                _ORG_TAG_PREFIXES = ("to-", "status:", "project:")
+                raw_tags = getattr(item, "tags", []) or []
+                meaningful_tags = [
+                    t for t in raw_tags
+                    if len(t) >= 3
+                    and not any(t.lower().startswith(p) for p in _ORG_TAG_PREFIXES)
+                ]
+                keywords_str = ", ".join(meaningful_tags) if meaningful_tags else ""
+
                 indexer.index_chunks(
-                    chunks, item_key=key, title=item.title, year=year
+                    chunks, item_key=key, title=item.title, year=year,
+                    keywords=keywords_str,
                 )
 
                 # Write structured metadata to SQLite
@@ -449,7 +462,7 @@ def sync_index(
                         year=year,
                         authors="",  # ZoteroItem doesn't expose authors as JSON
                         abstract=getattr(item, "abstract", "") or "",
-                        keywords="",  # populated from tags in a future iteration
+                        keywords=keywords_str,
                         journal=getattr(item, "publicationTitle", "") or "",
                         doi=getattr(item, "doi", "") or "",
                         pub_type=(

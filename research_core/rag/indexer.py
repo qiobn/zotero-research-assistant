@@ -9,17 +9,26 @@ from research_core.parsers.chunker import Chunk
 from research_core.rag.store import get_collection, sync_lock
 
 
-def _enrich_chunk_text(chunk: Chunk, title: str, year: int) -> str:
-    """Prepend paper + section context to chunk text before embedding.
+def _enrich_chunk_text(
+    chunk: Chunk, title: str, year: int, keywords: str = "",
+) -> str:
+    """Prepend paper + section + keyword context to chunk text before embedding.
 
     Anthropic "Contextual Retrieval" (2024): chunks embedded with surrounding
-    context achieve 49% fewer retrieval failures vs bare text. The embedding
-    model sees a chunk as part of a specific paper and section, rather than
-    as an isolated text fragment.
+    context achieve 49% fewer retrieval failures vs bare text.
 
-    Format: "[Title: {paper} ({year})] [Section: {heading}]\\n{text}"
+    Academic papers have a unique advantage: author-assigned keywords. These
+    are high-quality, expert-curated topic signals that dramatically improve
+    retrieval precision when included in the chunk context.
+
+    Format: "[Keywords: ...] [Title: {paper} ({year})] [Section: {heading}]\\n{text}"
     """
     parts: list[str] = []
+
+    # Keywords (academic paper advantage — author-curated topic signals)
+    if keywords:
+        short_kw = keywords[:200] if len(keywords) > 200 else keywords
+        parts.append(f"[Keywords: {short_kw}]")
 
     # Paper context
     if title:
@@ -64,21 +73,23 @@ class Indexer:
         item_key: str,
         title: str = "",
         year: int = 0,
+        keywords: str = "",
     ) -> int:
         """Add or replace chunks for one item. Returns number of chunks indexed.
 
-        Each chunk text is enriched with paper + section context before
-        embedding, so the embedding model sees: "[Title: ...] [Section: ...]
-        {original text}" instead of isolated raw text. This is Anthropic's
-        "Contextual Retrieval" technique — 49% retrieval failure reduction
-        at zero query-time cost.
+        Each chunk text is enriched with keywords + paper + section context
+        before embedding. Academic paper keywords are a unique advantage:
+        expert-curated, high-density topic signals that boost both dense
+        (embedding) and sparse (BM25) retrieval precision.
         """
         if not chunks:
             return 0
         with sync_lock:
             self.delete_item(item_key)
             ids = [f"{item_key}:{c.chunk_idx}" for c in chunks]
-            documents = [_enrich_chunk_text(c, title, year) for c in chunks]
+            documents = [
+                _enrich_chunk_text(c, title, year, keywords) for c in chunks
+            ]
             metadatas = [self._build_metadata(c, item_key, title, year) for c in chunks]
             self._collection.upsert(
                 ids=ids, documents=documents, metadatas=metadatas
