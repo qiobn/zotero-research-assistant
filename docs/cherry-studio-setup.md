@@ -77,7 +77,7 @@ macOS（打开"终端"，在启动台搜索"终端"）：
 
 -------- 2.1 先配置国内镜像（重要） --------
 
-安装过程中需要下载约 2.3GB 的 AI 模型，该模型托管在 HuggingFace（国内
+安装过程中需要下载约 347MB 的 AI 模型（ONNX INT8），该模型托管在 HuggingFace（国内
 无法直连）。请在安装前先运行以下命令设置镜像：
 
 macOS / Linux（终端中运行）：
@@ -109,16 +109,16 @@ Windows（cmd 中运行）：
 
 -------- 2.3 验证安装 --------
 
-    zra-mcp --help
+    pip show zra-mcp
 
-如果显示帮助信息或无报错，说明安装成功。
+如果显示包信息（名称、版本、位置），说明安装成功。
 
 首次运行 zra-mcp 时会自动下载模型（镜像下约 3-5 分钟），下载完成后
 后续启动不再需要下载。
 
 如果镜像也很慢，可以直接拷贝别人已下载好的模型文件夹到以下位置：
-    macOS:   ~/.cache/huggingface/hub/models--BAAI--bge-m3/
-    Windows: C:\Users\你的用户名\.cache\huggingface\hub\models--BAAI--bge-m3\
+    macOS:   ~/.cache/huggingface/hub/models--skatzR--USER-BGE-M3-ONNX-INT8/
+    Windows: C:\Users\你的用户名\.cache\huggingface\hub\models--skatzR--USER-BGE-M3-ONNX-INT8\
 
 
 ========================================
@@ -397,7 +397,7 @@ Cherry Studio 会自动启动 MCP 服务，服务启动时会自动做增量同�
 
 
 ========================================
-可用功能一览（32 个工具）
+可用功能一览（36 个工具，CNKI 未启用时为 32 个）
 ========================================
 
 搜索与发现
@@ -466,7 +466,7 @@ A: 试试 pip3 install zra-mcp。
    "Add python.exe to PATH"，重新安装并勾选。
 
 Q: 安装依赖时下载很慢？
-A: 嵌入模型（bge-m3）约 2.3GB，首次下载较慢。两个解决办法：
+A: 嵌入模型（bge-m3）约 347MB，首次下载较慢。两个解决办法：
    1. 设置镜像：
       macOS:   export HF_ENDPOINT=https://hf-mirror.com
       Windows: set HF_ENDPOINT=https://hf-mirror.com
@@ -595,7 +595,7 @@ Windows：
    - PyPI 国内通常可以正常访问
    - 如果慢可以用清华镜像：pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zra-mcp
 
-2. 下载嵌入模型（约 2.3GB）
+2. 下载嵌入模型（约 347MB）
    - 已在第 2 步和 .env 中配置了 hf-mirror.com 镜像，正常 3-5 分钟可完成
    - 如果镜像也不通，找已下载好的人拷贝模型文件夹（见第 2 步说明）
 

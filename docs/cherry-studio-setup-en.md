@@ -91,19 +91,17 @@ For optional CNKI (Chinese academic database) support:
 
 Verify installation:
 
-    zra-mcp --help
+    pip show zra-mcp
 
-If it shows help text or no error, installation is successful.
+If it shows package information (name, version, location), installation is successful.
 
-On first run, the embedding model (~2.3 GB) will be downloaded automatically.
-If the download is slow, you can set a mirror:
-    macOS:   export HF_ENDPOINT=https://hf-mirror.com
-    Windows: set HF_ENDPOINT=https://hf-mirror.com
-    Then re-run zra-mcp.
+On first run, the embedding model (~347 MB, ONNX INT8) will be downloaded automatically.
+If the download is slow, you can set a mirror (add to your .env file for persistence):
+    HF_ENDPOINT=https://hf-mirror.com
 
 Alternatively, copy the model folder from someone who already has it:
-    macOS:   ~/.cache/huggingface/hub/models--BAAI--bge-m3/
-    Windows: C:\Users\YourUsername\.cache\huggingface\hub\models--BAAI--bge-m3\
+    macOS:   ~/.cache/huggingface/hub/models--skatzR--USER-BGE-M3-ONNX-INT8/
+    Windows: C:\Users\YourUsername\.cache\huggingface\hub\models--skatzR--USER-BGE-M3-ONNX-INT8/
 
 
 ========================================
@@ -147,11 +145,13 @@ Create a plain text file named .env in that directory with the following content
     ZOTERO_LOCAL=true
     ZOTERO_LIBRARY_ID=12345678
     ZOTERO_API_KEY=aB3xYz9kLmN...
+    HF_ENDPOINT=https://hf-mirror.com
 
 Explanation:
   - ZOTERO_LOCAL=true: required, tells the service to use local Zotero
   - ZOTERO_LIBRARY_ID: the number from step 3.2.7
   - ZOTERO_API_KEY: the key from step 3.2.6. Leave empty if you skipped 3.2
+  - HF_ENDPOINT: use a mirror if HuggingFace downloads are slow in your region
   - For read-only usage (search and read only), just ZOTERO_LOCAL=true is enough
 
 Windows — how to create a .env file:
@@ -456,7 +456,7 @@ A: Try: pip3 install zra-mcp
    check "Add python.exe to PATH".
 
 Q: Slow download during installation?
-A: The embedding model (bge-m3) is ~2.3 GB. Two solutions:
+A: The embedding model (bge-m3) is ~347 MB. Two solutions:
    1. Set mirror:
       macOS:   export HF_ENDPOINT=https://hf-mirror.com
       Windows: set HF_ENDPOINT=https://hf-mirror.com
@@ -576,7 +576,7 @@ If you're in mainland China, these tips may help:
    - PyPI is usually accessible from China
    - If slow, use Tsinghua mirror: pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zra-mcp
 
-2. Downloading the embedding model (~2.3 GB, most likely to get stuck)
+2. Downloading the embedding model (~347 MB, most likely to get stuck)
    - HuggingFace is often inaccessible from China
    - Solutions:
      a. Set mirror (recommended):
