@@ -11,7 +11,7 @@ Phase 0 (Audit)    ████████████████████ 
 Phase 1 (P0)       ████████████████████ 100%  ✅ DONE
 Phase 2 (P1)       ████████████████████ 100%  ✅ DONE
 Phase 3 (P2)       ████████░░░░░░░░░░░░  40%  (completed: 3.1, 3.3; remaining: 3.2, 3.4, 3.5)
-Phase 4 (v0.4.0)   ░░░░░░░░░░░░░░░░░░░░   0%  Architecture audit findings
+Phase 4 (v0.4.0)   ██████████░░░░░░░░░░░░  50%  Architecture audit findings
 ```
 
 ---
@@ -47,7 +47,7 @@ Phase 4 (v0.4.0)   ░░░░░░░░░░░░░░░░░░░░ 
 
 Issues identified during full architecture review:
 
-### 4.1 Evaluation Tests Full Pipeline 🔴 HIGH (in progress)
+### 4.1 Evaluation Tests Full Pipeline 🔴 HIGH ✅
 
 > **Problem**: `evaluate_retrieval()` only tests `retriever.search()` (pure semantic). BM25, CE reranker, MMR, and RRF fusion have NEVER been evaluated. Every retrieval component you've built lacks quantitative validation.
 >
@@ -67,7 +67,7 @@ Issues identified during full architecture review:
 
 ---
 
-### 4.3 Authors Field in SQLite ⬜ 🟡 MEDIUM
+### 4.3 Authors Field in SQLite ✅ 🟡 MEDIUM
 
 > **Problem**: SQLite `papers.authors` is always `""`. Comment says "ZoteroItem doesn't expose authors as JSON" but `Item.authors` is `list[str]` — it's available.
 >
@@ -87,7 +87,7 @@ Issues identified during full architecture review:
 
 ---
 
-### 4.5 Dead Parameters in sync_index ⬜ 🟢 LOW
+### 4.5 Dead Parameters in sync_index ✅ 🟢 LOW
 
 > **Problem**: `sync_index(chunk_size=800, chunk_overlap=120)` accepts parameters that the chunker ignores (uses its own `target_chunk_size=600` internally since v2).
 >
@@ -97,7 +97,7 @@ Issues identified during full architecture review:
 
 ---
 
-### 4.6 Docstring Bug ⬜ 🟢 LOW
+### 4.6 Docstring Bug ✅ 🟢 LOW
 
 > **Problem**: `search_papers()` docstring says `diversity_weight=0.6`, actual default is `0.4` (grid-search tuned).
 >

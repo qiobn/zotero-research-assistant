@@ -19,7 +19,7 @@ research_core/
   tools/       — 36 MCP tool implementations
   zotero/      — Zotero local + web API client
 project_a_mcp/ — MCP server entry point (stdio)
-scripts/       — CLI utils (index_library, audit_index, run_evaluation, publish)
+scripts/       — CLI utils (index_library, audit_index, run_evaluation, benchmark_*, publish)
 tests/         — pytest suite + 60 golden eval queries
 docs/          — Setup guides (Cherry Studio CN/EN)
 ```

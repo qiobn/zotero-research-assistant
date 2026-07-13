@@ -13,7 +13,8 @@ Categories:
   CITE       suggest_citations, export_bibliography
   INSIGHT    reading_status, recommend_papers, generate_review_note, generate_reading_note,
              suggest_tags, find_arguments
-  ADMIN      sync_index, check_health, inspect_index, test_recall
+  ADMIN      sync_index, check_health, inspect_index, test_recall,
+             recent_retrievals, retrieval_trace, retrieval_stats, add_query_synonym
 
 Note: CNKI tools (search_cnki_literature, cnki_paper_detail, cnki_navigate_pages,
 cnki_add_to_zotero) are only registered when CNKI_ENABLED=true.
