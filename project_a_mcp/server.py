@@ -170,6 +170,16 @@ def _startup_diagnostics() -> None:
     except Exception as e:
         logger.warning(f"⚠ Cannot check vector index: {e}")
 
+    # Log rotation: cleanup entries older than 90 days
+    try:
+        from research_core.rag.logger import RetrievalLogger
+        rl = RetrievalLogger(persist_dir=os.getenv("CHROMA_PERSIST_DIR", ".chroma_db"))
+        removed = rl.rotate(keep_days=90)
+        if removed > 0:
+            logger.info(f"✓ Log rotation: removed {removed} old entries")
+    except Exception:
+        pass  # best-effort, never block startup
+
 
 _WRITE_CONFIRMATION_POLICY = (
     "WRITE CONFIRMATION (mandatory): First call MUST use confirm=false (default). "

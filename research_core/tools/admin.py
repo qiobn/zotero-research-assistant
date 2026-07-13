@@ -563,6 +563,14 @@ def sync_index(
             "issues": issues[:20],
         }
 
+    # Log rotation: cleanup entries older than 90 days (best-effort)
+    try:
+        from research_core.rag.logger import RetrievalLogger
+        rl = RetrievalLogger(persist_dir=persist_dir)
+        rl.rotate(keep_days=90)
+    except Exception:
+        pass
+
     return report
 
 

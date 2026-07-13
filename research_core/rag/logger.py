@@ -29,6 +29,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterator
 
+from loguru import logger
+
 
 @dataclass
 class RetrievalLog:
@@ -253,3 +255,67 @@ class RetrievalLogger:
             "errors": errors,
             "avg_latency_ms": round(avg_latency, 1),
         }
+
+    def rotate(self, keep_days: int = 90) -> int:
+        """Remove log entries older than keep_days. Returns number removed.
+
+        Rewrites the log file and rebuilds the offset index. Called from
+        server startup and sync_index — lightweight enough to run once per
+        session.
+
+        Args:
+            keep_days: Entries older than this many days are removed (default 90).
+        """
+        if not self._enabled or not os.path.exists(self._log_path):
+            return 0
+
+        cutoff = time.time() - (keep_days * 86400)
+        kept: list[tuple[str, str]] = []  # (line, trace_id)
+        removed = 0
+
+        with open(self._log_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    kept.append((line, ""))
+                    continue
+
+                ts_str = entry.get("timestamp", "")
+                if ts_str:
+                    try:
+                        entry_ts = time.mktime(
+                            time.strptime(ts_str, "%Y-%m-%dT%H:%M:%S")
+                        )
+                        if entry_ts < cutoff:
+                            removed += 1
+                            continue
+                    except (ValueError, OverflowError):
+                        pass  # unparseable timestamp — keep
+
+                kept.append((line, entry.get("trace_id", "")))
+
+        if removed == 0:
+            return 0
+
+        # Rewrite log file with kept entries, tracking byte offsets
+        with open(self._log_path, "w", encoding="utf-8") as f:
+            offsets: dict[str, int] = {}
+            for line, tid in kept:
+                if tid:
+                    offsets[tid] = f.tell()
+                f.write(line + "\n")
+
+        # Rebuild offset index using actual file positions
+        with open(self._idx_path, "w", encoding="utf-8") as f:
+            for tid, offset in offsets.items():
+                f.write(f"{tid}\t{offset}\n")
+
+        logger.info(
+            f"Retrieval log rotated: removed {removed} entries, "
+            f"{len(kept)} kept (cutoff: {keep_days}d)"
+        )
+        return removed
