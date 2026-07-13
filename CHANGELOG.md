@@ -8,50 +8,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **BM25 sparse keyword index on chunk texts** — `rank_bm25` with CJK-aware
+  tokenizer (character unigrams+bigrams for CN, alpha words for EN). Two-way
+  RRF fusion: BM25 (lexical) + ChromaDB (semantic). Persists to
+  `.chroma_db/_bm25_index.pkl`. Auto-rebuilt on every sync.
+- **Contextual chunk enrichment** — each chunk text is prepended with
+  `[Keywords: ...] [Title: ...] [Section: ...]` before embedding and BM25
+  indexing. Implements Anthropic "Contextual Retrieval" 2024 technique
+  using existing metadata — zero additional cost. Keywords are filtered
+  from Zotero tags (excludes organizational labels).
 - **Dual-format output (JSON + Markdown context_block)** — key retrieval tools now
   return a `context_block` field containing pre-rendered LLM-optimized Markdown
-  alongside the existing JSON items. Markdown uses blockquote (>) for evidence
-  text, star ratings (★★★) for relevance tiers, and sentence-boundary truncation.
-  Up to ~80% token savings vs pure JSON for the same information. Covers:
-  `search_papers`, `get_paper_content`, `generate_review_note`, `suggest_citations`.
-  Per Anthropic MCP best practice: Markdown is the LLM consumption channel, JSON
-  is the programmatic channel.
+  alongside the existing JSON items. Blockquote (>) for evidence, star ratings
+  (★★★) for relevance tiers, sentence-boundary truncation. Covers all 8
+  retrieval/insight tools: `search_papers`, `get_paper_content`,
+  `generate_review_note`, `suggest_citations`, `find_similar_papers`,
+  `find_arguments`, `generate_reading_note`, `suggest_tags`.
 - **Relevance tiers** — each `search_papers` result now carries a `relevance_tier`
-  field ("high"/"medium"/"low") computed from Cross-Encoder score percentiles. More
-  intuitive for LLMs than raw float scores like 0.0321.
+  field ("high"/"medium"/"low") computed from Cross-Encoder score percentiles.
+- **Full-pipeline evaluation mode** — `run_evaluation.py --full-pipeline` tests
+  the complete `search_papers()` pipeline (BM25 + CE rerank + MMR + RRF fusion),
+  not just raw semantic search. `evaluate_full_pipeline()` in evaluation.py.
+- **Retrieval log rotation** — auto-cleans log entries older than 90 days.
+  Triggers on server startup and after each `sync_index`. Uses `f.tell()` for
+  cross-platform byte offset accuracy.
+- **Expanded section detection** — Roman numerals (I., II.), Chapter prefix
+  (CHAPTER 1:), section symbol (§1.), letter subsections (A., B.). ~50 new
+  type classification keywords covering non-standard academic headings.
+  Number-only fallback for papers with bare numbered markers.
 - **ONNX INT8 embedding backend** (`EMBEDDING_BACKEND=auto` / `onnx_int8`) —
-  optional 2-3x faster, 4x smaller (347MB vs 2.3GB) embedding inference via
-  ONNX Runtime with pre-quantized bge-m3 model. Zero-config: `auto` mode
-  attempts ONNX INT8 first, falls back to sentence-transformers FP32.
-  Benchmark: 3.7x encode speedup, 0.95 embedding fidelity, 74% chunk@10
-  overlap with FP32. Cross-Encoder + MMR absorb minor ranking differences.
+  2-3x faster, 4x smaller (347MB vs 2.3GB) embedding on CPU. Zero-config.
 - **MMR (Maximal Marginal Relevance) diversity reranking** — chunk-level MMR
   with per-document cap (max 3 chunks per paper) and per-document penalty.
-  Operates on existing bge-m3 embeddings (~15ms overhead). Enabled by default
-  (diversity_weight=0.6); set to 0 for single-paper retrieval. Prevents
-  single-paper dominance: test set showed up to 7→3 max chunks from one paper
-  and 4→6 unique papers in top-10.
+  Default λ=0.4 (grid-search tuned from 0.6).
 - **Multi-layer bilingual query expansion** — 3-layer system with ~300 built-in
-  methodology term pairs (Layer 1), auto-extracted Zotero tags (Layer 2), and
-  user-defined synonyms via `add_query_synonym` MCP tool (Layer 3). CN↔EN
-  bidirectional, zero-latency dictionary lookup, LRU-cached.
+  methodology term pairs, auto-extracted Zotero tags, and user-defined synonyms.
 - **Neighbor chunk expansion** — `expand_neighbors=True` returns hit chunk ±1
-  adjacent chunk within the same section (~500 chars context vs 2000 for full
-  section expansion). Via `Retriever.expand_to_neighbors()`.
+  adjacent chunk within the same section.
 - **Min chunk size floor (200 chars)** — post-chunking merge pass eliminating
   fragments below the FloTorch 2026 threshold for e2e accuracy.
 
 ### Changed
-- **MMR diversity_weight tuned: 0.6 → 0.4** — grid search on 10 queries showed
-  λ=0.4 as the sweet spot: +54% paper diversity with zero core paper loss.
+- **Two-way RRF fusion** — simplified from three-way (Zotero API + BM25 + Dense)
+  to two-way (BM25 + Dense). Zotero API remains for paper metadata, filters,
+  and empty query mode.
+- **MMR diversity_weight tuned: 0.6 → 0.4** — grid search on 10 queries.
 - **Chunk quality scoring simplified** — dropped unused heuristic fields
-  (coherence_score, information_density, boilerplate_ratio) that were
-  never consumed by retrieval. Now only tags language, sentence_count,
-  starts_with_conjunction, and quality_flag (good/incomplete).
-- **MMR diversity enabled by default** in search_papers() (diversity_weight=0.6).
+  (coherence_score, information_density, boilerplate_ratio).
 - **MCP tools: 32 → 36** with add_query_synonym, recent_retrievals,
   retrieval_trace, and retrieval_stats.
-- **CHUNKING_VERSION: v2.9.0 → v3.0.0** (triggers auto-rebuild).
+- **CHUNKING_VERSION: v2.9.0 → v3.1.0-contextual-chunks**.
+
+### Fixed
+- **SQLite authors field** — was empty string, now populated from Zotero item metadata.
+- **sync_index dead parameters** — removed unused `chunk_size` and `chunk_overlap`.
+- **Section detection `\s*` newline bug** — `\s*` in heading patterns now replaced
+  with `[ \\t]*` to prevent greedy newline consumption causing false headings.
+- **inspect_index pagination bug** — `len(docs)` was only the last page's count,
+  now uses `total_count` for accurate stats.
+- **diversity_weight docstring** — corrected from 0.6 to 0.4 in both search.py
+  and server.py.
 
 ## [0.3.0] - 2026-07-06
 
@@ -196,6 +212,7 @@ standalone MCP server (no agent scaffold) with 32 single-intent tools.
   citation management, review/reading-note generation, tag suggestions, and the
   first Cherry Studio setup guide.
 
+[Unreleased]: https://github.com/qiobn/zotero-research-assistant/compare/v0.3.0...main
 [0.3.0]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.3.0
 [0.2.0]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.2.0
 [0.1.1]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.1.1

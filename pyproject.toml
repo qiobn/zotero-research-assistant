@@ -1,9 +1,10 @@
 [project]
 name = "zotero-research-assistant"
 version = "0.3.0"
-description = "AI-powered Zotero research assistant — a standalone MCP server with 32 tools for literature search, reading analysis, citation management, and review writing."
+description = "AI-powered Zotero research assistant — a standalone MCP server with 36 tools for literature search, reading analysis, citation management, and review writing."
 readme = "README.md"
 license = {text = "MIT"}
+authors = [{name = "qiobn"}]
 requires-python = ">=3.11"
 keywords = ["zotero", "mcp", "research", "literature-review", "semantic-search", "citation", "ai", "model-context-protocol"]
 classifiers = [

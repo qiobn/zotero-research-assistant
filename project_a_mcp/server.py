@@ -1,6 +1,7 @@
 """Zotero Research Assistant — MCP server.
 
-32 tools, one intent each, designed to compose via `item_key`.
+36 MCP tools (32 always-on + 4 CNKI-conditional), one intent each,
+designed to compose via `item_key`.
 
 Categories:
   DISCOVER   search_papers, search_online_literature, search_cnki_literature,

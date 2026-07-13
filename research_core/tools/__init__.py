@@ -65,7 +65,6 @@ __all__ = [
     "CnkiPaperHit",
     "CnkiZoteroResult",
     "DuplicateGroup",
-    "MergeResult",
     "OnlinePaperHit",
     "PaperContent",
     "PaperHit",

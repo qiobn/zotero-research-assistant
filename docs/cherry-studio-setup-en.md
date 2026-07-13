@@ -387,7 +387,7 @@ exact per-row/per-column values):
 
 
 ========================================
-Available Tools (32)
+Available Tools (36)
 ========================================
 
 Search & Discovery

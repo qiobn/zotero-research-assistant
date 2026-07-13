@@ -146,8 +146,3 @@ Issues identified during full architecture review:
 → Phase 4.6: Docstring fix (trivial)
 → Phase 4.5: Dead parameters cleanup
 ```
-|----------|--------|------|
-| Parent-Child implementation | Full rebuild (clean architecture) | 2026-06-30 |
-| Evaluation set construction | LLM generate + human review | 2026-06-30 |
-| PDF cleaning aggressiveness | Mark-only first (conservative), then block based on data | 2026-06-30 |
-| Start with audit or code | Audit first — done | 2026-06-30 |

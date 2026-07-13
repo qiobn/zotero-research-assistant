@@ -16,7 +16,7 @@ This is **Zotero Research Assistant** — an MCP (Model Context Protocol) server
 research_core/
   parsers/     — PDF extraction, text cleaner (52 rules), chunker, section detector
   rag/         — ChromaDB store, retriever, SQLite metadata DB, evaluation, logger, diagnostics
-  tools/       — 35 MCP tool implementations
+  tools/       — 36 MCP tool implementations
   zotero/      — Zotero local + web API client
 project_a_mcp/ — MCP server entry point (stdio)
 scripts/       — CLI utils (index_library, audit_index, run_evaluation, publish)
@@ -109,9 +109,11 @@ When adding/removing features or changing behavior, update:
 | `research_core/rag/evaluation.py` | Recall@K, MRR, NDCG |
 | `research_core/rag/retriever.py` | ChromaDB retriever with section expansion + enrichment |
 
-## Current State (v0.3.0)
+## Current State (v0.4.0-dev)
 
-- Phase 0/1/2 complete; Phase 3 (P2 refinements) pending
-- 35 MCP tools, all operational
-- Known issues: weak embedding separation (0.95x), CNKI module unstable
-- Next priorities: Query Rewrite (Phase 3.1), Adaptive Chunk Granularity (3.2), MMR Diversity Reranking (3.3)
+- Phase 0/1/2/3 (partial) complete; Phase 4 (v0.4.0) in progress
+- 36 MCP tools (32 always-on + 4 CNKI-conditional), all operational
+- Key features: BM25+Dense hybrid retrieval, ONNX INT8 embedding, MMR diversity,
+  bilingual query expansion, contextual chunk enrichment, dual-format output
+- Known issues: evaluation only run on small test set (8 papers)
+- Next priorities: run full-pipeline evaluation on real library, chunk size tuning
