@@ -80,14 +80,14 @@ Your Zotero Library
       ▼
 ┌──────────────────────────────────────────────────────┐
 │ 7. HYBRID SEARCH + RERANKING                         │
-│    Keyword (Zotero API) + Semantic (ChromaDB)        │
-│    Merged via Reciprocal Rank Fusion (RRF, k=60)     │
+│    BM25 (sparse) + ChromaDB (dense)                  │
+│    Merged via two-way Reciprocal Rank Fusion (k=60)  │
 │    ↓                                                  │
 │    Cross-Encoder reranking (ms-marco-MiniLM-L-6-v2)  │
 │    ↓                                                  │
 │    MMR diversity (λ=0.4, max 3 chunks/paper)         │
 │    ↓                                                  │
-│    Bilingual query expansion (~300 CN↔EN pairs)      │
+│    Bilingual query expansion (CN↔EN dictionary)      │
 │    ↓                                                  │
 │    Dual-format output: JSON items + Markdown          │
 │    context_block (blockquote evidence, ★★★ tiers)    │
@@ -99,31 +99,21 @@ Your Zotero Library
 | Feature | Description |
 |---------|-------------|
 | **Text Cleaning** | 52 blacklist regex rules remove journal boilerplate before chunking. Covers EN (article-info, running headers), CN (volume/issue, CLC, funding), and universal patterns (page numbers, DOIs). Zero false-positive risk — no paper body contains "〔中图分类号〕" |
-| **CJK-Aware Chunking** | Sentence splitting at `。！？` without requiring trailing whitespace. PDF soft-wrap repair. IMRaD section detection via regex heading patterns (EN "1. Introduction", CN "一、引言"). References sections auto-excluded from search. |
-| **Chunk Quality** | Each chunk tagged with language (zh/en/mixed), sentence count, starts-with-conjunction flag, and quality flag (good/incomplete). 200-char minimum floor prevents sub-43-token fragments that tank end-to-end accuracy. |
+| **CJK-Aware Chunking** | Sentence splitting at `。！？` without requiring trailing whitespace. PDF soft-wrap repair. Paragraph-aware merge/split with ~100-char overlap between consecutive chunks ensures context continuity across chunk boundaries. IMRaD section detection via regex heading patterns (EN "1. Introduction", CN "一、引言"). References sections auto-excluded from search. |
+| **Chunk Tagging** | Each chunk tagged with language (zh/en/mixed), sentence count, and a completeness flag (good/incomplete). 200-char minimum floor prevents sub-43-token fragments that tank end-to-end accuracy. |
 | **ONNX INT8 Embedding** | Default backend uses ONNX Runtime with a pre-quantized bge-m3 model (~347MB vs 2.3GB FP32). 2-3x faster on CPU, 4x less disk, <1% retrieval precision impact. Auto-fallback to sentence-transformers FP32 if onnxruntime is unavailable. |
 | **SQLite Metadata DB** | 7 relational tables (papers, sections, chunks_meta, figures, tables, cross-refs) separate from ChromaDB. Abstracts stored but NOT embedded — prevents the "abstract matches everything" problem. Zero user setup. |
 | **Section-Parent Expansion** | `expand_context=True` fetches the full enclosing section for each hit chunk (~2000 chars vs 300), giving the LLM complete paragraph context. Neighbor expansion (±1 chunk) as lighter alternative. |
-| **Hybrid Search + RRF** | Zotero keyword search + ChromaDB semantic search merged via Reciprocal Rank Fusion. Keyword protects exact matches (DOIs, author names); semantic provides fuzzy discovery. |
+| **Hybrid Search + RRF** | BM25 sparse retrieval + ChromaDB dense semantic search merged via two-way Reciprocal Rank Fusion. BM25 protects exact matches (rare terminology, method names, variable names); semantic provides concept-level discovery. |
 | **Cross-Encoder Reranking** | Optional ms-marco-MiniLM-L-6-v2 (~80MB) re-scores top candidates for higher precision. Query-dependent — unlike static quality scores, only fires when relevant. |
-| **Dual-Format Output** | Key tools return both `items` (JSON metadata) and `context_block` (LLM-optimized Markdown). Blockquote for evidence text, ★★★ star ratings for relevance tiers, sentence-boundary truncation. ~80% token savings vs pure JSON. Per Anthropic MCP best practice. |
+| **Dual-Format Output** | Key tools return both `items` (JSON metadata) and `context_block` (LLM-optimized Markdown). Blockquote for evidence text, ★★★ star ratings for relevance tiers, sentence-boundary truncation. Markdown is the primary LLM consumption channel; JSON serves programmatic consumers. |
 | **Relevance Tiers** | Each result gets a percentile-based `relevance_tier` (high/medium/low) computed from Cross-Encoder scores. LLMs understand ★★★ more intuitively than raw floats like 0.0321. |
 | **MMR Diversity** | Maximal Marginal Relevance at the chunk level (λ=0.4, tuned via grid search). Prevents single-paper dominance in top results. Hard cap of 3 chunks per paper + per-document penalty. +54% paper diversity vs un-diversified. |
-| **Bilingual Query Expansion** | 3-layer dictionary system: ~300 built-in cross-disciplinary methodology pairs (Layer 1), auto-extracted Zotero tags (Layer 2), user-defined synonyms via MCP tool (Layer 3). CN↔EN bidirectional, LRU-cached, zero latency. |
+| **Bilingual Query Expansion** | Dictionary-based CN↔EN term mapping with zero latency (LRU-cached lookup). Built-in dictionary covers common academic terms like methodology names and research concepts. Auto-extracts from your Zotero tags for personalization. Supports adding custom term pairs via `add_query_synonym` tool — your dictionary grows with your library. |
 | **Retrieval Observability** | Every search emits a JSONL trace: query, strategy, candidate counts, reranker state, top-20 results with scores, latency breakdown (keyword/semantic/rerank/MMR/total). Byte-offset index for fast replay. 3 query tools: `recent_retrievals`, `retrieval_trace`, `retrieval_stats`. |
 | **Embedding Diagnostics** | 6-phase analysis: intra/inter-paper similarity, outlier chunk detection, chunk length-similarity Pearson correlation, section-type embedding separation, automated issue detection + fix suggestions. |
 | **Systematic Evaluation** | 60 golden queries across direct-hit, cross-document, and no-answer categories. Metrics: Recall@5/10/20, MRR, NDCG@10. CLI with `--save-baseline` / `--compare` for A/B testing. |
 | **Index Audit** | 7-phase library quality audit: paginated scan, per-paper scoring, library coverage, noise detection, embedding separation, health scoring, recommendations. |
-
-### Key Design Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| **Blacklist > heuristic for cleaning** | Journal boilerplate is formulaic. Regex exact-match has zero false-positive risk. Heuristic frequency-counting would flag real keywords like "Accessibility" as noise. |
-| **Abstracts NOT embedded** | An abstract is a paper's "distilled version" — it has moderate similarity to *any* relevant query, causing it to dominate search results and flatten paper-level distinction. |
-| **Caption anchors > table structuring** | Reliable table structuring is a vision problem. Geometric/line-based detection produces garbage on borderless academic tables and mis-segments multi-column prose. Tables and figures are stored as searchable caption-anchored records instead. |
-| **ONNX INT8 default** | CPU users get 3x faster indexing with <1% retrieval precision loss. FP32 available as fallback. GPU users can override to FP32 for maximum accuracy. |
-| **MMR enabled by default** | 15ms overhead prevents single-paper top-10 domination. Grid search tuned λ=0.4 for academic papers. Disable for single-paper focused retrieval. |
 
 ---
 
