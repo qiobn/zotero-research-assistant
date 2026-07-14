@@ -345,7 +345,31 @@ class Retriever:
         n_results: int = 5,
         include_references: bool = False,
     ) -> list[RetrievalResult]:
-        """Semantic search restricted to a single paper's chunks."""
+        """Search restricted to a single paper's chunks.
+
+        Uses both BM25 (lexical) and ChromaDB (semantic) with two-way RRF
+        fusion — same hybrid approach as search_papers, scoped to one paper.
+        Previously only used semantic search, which missed rare terms
+        appearing in the PDF body but poorly captured by embeddings.
+        """
+        # ── BM25 search (filtered to this paper) ──
+        bm25_scores: dict[int, float] = {}  # chunk_idx → BM25 score
+        bm25_texts: dict[int, str] = {}
+        bm25 = self.bm25
+        if bm25 is not None:
+            raw_hits = bm25.search(query, top_k=200)
+            for h in raw_hits:
+                if h.item_key != item_key:
+                    continue
+                # Parse chunk_idx from chunk_id "{item_key}:{idx}"
+                try:
+                    cidx = int(h.chunk_id.rsplit(":", 1)[-1])
+                except (ValueError, IndexError):
+                    continue
+                bm25_scores[cidx] = max(bm25_scores.get(cidx, 0), h.score)
+                bm25_texts[cidx] = h.text
+
+        # ── Semantic search (ChromaDB, paper-scoped) ──
         where: dict = {"item_key": item_key}
         if not include_references:
             where = {
@@ -354,12 +378,71 @@ class Retriever:
                     {"section": {"$ne": "references"}},
                 ]
             }
-        return self.search(
+        semantic_results = self.search(
             query,
-            n_results=n_results,
+            n_results=max(n_results * 3, 30),
             where=where,
             include_references=True,
         )
+
+        # ── Two-way RRF fusion ──
+        semantic_ranks: dict[int, tuple[int, RetrievalResult]] = {}
+        seen_idx: set[int] = set()
+        for rank, r in enumerate(semantic_results):
+            cidx = r.chunk_idx
+            if cidx in seen_idx:
+                continue
+            seen_idx.add(cidx)
+            semantic_ranks[cidx] = (rank + 1, r)
+
+        rrf_k = 60
+        # Collect all unique chunk indices from both sources
+        all_indices = set(bm25_scores) | set(semantic_ranks)
+
+        # Sort by BM25 score first to assign BM25 ranks
+        bm25_sorted = sorted(bm25_scores.items(), key=lambda x: -x[1])
+        bm25_ranks: dict[int, int] = {}
+        for rank, (cidx, _) in enumerate(bm25_sorted):
+            bm25_ranks[cidx] = rank + 1
+
+        scored: list[tuple[float, int]] = []
+        for cidx in all_indices:
+            score = 0.0
+            if cidx in bm25_ranks:
+                score += 1.0 / (rrf_k + bm25_ranks[cidx])
+            if cidx in semantic_ranks:
+                score += 1.0 / (rrf_k + semantic_ranks[cidx][0])
+            scored.append((score, cidx))
+        scored.sort(reverse=True)
+
+        # Build results, preferring enriched RetrievalResult from semantic search
+        results: list[RetrievalResult] = []
+        for _, cidx in scored[:n_results]:
+            if cidx in semantic_ranks:
+                r = semantic_ranks[cidx][1]
+                r.score = round(
+                    1.0 / (rrf_k + semantic_ranks[cidx][0])
+                    + (1.0 / (rrf_k + bm25_ranks[cidx]) if cidx in bm25_ranks else 0),
+                    4,
+                )
+                results.append(r)
+            elif cidx in bm25_texts:
+                # BM25-only hit: build a minimal RetrievalResult
+                results.append(RetrievalResult(
+                    text=bm25_texts[cidx],
+                    item_key=item_key,
+                    title="",
+                    page_start=0,
+                    page_end=0,
+                    score=round(1.0 / (rrf_k + bm25_ranks[cidx]), 4),
+                    chunk_idx=cidx,
+                ))
+
+        # Enrich any BM25-only results with paper metadata
+        if results:
+            self.enrich(results)
+
+        return results
 
     def get_item_chunks(
         self,

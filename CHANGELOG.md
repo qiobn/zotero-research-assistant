@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-14
+
+### Added
+- **BM25 within-paper search** — `search_within_item()` (used by `get_paper_content`
+  with query) now uses two-way BM25+Dense RRF fusion, matching the full-library
+  search pipeline. Previously only used Dense search, missing rare terms in PDF
+  body that embeddings struggle with.
+
+## [0.3.0] - 2026-07-13
+
 ### Added
 - **BM25 sparse keyword index on chunk texts** — `rank_bm25` with CJK-aware
   tokenizer (character unigrams+bigrams for CN, alpha words for EN). Two-way
@@ -212,7 +222,8 @@ standalone MCP server (no agent scaffold) with 32 single-intent tools.
   citation management, review/reading-note generation, tag suggestions, and the
   first Cherry Studio setup guide.
 
-[Unreleased]: https://github.com/qiobn/zotero-research-assistant/compare/v0.3.0...main
+[Unreleased]: https://github.com/qiobn/zotero-research-assistant/compare/v0.3.1...main
+[0.3.1]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.3.1
 [0.3.0]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.3.0
 [0.2.0]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.2.0
 [0.1.1]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.1.1
