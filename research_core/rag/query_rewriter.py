@@ -191,17 +191,22 @@ def _get_nmt_model():
         if _nmt_pipeline is not None:  # double-check after acquiring lock
             return _nmt_pipeline
 
-        cache_dir = os.getenv("ZRA_NMT_CACHE_DIR",
-                              os.path.join(os.getcwd(), ".chroma_db", "hf_cache"))
-        os.environ.setdefault("HF_HOME", cache_dir)
+        cache_dir = os.getenv("ZRA_NMT_CACHE_DIR")
+        if not cache_dir:
+            d = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
+            if os.path.isabs(d) and all(ord(c) < 128 for c in d):
+                cache_dir = os.path.join(d, "hf_cache")
+            else:
+                cache_dir = "D:\\tmp\\zra_nmt_cache"
+                os.makedirs(cache_dir, exist_ok=True)
         os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
         try:
             from transformers import MarianMTModel, MarianTokenizer
 
             model_name = "Helsinki-NLP/opus-mt-zh-en"
-            tokenizer = MarianTokenizer.from_pretrained(model_name)
-            model = MarianMTModel.from_pretrained(model_name)
+            tokenizer = MarianTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+            model = MarianMTModel.from_pretrained(model_name, cache_dir=cache_dir)
             _nmt_pipeline = (tokenizer, model)
             logger.info(f"NMT model loaded from {model_name}")
         except Exception as e:
