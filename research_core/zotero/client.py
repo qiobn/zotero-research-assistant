@@ -124,7 +124,9 @@ class ZoteroClient:
         self._api_key = api_key
 
         if local:
-            self._zot = zotero.Zotero(self._library_id, library_type, api_key="")
+            self._zot = zotero.Zotero(self._library_id, library_type, api_key="", local=True)
+            # local=True sets endpoint to http://localhost:23119/api with HTTP/1.1 transport.
+            # Override to 127.0.0.1 for reliability (avoids IPv4/v6 resolution variance).
             self._zot.endpoint = "http://127.0.0.1:23119/api"
         else:
             self._zot = zotero.Zotero(self._library_id, library_type, api_key)

@@ -84,11 +84,18 @@ RAG 管线是本项目的核心。所有设计决策——从分块策略到嵌�
 │    → 双路 RRF 融合 (k=60)                             │
 │    → Cross-Encoder 重排序 (ms-marco-MiniLM-L-6-v2)   │
 │    → MMR 多样性 (λ=0.4, 每篇最多 3 chunks)           │
-│    → 双语查询扩展 (中英词典)                           │
+│    → 双语查询扩展 (中文词典 + OPUS-MT 翻译)│
 │    → 双格式输出: JSON items + Markdown                │
 │      context_block (blockquote 引用, ★★★ 分级)        │
 └──────────────────────────────────────────────────────┘
 ```
+
+### 搜索建议
+
+- **英文查询默认只搜英文文献**——如果查询本身是英文，系统认为你在检索英文文献，不启动 CN→EN 翻译。
+- **中文查询自动扩到双语**——OPUS-MT 将中文查询翻译为英文，在整个文库中搜索。结果按语言分组展示（中文论文在前，英文在后）。
+- **`language` 参数**——`language="cn"` 强制只搜中文论文，`language="en"` 只搜英文，默认 `"auto"`（全部检索）。
+- **构建自己的词典**——使用 `import_query_dict` 批量导入领域术语映射，或用 `add_query_synonym` 逐个添加。
 
 ### 管线核心特性
 
@@ -105,7 +112,8 @@ RAG 管线是本项目的核心。所有设计决策——从分块策略到嵌�
 | **双格式输出** | 核心工具同时返回 `items`（JSON 元数据）和 `context_block`（LLM 优化 Markdown）。blockquote 引用原文、★★★ 相关度分级、句边界截断。Markdown 为 LLM 主消费通道，JSON 服务程序化消费者。 |
 | **相关度分级** | 每条结果附带基于 Cross-Encoder 分数百分位的 `relevance_tier`（high/medium/low）。LLM 对 ★★★ 的直觉理解远胜于 0.0321 这类原始浮点数。 |
 | **MMR 多样性** | Chunk 级 Maximal Marginal Relevance（λ=0.4，网格搜索调优）。防止单篇论文主导搜索结果。硬 cap 每篇 3 chunks + per-document penalty。多样性提升 54%。 |
-| **双语查询扩展** | 基于词典的中英文术语映射，零延迟（LRU 缓存查找）。内置词典覆盖常见学术术语（方法名、研究概念等）。自动从 Zotero 标签中提取个性化术语。支持通过 `add_query_synonym` 工具添加自定义词对——词典随文库增长不断丰富。 |
+| **双语查询扩展** | 四层扩展：(1) 内置 300+ 中英学术术语词典（方法名、研究概念）；(2) 自动从 Zotero 标签提取个性化术语；(3) 用户通过 `add_query_synonym`/`import_query_dict` 自定义词对；(4) **OPUS-MT 神经机器翻译** CN→EN（懒加载，首次约 3-5s，后续约 400ms/查）。同时有索引时双语富化——中文论文标题和关键词自动翻译后写入 BM25 文本，实现跨语言精确匹配。 |
+| **词典管理** | 4 个 MCP 工具：`add_query_synonym`、`remove_query_synonym`、`list_query_synonyms`、`import_query_dict`。用户可以构建自己的领域术语映射，持久化跨会话保留。 |
 | **检索可观测性** | 每次搜索输出 JSONL 全链路追踪：查询、策略、候选数、重排序状态、top-20 结果及分数、延迟分解（关键词/语义/重排序/MMR/总计）。字节偏移索引支持快速回溯。 |
 | **嵌入质量诊断** | 6 阶段分析：论文内/间相似度、离群 chunk 检测、chunk 长度-相似度 Pearson 相关性、章节类型嵌入分离度、自动问题检测与修复建议。 |
 | **系统性评估** | 60 条黄金查询（直接命中/跨文档/无答案三类）。指标：Recall@5/10/20、MRR、NDCG@10。CLI 支持基线保存和 A/B 对比。 |
@@ -253,7 +261,10 @@ ZOTERO_API_KEY=your_api_key_here
 - **`inspect_index`** — chunk 统计、完整性标签、章节分布等
 - **`test_recall`** — 单篇论文检索质量测试
 - **`recent_retrievals`** / **`retrieval_trace`** / **`retrieval_stats`** — 检索观测
-- **`add_query_synonym`** — 添加双语查询扩展词对
+- **`add_query_synonym`** — 添加中英文同义词对
+- **`remove_query_synonym`** — 移除用户自定义同义词对
+- **`list_query_synonyms`** — 列出所有用户自定义同义词
+- **`import_query_dict`** — 批量导入 CN→[EN...] 映射（JSON 字符串）
 
 </details>
 
@@ -274,6 +285,7 @@ ZOTERO_API_KEY=your_api_key_here
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | 向量数据库路径 |
 | `ZRA_AUTO_SYNC` | `true` | 启动时自动增量同步 |
 | `ZRA_CLEAN_ENABLED` | `true` | 分块前去除期刊 boilerplate |
+| `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | OPUS-MT 翻译模型缓存目录 (~300MB) |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | 提升在线搜索速率 |
 | `OPENALEX_MAILTO` | — | OpenAlex 礼貌池 |
 | `UNPAYWALL_EMAIL` | — | Unpaywall OA PDF 查找 |

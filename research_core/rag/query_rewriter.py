@@ -1,17 +1,21 @@
 """Multi-layer query expansion for bilingual academic search.
 
-Three layers:
+Layers:
 1. Built-in methodology dictionary (~200 pairs, query_dict.json)
 2. Auto-extracted from user's Zotero tags/keywords (populated during sync_index)
 3. User-defined synonyms (add_query_synonym MCP tool)
+4. NMT query translation (OPUS-MT CN→EN for Chinese queries; lazy-loaded)
 
-Zero external dependencies. No LLM calls. In-memory LRU cache.
+Zero external LLM calls. In-memory LRU cache. The NMT model is loaded on
+first Chinese query (~3-5s cold start, ~300MB RAM after loading).
 
 Usage:
     from research_core.rag.query_rewriter import QueryRewriter
     rewriter = QueryRewriter()
     expanded = rewriter.expand("城市公共服务可达性")
-    # -> [("城市公共服务可达性", 1.0), ("urban public service accessibility", 0.4), ...]
+    # -> [("城市公共服务可达性", 1.0), ("urban public service accessibility", 0.4),
+    #      ("urban public service accessibility", 0.8), ...]
+    #    ^--- dict-based layer 1  +  ^--- NMT translation layer 4
 """
 
 from __future__ import annotations
@@ -19,7 +23,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from functools import lru_cache
+
+from loguru import logger
 
 # ── Load built-in dictionary ──────────────────────────────────────────
 
@@ -164,6 +171,66 @@ def _user_expand(query: str, lang: str) -> list[str]:
     return found
 
 
+# ── Layer 4: NMT query translation (CN→EN) ──────────────────────────────
+
+_NMT_LOCK = threading.Lock()
+_nmt_pipeline = None  # lazy-loaded: (tokenizer, model)
+
+
+def _get_nmt_model():
+    """Lazy-load OPUS-MT zh→en model. Returns (tokenizer, model).
+
+    Thread-safe: only one thread loads the model; others wait.
+    Model is cached at module level after first load.
+    """
+    global _nmt_pipeline
+    if _nmt_pipeline is not None:
+        return _nmt_pipeline
+
+    with _NMT_LOCK:
+        if _nmt_pipeline is not None:  # double-check after acquiring lock
+            return _nmt_pipeline
+
+        cache_dir = os.getenv("ZRA_NMT_CACHE_DIR",
+                              os.path.join(os.getcwd(), ".chroma_db", "hf_cache"))
+        os.environ.setdefault("HF_HOME", cache_dir)
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
+        try:
+            from transformers import MarianMTModel, MarianTokenizer
+
+            model_name = "Helsinki-NLP/opus-mt-zh-en"
+            tokenizer = MarianTokenizer.from_pretrained(model_name)
+            model = MarianMTModel.from_pretrained(model_name)
+            _nmt_pipeline = (tokenizer, model)
+            logger.info(f"NMT model loaded from {model_name}")
+        except Exception as e:
+            logger.warning(f"NMT model failed to load: {e}")
+            _nmt_pipeline = (None, None)  # prevent retry
+
+        return _nmt_pipeline
+
+
+def _nmt_translate(text: str, target_len: int = 128) -> str:
+    """Translate Chinese text to English using OPUS-MT.
+
+    Returns empty string on any failure (non-fatal — search proceeds
+    with the original query + other expansion layers).
+    """
+    tokenizer, model = _get_nmt_model()
+    if tokenizer is None or model is None:
+        return ""
+
+    try:
+        inputs = tokenizer(text, return_tensors="pt", padding=True,
+                           truncation=True, max_length=target_len)
+        outputs = model.generate(**inputs, max_new_tokens=target_len)
+        return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    except Exception as e:
+        logger.debug(f"NMT translation failed for '{text[:40]}': {e}")
+        return ""
+
+
 # ── Query decomposition ────────────────────────────────────────────────
 
 _CLAUSE_SPLIT_RE = re.compile(r"[和与及或;；,，、\s]+(?:以及|并且|或者|并且|还有)?\s*")
@@ -203,8 +270,9 @@ class QueryRewriter:
 
         Returns list of (query_text, weight) where:
         - weight 1.0 = original query
-        - weight 0.4 = dictionary expansion term
-        - weight 0.3 = tag/synonym expansion term
+        - weight 0.8 = NMT translation (Layer 4 — OPUS-MT CN→EN)
+        - weight 0.4 = dictionary expansion term (Layer 1)
+        - weight 0.3 = tag/synonym expansion term (Layer 2/3)
         - 0 < weight < 0.3 = decomposed sub-query
         """
         return _cached_expand(query, self._layer1_enabled,
@@ -237,6 +305,12 @@ def _cached_expand(query: str, l1: bool, l2: bool, l3: bool) -> list[tuple[str, 
     if l3:
         for term in _user_expand(query, lang):
             results.append((term, 0.3))
+
+    # Layer 4: NMT translation for Chinese queries (CN→EN)
+    if lang in ("zh", "mixed"):
+        translated = _nmt_translate(query)
+        if translated and translated.lower().strip() != query.lower().strip():
+            results.append((translated.strip(), 0.8))
 
     # Decompose compound queries into sub-queries
     sub_queries = _decompose_query(query, lang)

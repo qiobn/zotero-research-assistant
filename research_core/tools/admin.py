@@ -242,15 +242,23 @@ def _index_metadata(
         chunk_id = f"{item_key}:{c.chunk_idx}"
         meta = c.metadata
         if meta.get("table_refs") and tbl_id_map:
-            refs_str = meta.get("table_refs", "")
-            for ref_token in refs_str.split(","):
-                ref_token = ref_token.strip()
+            refs_raw = meta.get("table_refs", "")
+            ref_tokens: list[str] = (
+                refs_raw if isinstance(refs_raw, list)
+                else [t.strip() for t in refs_raw.split(",") if t.strip()]
+            )
+            for ref_token in ref_tokens:
+                ref_token = ref_token.strip() if isinstance(ref_token, str) else str(ref_token)
                 if ref_token in tbl_id_map:
                     table_refs.append((chunk_id, tbl_id_map[ref_token]))
         if meta.get("figure_refs") and fig_id_map:
-            refs_str = meta.get("figure_refs", "")
-            for ref_token in refs_str.split(","):
-                ref_token = ref_token.strip()
+            refs_raw = meta.get("figure_refs", "")
+            ref_tokens: list[str] = (
+                refs_raw if isinstance(refs_raw, list)
+                else [t.strip() for t in refs_raw.split(",") if t.strip()]
+            )
+            for ref_token in ref_tokens:
+                ref_token = ref_token.strip() if isinstance(ref_token, str) else str(ref_token)
                 if ref_token in fig_id_map:
                     fig_refs.append((chunk_id, fig_id_map[ref_token]))
 

@@ -2,11 +2,101 @@
 
 from __future__ import annotations
 
+import os
+import threading
+
 import chromadb
 from loguru import logger
 
 from research_core.parsers.chunker import Chunk
 from research_core.rag.store import get_collection, sync_lock
+
+# ── Index-time bilingual enrichment ─────────────────────────────────────
+
+_NMT_LOCK = threading.Lock()
+_nmt_pipeline = None  # lazy-loaded: (tokenizer, model)
+
+
+def _is_chinese_text(text: str, threshold: float = 0.3) -> bool:
+    """Detect if a text is primarily Chinese by CJK character ratio."""
+    if not text:
+        return False
+    cjk = sum(1 for c in text if "一" <= c <= "鿿")
+    return cjk / len(text) > threshold
+
+
+def _get_nmt_model():
+    """Lazy-load OPUS-MT zh→en model (shared with query_rewriter)."""
+    global _nmt_pipeline
+    if _nmt_pipeline is not None:
+        return _nmt_pipeline
+    with _NMT_LOCK:
+        if _nmt_pipeline is not None:
+            return _nmt_pipeline
+        cache_dir = os.getenv("ZRA_NMT_CACHE_DIR",
+                              os.path.join(os.getcwd(), ".chroma_db", "hf_cache"))
+        os.environ.setdefault("HF_HOME", cache_dir)
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+        try:
+            from transformers import MarianMTModel, MarianTokenizer
+            model_name = "Helsinki-NLP/opus-mt-zh-en"
+            tokenizer = MarianTokenizer.from_pretrained(model_name)
+            model = MarianMTModel.from_pretrained(model_name)
+            _nmt_pipeline = (tokenizer, model)
+        except Exception as e:
+            logger.warning(f"NMT model failed to load for index enrichment: {e}")
+            _nmt_pipeline = (None, None)
+        return _nmt_pipeline
+
+
+# Per-paper translation cache: {(title, keywords): {"title_en": str, "keywords_en": str}}
+_index_translation_cache: dict[tuple[str, str], dict[str, str]] = {}
+_index_translation_lock = threading.Lock()
+
+
+def _translate_paper_metadata(title: str, keywords: str) -> dict[str, str]:
+    """Translate title + keywords for a Chinese paper.
+
+    Returns {"title_en": ..., "keywords_en": ..., "translated": bool}.
+    Results are cached per (title, keywords) pair to avoid re-translation
+    across chunks of the same paper.
+    """
+    if not title or not _is_chinese_text(title):
+        return {"title_en": "", "keywords_en": "", "translated": False}
+
+    cache_key = (title, keywords)
+    with _index_translation_lock:
+        if cache_key in _index_translation_cache:
+            return _index_translation_cache[cache_key]
+
+    tokenizer, model = _get_nmt_model()
+    if tokenizer is None or model is None:
+        return {"title_en": "", "keywords_en": "", "translated": True}  # mark as attempted
+
+    title_en = ""
+    keywords_en = ""
+    try:
+        t_in = tokenizer(title, return_tensors="pt", padding=True, truncation=True, max_length=128)
+        t_out = model.generate(**t_in, max_new_tokens=128)
+        title_en = tokenizer.decode(t_out[0], skip_special_tokens=True)
+
+        if keywords and _is_chinese_text(keywords):
+            k_in = tokenizer(keywords, return_tensors="pt", padding=True, truncation=True, max_length=128)
+            k_out = model.generate(**k_in, max_new_tokens=128)
+            keywords_en = tokenizer.decode(k_out[0], skip_special_tokens=True)
+    except Exception as e:
+        logger.debug(f"Index translation failed for '{title[:40]}': {e}")
+
+    result = {"title_en": title_en, "keywords_en": keywords_en, "translated": True}
+    with _index_translation_lock:
+        # Keep cache bounded — 8192 entries is plenty for any library
+        if len(_index_translation_cache) > 8192:
+            _index_translation_cache.clear()
+        _index_translation_cache[cache_key] = result
+    return result
+
+
+# ── Chunk enrichment ────────────────────────────────────────────────────
 
 
 def _enrich_chunk_text(
@@ -21,7 +111,12 @@ def _enrich_chunk_text(
     are high-quality, expert-curated topic signals that dramatically improve
     retrieval precision when included in the chunk context.
 
-    Format: "[Keywords: ...] [Title: {paper} ({year})] [Section: {heading}]\\n{text}"
+    For Chinese papers, title and keywords are automatically translated to
+    English and appended as [Title_EN: ...] [Keywords_EN: ...], enabling
+    BM25 cross-lingual matching for English queries.
+
+    Format: "[Keywords: ...] [Title: {paper} ({year})] [Section: {heading}]
+             [Title_EN: ...] [Keywords_EN: ...]\\n{text}"
     """
     parts: list[str] = []
 
@@ -43,6 +138,14 @@ def _enrich_chunk_text(
     if section and section != "content":
         short_section = section[:120] if len(section) > 120 else section
         parts.append(f"[Section: {short_section}]")
+
+    # Bilingual enrichment: for Chinese papers, append English translations
+    # so BM25 can match English queries against Chinese content.
+    trans = _translate_paper_metadata(title, keywords)
+    if trans.get("title_en"):
+        parts.append(f"[Title_EN: {trans['title_en'][:150]}]")
+    if trans.get("keywords_en"):
+        parts.append(f"[Keywords_EN: {trans['keywords_en'][:200]}]")
 
     if not parts:
         return chunk.text

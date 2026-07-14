@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 
 from research_core.parsers.pdf import PageText
 
-CHUNKING_VERSION = "v3.1.0-contextual-chunks"
+CHUNKING_VERSION = "v3.2.0-bilingual-enrichment"
 
 # Sentence boundaries, CJK-aware. CJK terminators (。！？；…) are NOT followed by
 # a space in Chinese/Japanese text, so we split immediately after them; ASCII
@@ -985,12 +985,24 @@ def _merge_short_chunks(chunks: list[Chunk], min_size: int = _MIN_CHUNK_FLOOR) -
             prev = merged[-1]
             prev.text = prev.text.rstrip() + "\n\n" + short_text
             prev.page_end = max(prev.page_end, c.page_end)
-            # Merge metadata: combine refs
+            # Merge metadata: combine refs.  These values are always comma-
+            # separated strings (set by _tag_refs).  The downstream consumer
+            # (_index_metadata) calls .split(",") on them, so we must keep
+            # them as strings — never store a list here.
             for k in ("table_refs", "figure_refs", "cites_tables", "cites_figures"):
-                prev_set = set(prev.metadata.get(k, []))
-                cur_set = set(c.metadata.get(k, []))
-                if prev_set or cur_set:
-                    prev.metadata[k] = sorted(prev_set | cur_set)
+                prev_val = prev.metadata.get(k, "")
+                cur_val = c.metadata.get(k, "")
+                if isinstance(prev_val, str) and prev_val:
+                    prev_set = set(prev_val.split(","))
+                else:
+                    prev_set = set()
+                if isinstance(cur_val, str) and cur_val:
+                    cur_set = set(cur_val.split(","))
+                else:
+                    cur_set = set()
+                merged_set = prev_set | cur_set
+                if merged_set:
+                    prev.metadata[k] = ",".join(sorted(merged_set))
         elif i + 1 < len(chunks):
             # First chunk in document is short — merge forward
             next_c = chunks[i + 1]

@@ -1,6 +1,6 @@
 """Zotero Research Assistant — MCP server.
 
-36 MCP tools (32 always-on + 4 CNKI-conditional), one intent each,
+39 MCP tools (35 always-on + 4 CNKI-conditional), one intent each,
 designed to compose via `item_key`.
 
 Categories:
@@ -14,7 +14,9 @@ Categories:
   INSIGHT    reading_status, recommend_papers, generate_review_note, generate_reading_note,
              suggest_tags, find_arguments
   ADMIN      sync_index, check_health, inspect_index, test_recall,
-             recent_retrievals, retrieval_trace, retrieval_stats, add_query_synonym
+             recent_retrievals, retrieval_trace, retrieval_stats,
+             add_query_synonym, remove_query_synonym, list_query_synonyms,
+             import_query_dict
 
 Note: CNKI tools (search_cnki_literature, cnki_paper_detail, cnki_navigate_pages,
 cnki_add_to_zotero) are only registered when CNKI_ENABLED=true.
@@ -1933,6 +1935,118 @@ def add_query_synonym(cn_term: str, en_terms: list[str]) -> dict:
         "status": "ok",
         "synonym_count": len(syns),
         "synonyms": {k: v for k, v in syns.items()},
+    }
+
+
+@mcp.tool()
+def remove_query_synonym(term: str) -> dict:
+    """Remove a user-defined bilingual synonym pair.
+
+    The term is the Chinese key that was used when adding the synonym.
+    The change is persisted immediately and takes effect on the next search.
+
+    Args:
+        term: The Chinese term to remove (e.g. "社会网络分析")
+    """
+    import json
+    import os
+
+    from research_core.rag.query_rewriter import get_user_synonyms
+
+    persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
+    synonym_file = os.path.join(persist_dir, "query_dict_user.json")
+
+    syns = get_user_synonyms()
+    removed = syns.pop(term.strip(), None)
+
+    if removed is not None:
+        with open(synonym_file, "w", encoding="utf-8") as f:
+            json.dump({"entries": syns}, f, ensure_ascii=False, indent=2)
+
+        from research_core.rag.query_rewriter import _cached_expand
+        _cached_expand.cache_clear()
+
+    return {
+        "status": "ok" if removed is not None else "not_found",
+        "removed_term": term.strip(),
+        "was_removed": removed is not None,
+        "synonym_count": len(syns),
+    }
+
+
+@mcp.tool()
+def list_query_synonyms() -> dict:
+    """List all user-defined bilingual synonym pairs.
+
+    Returns the full dictionary of CN→[EN, ...] mappings currently loaded
+    in the query rewriter, including those added via add_query_synonym
+    and import_query_dict.
+    """
+    from research_core.rag.query_rewriter import get_user_synonyms
+
+    syns = get_user_synonyms()
+    return {
+        "status": "ok",
+        "synonym_count": len(syns),
+        "synonyms": syns,
+    }
+
+
+@mcp.tool()
+def import_query_dict(entries: str) -> dict:
+    """Bulk-import bilingual synonym pairs from a JSON string.
+
+    The JSON must be an object where each key is a Chinese term and each
+    value is a list of English equivalents:
+      {"空间可达性": ["spatial accessibility", "space accessibility"],
+       "职住关系": ["job-housing relationship", "jobs-housing balance"]}
+
+    Existing entries with the same Chinese term are overwritten. Other
+    existing entries are preserved. Clears the expansion cache so new
+    entries take effect immediately.
+
+    Args:
+        entries: JSON string of CN→[EN, ...] mappings
+    """
+    import json
+    import os
+
+    from research_core.rag.query_rewriter import (
+        add_user_synonym,
+        get_user_synonyms,
+    )
+
+    persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
+    synonym_file = os.path.join(persist_dir, "query_dict_user.json")
+
+    try:
+        data = json.loads(entries)
+    except json.JSONDecodeError as e:
+        return {"status": "error", "error": f"Invalid JSON: {e}"}
+
+    if not isinstance(data, dict):
+        return {"status": "error", "error": "JSON must be an object with CN→[EN] pairs"}
+
+    imported = 0
+    for cn_term, en_terms in data.items():
+        if isinstance(cn_term, str) and isinstance(en_terms, list):
+            add_user_synonym(cn_term, [str(e) for e in en_terms])
+            imported += 1
+
+    # Persist
+    syns = get_user_synonyms()
+    os.makedirs(persist_dir, exist_ok=True)
+    with open(synonym_file, "w", encoding="utf-8") as f:
+        json.dump({"entries": syns}, f, ensure_ascii=False, indent=2)
+
+    # Clear cache
+    from research_core.rag.query_rewriter import _cached_expand
+    _cached_expand.cache_clear()
+
+    return {
+        "status": "ok",
+        "imported": imported,
+        "total_synonyms": len(syns),
     }
 
 

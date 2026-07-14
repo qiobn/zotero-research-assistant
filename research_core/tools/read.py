@@ -184,14 +184,22 @@ def get_paper_content(
             }
             t_raw = r.metadata.get("table_refs", "")
             if t_raw:
-                refs = [x for x in t_raw.split(",") if x]
-                passage["cites_tables"] = refs
-                cited_tables.extend(refs)
+                if isinstance(t_raw, list):
+                    refs = [str(x).strip() for x in t_raw if str(x).strip()]
+                else:
+                    refs = [x.strip() for x in str(t_raw).split(",") if x.strip()]
+                if refs:
+                    passage["cites_tables"] = refs
+                    cited_tables.extend(refs)
             f_raw = r.metadata.get("figure_refs", "")
             if f_raw:
-                refs = [x for x in f_raw.split(",") if x]
-                passage["cites_figures"] = refs
-                cited_figures.extend(refs)
+                if isinstance(f_raw, list):
+                    refs = [str(x).strip() for x in f_raw if str(x).strip()]
+                else:
+                    refs = [x.strip() for x in str(f_raw).split(",") if x.strip()]
+                if refs:
+                    passage["cites_figures"] = refs
+                    cited_figures.extend(refs)
             result.passages.append(passage)
 
         # Resolve the concrete path: a passage that cites "Table 3" / "Figure 2"

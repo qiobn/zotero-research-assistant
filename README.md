@@ -87,12 +87,28 @@ Your Zotero Library
 │    ↓                                                  │
 │    MMR diversity (λ=0.4, max 3 chunks/paper)         │
 │    ↓                                                  │
-│    Bilingual query expansion (CN↔EN dictionary)      │
+│    Bilingual query expansion                          │
+│      ├─ Layer 1: Dict (CN↔EN, 300+ pairs)             │
+│      ├─ Layer 2: Zotero tags                           │
+│      ├─ Layer 3: User synonyms (add_query_synonym)     │
+│      └─ Layer 4: NMT CN→EN translation (OPUS-MT)      │
 │    ↓                                                  │
 │    Dual-format output: JSON items + Markdown          │
 │    context_block (blockquote evidence, ★★★ tiers)    │
 └──────────────────────────────────────────────────────┘
 ```
+
+### Search Tips
+
+- **English queries search English papers only** — if your query is in English, the
+  system assumes you're targeting English literature and skips CN→EN translation.
+- **Chinese queries search both languages** — automatic NMT translation expands Chinese
+  queries to English, searching the entire library. Results are grouped by language
+  (Chinese papers first, then English).
+- **`language` parameter** — use `language="cn"` to restrict results to Chinese papers,
+  or `language="en"` for English only (default: `"auto"`).
+- **Build your own dictionary** — use `import_query_dict` to bulk-load domain-specific
+  CN→EN term pairs, or add individual terms with `add_query_synonym`.
 
 ### Key Pipeline Features
 
@@ -109,7 +125,8 @@ Your Zotero Library
 | **Dual-Format Output** | Key tools return both `items` (JSON metadata) and `context_block` (LLM-optimized Markdown). Blockquote for evidence text, ★★★ star ratings for relevance tiers, sentence-boundary truncation. Markdown is the primary LLM consumption channel; JSON serves programmatic consumers. |
 | **Relevance Tiers** | Each result gets a percentile-based `relevance_tier` (high/medium/low) computed from Cross-Encoder scores. LLMs understand ★★★ more intuitively than raw floats like 0.0321. |
 | **MMR Diversity** | Maximal Marginal Relevance at the chunk level (λ=0.4, tuned via grid search). Prevents single-paper dominance in top results. Hard cap of 3 chunks per paper + per-document penalty. +54% paper diversity vs un-diversified. |
-| **Bilingual Query Expansion** | Dictionary-based CN↔EN term mapping with zero latency (LRU-cached lookup). Built-in dictionary covers common academic terms like methodology names and research concepts. Auto-extracts from your Zotero tags for personalization. Supports adding custom term pairs via `add_query_synonym` tool — your dictionary grows with your library. |
+| **Bilingual Query Expansion** | Four-layer expansion: (1) built-in 300+ CN↔EN academic term dictionary (methodology names, research concepts); (2) auto-extracted Zotero tags for personalization; (3) user-defined synonyms via `add_query_synonym`/`import_query_dict` tools; (4) **OPUS-MT neural translation** CN→EN (lazy-loaded, ~400ms/query). Index-time enrichment also translates Chinese paper titles and keywords so BM25 can cross-lingually match. |
+| **Dictionary Management** | 4 MCP tools: `add_query_synonym`, `remove_query_synonym`, `list_query_synonyms`, `import_query_dict`. Build your own CN→EN term mappings and persist them across sessions. |
 | **Retrieval Observability** | Every search emits a JSONL trace: query, strategy, candidate counts, reranker state, top-20 results with scores, latency breakdown (keyword/semantic/rerank/MMR/total). Byte-offset index for fast replay. 3 query tools: `recent_retrievals`, `retrieval_trace`, `retrieval_stats`. |
 | **Embedding Diagnostics** | 6-phase analysis: intra/inter-paper similarity, outlier chunk detection, chunk length-similarity Pearson correlation, section-type embedding separation, automated issue detection + fix suggestions. |
 | **Systematic Evaluation** | 60 golden queries across direct-hit, cross-document, and no-answer categories. Metrics: Recall@5/10/20, MRR, NDCG@10. CLI with `--save-baseline` / `--compare` for A/B testing. |
@@ -257,7 +274,10 @@ Verify: `codex mcp list`.
 - **`inspect_index`** — Chunk stats, completeness flags, section breakdown, per-paper details.
 - **`test_recall`** — Retrieval quality test for a specific paper.
 - **`recent_retrievals`** / **`retrieval_trace`** / **`retrieval_stats`** — Retrieval observability.
-- **`add_query_synonym`** — Add bilingual query expansion pairs.
+- **`add_query_synonym`** — Add a CN→EN bilingual synonym pair for query expansion.
+- **`remove_query_synonym`** — Remove a user-defined synonym pair.
+- **`list_query_synonyms`** — List all user-defined synonyms.
+- **`import_query_dict`** — Bulk-import CN→[EN...] mappings as JSON.
 
 </details>
 
@@ -278,6 +298,7 @@ Verify: `codex mcp list`.
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | Vector database path |
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on startup |
 | `ZRA_CLEAN_ENABLED` | `true` | Strip journal boilerplate before chunking |
+| `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | Cache directory for OPUS-MT translation model (~300MB) |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | Higher rate limits for online search |
 | `OPENALEX_MAILTO` | — | OpenAlex polite pool |
 | `UNPAYWALL_EMAIL` | — | Unpaywall OA PDF lookup |

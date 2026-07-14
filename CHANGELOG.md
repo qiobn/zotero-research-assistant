@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0-dev] - 2026-07-14
+
+### Added
+- **NMT query translation** — OPUS-MT CN→EN (Layer 4) for bilingual query expansion.
+  Lazy-loaded, ~400ms/query, weight 0.8 in RRF fusion. Only activates for Chinese
+  queries. Model cached at `.chroma_db/hf_cache/`.
+- **Index-time bilingual enrichment** — Chinese papers' title and keywords are
+  automatically translated to English during indexing and appended as
+  `[Title_EN: ...] [Keywords_EN: ...]` to BM25/Dense text. Enables BM25
+  cross-lingual matching. Index rebuild triggered by CHUNKING_VERSION bump.
+- **Dictionary management tools** — `remove_query_synonym()`, `list_query_synonyms()`,
+  `import_query_dict()` for managing user-defined CN→EN synonym pairs.
+- **Configurable NMT cache dir** — `ZRA_NMT_CACHE_DIR` env var (defaults to
+  `.chroma_db/hf_cache/`).
+
 ## [0.3.1] - 2026-07-14
 
 ### Added
