@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-15
+
+### Fixed
+- **Server startup timeout** — Cross-Encoder (~18s) and OPUS-MT (~13s) models are
+  now preloaded in background threads during server startup. Previously first
+  `search_papers` call triggered lazy loading, causing MCP client timeouts.
+
 ## [0.4.0] - 2026-07-14
 
 ### Added
