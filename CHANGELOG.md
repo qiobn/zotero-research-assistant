@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0-dev] - 2026-07-14
+## [0.4.0] - 2026-07-14
 
 ### Added
 - **NMT query translation** — OPUS-MT CN→EN (Layer 4) for bilingual query expansion.
