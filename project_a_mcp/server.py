@@ -174,6 +174,29 @@ def _startup_diagnostics() -> None:
     except Exception as e:
         logger.warning(f"⚠ Cannot check vector index: {e}")
 
+    # Preload Cross-Encoder reranker so the first search isn't penalized
+    # by ~18s model loading latency.
+    try:
+        from research_core.rag.reranker import get_reranker
+        reranker = get_reranker()
+        if reranker is not None:
+            reranker.load()
+            logger.info("✓ Reranker preloaded")
+    except Exception as e:
+        logger.debug(f"Reranker preload skipped: {e}")
+
+    # Preload OPUS-MT NMT model for bilingual query translation (background
+    # thread — ~3-5s load, shouldn't block startup).
+    def _preload_nmt():
+        try:
+            from research_core.rag.query_rewriter import _nmt_translate
+            _nmt_translate("测试", target_len=8)
+            logger.info("✓ NMT model preloaded")
+        except Exception as e:
+            logger.debug(f"NMT preload skipped: {e}")
+
+    threading.Thread(target=_preload_nmt, daemon=True).start()
+
     # Log rotation: cleanup entries older than 90 days
     try:
         from research_core.rag.logger import RetrievalLogger

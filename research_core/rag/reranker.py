@@ -24,13 +24,21 @@ class CrossEncoderReranker:
         self._model_name = model_name or os.getenv("RERANKER_MODEL", _DEFAULT_MODEL)
         self._model = None
 
-    def _load(self):
+    def load(self):
+        """Force-load the cross-encoder model. Idempotent — safe to call
+        during server startup to avoid ~18s lazy load on the first search.
+        Thread-safe (double-checked locking)."""
         if self._model is None:
-            from sentence_transformers import CrossEncoder
+            with _init_lock:
+                if self._model is None:
+                    from sentence_transformers import CrossEncoder
 
-            logger.info(f"Loading reranker model: {self._model_name}")
-            self._model = CrossEncoder(self._model_name)
-            logger.info("Reranker model loaded")
+                    logger.info(f"Loading reranker model: {self._model_name}")
+                    self._model = CrossEncoder(self._model_name)
+                    logger.info("Reranker model loaded")
+
+    def _load(self):
+        self.load()
 
     def rerank(
         self,
