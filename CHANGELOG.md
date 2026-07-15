@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-15
+
+### Fixed
+- **gitignore** — `.pypirc*` now covers all variants (`.pypirc-tmp`, etc.) to
+  prevent accidental inclusion of credentials in source distributions.
+
 ## [0.4.1] - 2026-07-15
 
 ### Fixed
