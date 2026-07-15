@@ -78,8 +78,16 @@ docs/          — Setup guides (Cherry Studio CN/EN)
 - Format: `ruff format .`
 - Evaluation: `python scripts/run_evaluation.py`
 
-### Environment
+### Security: Credential Files
 
+- **NEVER write API keys, tokens, or credentials to any file inside the project
+  directory unless it is already in `.gitignore`.** Python build backends
+  (hatchling, setuptools) may include non-gitignored files in sdists, leaking
+  secrets to PyPI.
+- When you need a temp credential file (e.g., for twine uploads), write it to
+  `/tmp/` (outside the project), upload immediately, then delete it.
+- After creating any new credential file pattern, verify `.gitignore` covers
+  it — use a wildcard like `.pypirc*` rather than exact filenames.
 - `.env` is gitignored; `.env.example` is committed (template only, no real secrets)
 - All configurable values have env var overrides
 - Defaults are zero-config: users should get basic functionality without any `.env` edits
