@@ -283,6 +283,9 @@ ZOTERO_API_KEY=your_api_key_here
 | `HF_ENDPOINT` | — | HuggingFace 镜像（国内用 `https://hf-mirror.com`） |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 重排序模型（`none` 禁用） |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | 向量数据库路径 |
+| `ZRA_CHROMA_MODE` | `server` | ChromaDB 模式：`server`（嵌入式，默认）或 `persistent` |
+| `ZRA_CHROMA_HOST` | `127.0.0.1` | ChromaDB 服务器地址 |
+| `ZRA_CHROMA_PORT` | `18000` | ChromaDB 服务器端口 |
 | `ZRA_AUTO_SYNC` | `true` | 启动时自动增量同步 |
 | `ZRA_CLEAN_ENABLED` | `true` | 分块前去除期刊 boilerplate |
 | `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | OPUS-MT 翻译模型缓存目录 (~300MB) |

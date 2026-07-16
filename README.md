@@ -296,6 +296,9 @@ Verify: `codex mcp list`.
 | `HF_ENDPOINT` | — | HuggingFace mirror (e.g. `https://hf-mirror.com`) |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Cross-encoder (`none` to disable) |
 | `CHROMA_PERSIST_DIR` | `.chroma_db` | Vector database path |
+| `ZRA_CHROMA_MODE` | `server` | ChromaDB access mode: `server` (embedded, default) or `persistent` (direct file) |
+| `ZRA_CHROMA_HOST` | `127.0.0.1` | ChromaDB server host (server mode) |
+| `ZRA_CHROMA_PORT` | `18000` | ChromaDB server port (server mode) |
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on startup |
 | `ZRA_CLEAN_ENABLED` | `true` | Strip journal boilerplate before chunking |
 | `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | Cache directory for OPUS-MT translation model (~300MB) |

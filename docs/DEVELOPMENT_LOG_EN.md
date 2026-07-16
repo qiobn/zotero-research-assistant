@@ -480,6 +480,92 @@ Refactored from agent scaffold to pure MCP server. 32 single-intent tools, each 
 
 ---
 
+## v0.4.3 — Windows HNSW Cross-Process Bug: Diagnosis + Client-Server Fix (2026-07-16)
+
+### The Symptom
+
+Every `search_papers` call from Cherry Studio timed out. The ChromaDB log showed:
+```
+Error executing plan: Error sending backfill request to compactor:
+Error constructing hnsw segment reader: Error loading hnsw index
+```
+The collection (19,790 chunks across 248 papers) was completely unqueryable.
+
+### The Investigation
+
+**Hypothesis 1 — Compaction corruption:** `bilingual_enrich.py` had run 633 small
+`collection.update()` calls, generating 1266 WAL entries. Maybe ChromaDB's async
+compaction left the HNSW segment in a partial state when the process exited.
+
+→ **WRONG.** Even with a completely fresh `add()` of 2000 items, the HNSW failed
+on the next process read. The compaction state looked healthy (queue empty, max_seq_id
+consistent).
+
+**Minimal reproduction:**
+```python
+# Write 2000 items in process A
+col.add(ids=ids, embeddings=np.random.randn(2000, 128))
+col.count()  # → 2000 OK
+
+# Read in process B
+col.count()  # → Error loading hnsw index
+```
+2000 random vectors, zero business code, zero enrichment. 100% reproducible.
+
+**Threshold discovery — systematic parameter sweep:**
+
+| n | dim | data size | Cross-process |
+|---|-----|-----------|---------------|
+| 500 | 128 | 0.25MB | OK |
+| 750 | 1024 | 2.9MB | OK |
+| 1000 | 128 | 0.5MB | **FAILED** |
+| 1000 | 1024 | 3.9MB | **FAILED** |
+| 2000 | 128 | 1.0MB | **FAILED** |
+
+The failure threshold is exactly **1000 items**, independent of dimension or data size.
+Below 1000, ChromaDB keeps all data in the WAL (embeddings_queue) without building an
+HNSW index. At >= 1000, it triggers HNSW construction — and the resulting segment files
+(`data_level0.bin`, `link_lists.bin`) cannot be loaded by a different process.
+
+**Root cause:** ChromaDB's `hnswlib` (C++ library) produces HNSW segment files on
+Windows that are **process-local** — they can only be loaded by the process that
+created them. This is a known issue (chroma-core/chroma#3058). The same code works
+on Linux without issues.
+
+### The Fix: Client-Server Architecture
+
+ChromaDB's recommended solution for cross-process access is client-server mode
+(`chroma run` + `HttpClient`). A single long-running server process owns the
+database files; all clients connect via HTTP. No cross-process file access → no
+HNSW loader crash.
+
+**Implementation:**
+
+1. **`research_core/rag/chroma_server.py`** (NEW) — Manages a `chroma run` subprocess:
+   start on MCP server startup, stop on shutdown, health-check via heartbeat endpoint.
+   Reuses existing server if already listening.
+
+2. **`research_core/rag/store.py`** — `get_collection()` now creates `HttpClient` by
+   default (connects to `127.0.0.1:18000`). Falls back to `PersistentClient` if server
+   is unreachable. Controlled by `ZRA_CHROMA_MODE` env var.
+
+3. **`project_a_mcp/server.py`** — Lifespan starts/stops the ChromaDB server
+   subprocess. No user-visible change — everything is automatic.
+
+**Verification** (after full sync via HttpClient):
+```
+Same-process:   19,790 chunks, query 0.1s, 10 hits OK
+Cross-process:  19,790 chunks, query OK, 5 hits OK  ← previously crashed here
+```
+
+**Safety nets retained:**
+- `_startup_diagnostics()` HNSW health check + auto-repair (for persistent mode users)
+- NMT preload made synchronous (no more race condition on first search)
+
+**Zero new dependencies.** All imports are stdlib or already in pyproject.toml.
+
+---
+
 ## Conventions
 
 - Each significant update records: date, version, related commits, category

@@ -139,13 +139,29 @@ def _background_sync():
 
 @asynccontextmanager
 async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
-    """Server lifecycle: launch background index sync on startup + diagnostics."""
+    """Server lifecycle: start ChromaDB server, background sync, diagnostics."""
+    # ── Start ChromaDB embedded server (solves Windows HNSW cross-process bug) ──
+    persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
+    if os.getenv("ZRA_CHROMA_MODE", "server") == "server":
+        try:
+            from research_core.rag.chroma_server import start_server
+            start_server(persist_dir)
+        except Exception as e:
+            logger.warning(f"ChromaDB embedded server failed to start: {e}")
+
     if os.getenv("ZRA_AUTO_SYNC", "true").lower() != "false":
         t = threading.Thread(target=_background_sync, daemon=True)
         t.start()
     # Quick startup diagnostics (non-blocking, just log)
     threading.Thread(target=_startup_diagnostics, daemon=True).start()
     yield
+    # ── Shutdown: stop ChromaDB server ──
+    if os.getenv("ZRA_CHROMA_MODE", "server") == "server":
+        try:
+            from research_core.rag.chroma_server import stop_server
+            stop_server()
+        except Exception:
+            pass
 
 
 def _startup_diagnostics() -> None:
@@ -172,7 +188,27 @@ def _startup_diagnostics() -> None:
         else:
             logger.info(f"✓ Vector index ready ({count} chunks)")
     except Exception as e:
-        logger.warning(f"⚠ Cannot check vector index: {e}")
+        err_msg = str(e).lower()
+        # Detect HNSW index corruption (ChromaDB 1.5.x compaction bug).
+        # When the HNSW segment files are corrupted, every ChromaDB query
+        # fails with "Error loading hnsw index" or "Error sending backfill
+        # request to compactor". Auto-repair: drop the broken collection and
+        # trigger a full reindex from source PDFs.
+        if "hnsw" in err_msg or "backfill" in err_msg or "compactor" in err_msg:
+            logger.error(
+                f"✗ ChromaDB HNSW index corrupted ({e})\n"
+                "  Auto-repair: dropping broken collection and triggering re-sync..."
+            )
+            try:
+                from research_core.rag.store import reset_collection
+                reset_collection()
+                t = threading.Thread(target=_background_sync, daemon=True)
+                t.start()
+                logger.info("  Auto-repair sync started — search will be available shortly")
+            except Exception as repair_err:
+                logger.error(f"  Auto-repair failed: {repair_err}")
+        else:
+            logger.warning(f"⚠ Cannot check vector index: {e}")
 
     # Preload Cross-Encoder reranker so the first search isn't penalized
     # by ~18s model loading latency.
@@ -185,17 +221,16 @@ def _startup_diagnostics() -> None:
     except Exception as e:
         logger.debug(f"Reranker preload skipped: {e}")
 
-    # Preload OPUS-MT NMT model for bilingual query translation (background
-    # thread — ~3-5s load, shouldn't block startup).
-    def _preload_nmt():
-        try:
-            from research_core.rag.query_rewriter import _nmt_translate
-            _nmt_translate("测试", target_len=8)
-            logger.info("✓ NMT model preloaded")
-        except Exception as e:
-            logger.debug(f"NMT preload skipped: {e}")
-
-    threading.Thread(target=_preload_nmt, daemon=True).start()
+    # Preload OPUS-MT NMT model for bilingual query translation.
+    # Run synchronously within the diagnostics thread (not in a nested
+    # daemon thread) so the model is guaranteed loaded before the first
+    # search arrives. ~20s on first load, cached afterward.
+    try:
+        from research_core.rag.query_rewriter import _nmt_translate
+        _nmt_translate("测试", target_len=8)
+        logger.info("✓ NMT model preloaded")
+    except Exception as e:
+        logger.debug(f"NMT preload skipped: {e}")
 
     # Log rotation: cleanup entries older than 90 days
     try:

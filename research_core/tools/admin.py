@@ -548,6 +548,22 @@ def sync_index(
         logger.warning(f"BM25 index rebuild failed (non-fatal): {e}")
         report.bm25_indexed = 0
 
+    # ── Ensure ChromaDB HNSW segment is fully persisted ──
+    # ChromaDB 1.5.x uses async Rust compaction; the HNSW segment may be
+    # incomplete when the Python process exits. Force a clean rebuild to
+    # guarantee future processes can query the collection.
+    try:
+        from research_core.rag.store import ensure_collection_healthy
+        healthy = ensure_collection_healthy(persist_dir)
+        if not healthy:
+            logger.error(
+                "HNSW rebuild failed — "
+                "collection may be unqueryable after server restart. "
+                "Run sync_index again or check disk space."
+            )
+    except Exception as e:
+        logger.warning(f"HNSW health check failed (non-fatal): {e}")
+
     if chunk_lengths:
         report.quality_summary = {
             "chunking_version": CHUNKING_VERSION,

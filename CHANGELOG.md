@@ -5,7 +5,32 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.3] - 2026-07-16
+
+### Fixed
+- **Windows HNSW cross-process crash** — "Error loading hnsw index" timeout on
+  every search. Root cause: ChromaDB's hnswlib persistence (C++ layer) produces
+  HNSW segment files that cannot be loaded by a different process on Windows.
+  The bug triggers at >= 1000 vectors — below that threshold, data stays in WAL
+  and no HNSW is built. Confirmed via minimal reproduction (2000 × 128 random
+  vectors, zero business code). ChromaDB team recommends client-server mode as
+  the fix (chroma-core/chroma#3058).
+
+### Added
+- **Client-server ChromaDB mode** — Default storage mode is now `HttpClient`
+  with an embedded `chroma run` subprocess managed automatically by the MCP
+  server lifecycle. The server owns all file access, eliminating cross-process
+  HNSW issues. Opt-out via `ZRA_CHROMA_MODE=persistent`.
+- **`research_core/rag/chroma_server.py`** — ChromaDB server subprocess
+  lifecycle management (start/stop/health-check).
+- **HNSW auto-repair safety net** — `_startup_diagnostics()` detects HNSW
+  corruption and auto-recovers by resetting the collection + background sync.
+- **New env vars**: `ZRA_CHROMA_MODE`, `ZRA_CHROMA_HOST`, `ZRA_CHROMA_PORT`.
+
+### Changed
+- **NMT preload synchronous** — OPUS-MT model loading now runs synchronously
+  within the diagnostics thread (was nested daemon thread), ensuring it
+  completes before the first search arrives.
 
 ## [0.4.2] - 2026-07-15
 
