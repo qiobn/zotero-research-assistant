@@ -46,6 +46,7 @@ def search_papers(
     expand_context: bool = False,
     expand_neighbors: bool = False,
     diversity_weight: float = 0.4,
+    language: str = "auto",
 ) -> list[PaperHit]:
     """Hybrid search: keyword (Zotero API) + semantic (vector store) merged via RRF.
 
@@ -112,7 +113,7 @@ def search_papers(
     if has_query:
         try:
             from research_core.rag.query_rewriter import get_rewriter
-            expanded_queries = get_rewriter().expand(query)
+            expanded_queries = get_rewriter().expand(query, language=language)
         except Exception:
             pass  # query expansion is best-effort; never block search
 

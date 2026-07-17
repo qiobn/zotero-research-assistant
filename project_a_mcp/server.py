@@ -574,56 +574,61 @@ def search_papers(
     tags_exclude: list[str] | None = None,
     collection_key: str = "",
     limit: int = 10,
+    language: str = "auto",
     expand_context: bool = False,
     expand_neighbors: bool = False,
     diversity_weight: float = 0.4,
 ) -> dict:
-    """Find papers in the user's Zotero library by topic, keywords, or filters.
+    """Find papers in your Zotero library by topic, keywords, or filters.
 
-    This is the PRIMARY discovery tool. Use it whenever the user wants to find papers
-    they haven't yet picked out. Combines keyword matching against Zotero's library
-    AND semantic similarity against the indexed PDF chunks, merged with Reciprocal
-    Rank Fusion. The user does not need to specify which mechanism.
+    PRIMARY discovery tool. Combines keyword (Zotero API) + dense semantic
+    (bge-m3 vectors) + sparse keyword (BM25) search, merged with Reciprocal
+    Rank Fusion and Cross-Encoder reranking for precision.
+
+    *** CRITICAL — BILINGUAL SEARCH ***
+    This tool handles Chinese↔English translation AUTOMATICALLY. Pass the
+    user's query in their ORIGINAL language — do NOT translate it yourself.
+    When the user types Chinese, the tool expands with: built-in CN↔EN
+    dictionary (~300 pairs), user's Zotero tags, custom synonyms, and OPUS-MT
+    neural translation. Each expanded term runs independent semantic search
+    and results are merged. Translating before calling this tool DISABLES
+    bilingual expansion and misses Chinese papers.
+
+    *** LANGUAGE PARAMETER ***
+    Use language=\"zh\" when: the user wrote in Chinese but you extracted
+    English keywords. This forces Chinese expansion regardless of query text.
+    Use language=\"en\" when: the user explicitly wants English-only search.
+    Default \"auto\" detects language from the query text.
 
     Two usage modes:
-      1. With query: hybrid search (keyword + semantic + reranking).
-      2. Without query (query=""): pure filter mode — returns all papers matching
-         year/tags/collection filters, sorted by date added. Use this when the user
-         asks to "list papers from 2024" or "show all papers tagged X" without
-         specifying a topic.
+      1. With query: hybrid search (keyword + semantic + BM25 + reranking).
+      2. Without query (query=\"\"): pure filter mode — returns all papers
+         matching year/tags/collection, sorted by date added.
 
     When NOT to use:
-    - User already gave you a paper key → use get_paper or get_paper_content instead.
-    - User wants more papers like a specific one they named → use find_similar_papers.
-    - User wants to browse collections/tags/recent additions → use browse_library.
-    - User is writing a draft and wants citations for it → use suggest_citations.
-    - User wants to discover papers NOT in their library → use search_online_literature (default).
-      Use search_cnki_literature only if they explicitly ask for 中文文献/知网/CNKI/核心期刊.
+    - User gave you a paper key → use get_paper / get_paper_content.
+    - User wants more like a specific paper → use find_similar_papers.
+    - User is browsing collections/tags/recent → use browse_library.
+    - User wants citations for a draft → use suggest_citations.
+    - User wants papers NOT in their library → use search_online_literature.
 
     Args:
-        query: Natural-language topic, concept, or keyword string. Can be empty ("")
-               to list all papers matching the filters without topic search.
-        year_from/year_to: Publication year window (inclusive). Either or both optional.
-        tags_include: Only return papers carrying ALL these tags.
-        tags_exclude: Drop any paper carrying ANY of these tags.
-        collection_key: Restrict search to a single Zotero collection.
-        limit: Max results to return (default 10).
-        expand_context: Attach full section text to each hit (2000 chars vs 300).
-        expand_neighbors: Attach ±1 neighbor chunks to each hit (lighter alternative).
-        diversity_weight: MMR diversity (0.4=recommended default, 0=disabled).
-                          Prevents single-paper dominance in top results.
-                          Set to 0 when doing targeted single-paper retrieval.
+        query: Natural-language topic or keywords. Pass the user's ORIGINAL
+               language text — the tool handles translation internally.
+        year_from/year_to: Publication year window (inclusive).
+        tags_include: Only papers carrying ALL these tags.
+        tags_exclude: Drop papers carrying ANY of these tags.
+        collection_key: Restrict to a single Zotero collection.
+        limit: Max results (default 10).
+        language: \"auto\" (detect from query) | \"zh\" (force CN→EN expansion)
+                  | \"en\" (English-only, skip CN expansion).
+        expand_context: Attach full section text (2000 chars vs 300).
+        expand_neighbors: Attach ±1 neighbor chunks (lighter alternative).
+        diversity_weight: MMR diversity (0.4=default, 0=disabled).
 
     Returns:
-        A dict with:
-        - count: number of results
-        - query: the original query string
-        - items: list of paper metadata (key, title, authors, year, DOI, tags, score,
-                 source, relevance_tier, section info)
-        - context_block: pre-rendered Markdown optimized for LLM reading — use this
-          as your primary source when presenting results to the user. Each paper is
-          formatted with title heading, evidence blockquote (>), star ratings (★★★),
-          and source attribution. Read context_block first, use items for lookups.
+        dict with count, query, items (paper list), and context_block
+        (pre-rendered Markdown for LLM reading — use this as primary output).
     """
     hits = _search_papers(
         query=query,
@@ -638,6 +643,7 @@ def search_papers(
         expand_context=expand_context,
         expand_neighbors=expand_neighbors,
         diversity_weight=diversity_weight,
+        language=language,
     )
 
     from research_core.rag.rendering import get_renderer

@@ -280,8 +280,13 @@ class QueryRewriter:
         self._layer2_enabled = True
         self._layer3_enabled = True
 
-    def expand(self, query: str) -> list[tuple[str, float]]:
+    def expand(self, query: str, language: str = "auto") -> list[tuple[str, float]]:
         """Expand a query into weighted search terms.
+
+        Args:
+            query: The user's search query.
+            language: \"auto\" to detect from text, \"zh\" to force Chinese
+                      expansion, \"en\" to force English-only.
 
         Returns list of (query_text, weight) where:
         - weight 1.0 = original query
@@ -291,7 +296,8 @@ class QueryRewriter:
         - 0 < weight < 0.3 = decomposed sub-query
         """
         return _cached_expand(query, self._layer1_enabled,
-                              self._layer2_enabled, self._layer3_enabled)
+                              self._layer2_enabled, self._layer3_enabled,
+                              language)
 
     def disable_layer(self, layer: int) -> None:
         """Disable a specific expansion layer (1/2/3)."""
@@ -304,9 +310,18 @@ class QueryRewriter:
 
 
 @lru_cache(maxsize=512)
-def _cached_expand(query: str, l1: bool, l2: bool, l3: bool) -> list[tuple[str, float]]:
-    """Cached expansion — same query + same layer config → same result."""
-    lang = _detect_query_language(query)
+def _cached_expand(query: str, l1: bool, l2: bool, l3: bool,
+                   language: str = "auto") -> list[tuple[str, float]]:
+    """Cached expansion — same query + same layer config → same result.
+
+    Args:
+        language: \"auto\" to detect, \"zh\"/\"en\" to override detection.
+    """
+    if language == "auto":
+        lang = _detect_query_language(query)
+    else:
+        lang = language
+
     results: list[tuple[str, float]] = [(query, 1.0)]
 
     if l1:
