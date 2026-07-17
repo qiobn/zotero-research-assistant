@@ -160,7 +160,6 @@ def _user_expand(query: str, lang: str) -> list[str]:
     - en → no expansion
     """
     found: list[str] = []
-    query_lower = query.lower()
 
     if lang in ("zh", "mixed"):
         for cn_term, en_terms in _user_synonyms.items():
