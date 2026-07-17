@@ -139,7 +139,7 @@ def _background_sync():
 
 @asynccontextmanager
 async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
-    """Server lifecycle: start ChromaDB server, background sync, diagnostics."""
+    """Server lifecycle: start ChromaDB server, preload models, background sync."""
     # ── Start ChromaDB embedded server (solves Windows HNSW cross-process bug) ──
     persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
     if os.getenv("ZRA_CHROMA_MODE", "server") == "server":
@@ -148,6 +148,14 @@ async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
             start_server(persist_dir)
         except Exception as e:
             logger.warning(f"ChromaDB embedded server failed to start: {e}")
+
+    # ── Preload heavy models BEFORE accepting requests ──
+    # The first search triggers lazy loading of ONNX (~10s), Cross-Encoder
+    # (~18s), and NMT (~23s). If the first request arrives before preloading
+    # completes, Cherry Studio's MCP client times out (default ~30s).
+    # Preloading synchronously in the lifespan ensures models are ready
+    # before the server yields to accept connections.
+    _preload_models()
 
     if os.getenv("ZRA_AUTO_SYNC", "true").lower() != "false":
         t = threading.Thread(target=_background_sync, daemon=True)
@@ -164,8 +172,54 @@ async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
             pass
 
 
+def _preload_models() -> None:
+    """Preload Cross-Encoder and NMT models before server accepts connections.
+
+    These models are lazy-loaded on first use. Without preloading, the first
+    search after server start can take 40-50s (ONNX 10s + CE 18s + NMT 23s),
+    exceeding typical MCP client timeouts.
+
+    Each model load is guarded by a 30s timeout so one slow model doesn't
+    block startup indefinitely.
+    """
+    # Cross-Encoder reranker (~18s first load, ~80MB)
+    try:
+        from research_core.rag.reranker import get_reranker
+        reranker = get_reranker()
+        if reranker is not None:
+            t = threading.Thread(target=reranker.load, daemon=True)
+            t.start()
+            t.join(timeout=30)
+            if t.is_alive():
+                logger.warning("Cross-Encoder preload taking >30s — continuing startup")
+            else:
+                logger.info("✓ Cross-Encoder preloaded")
+    except Exception as e:
+        logger.debug(f"Cross-Encoder preload skipped: {e}")
+
+    # OPUS-MT NMT model (~23s first load, ~300MB)
+    try:
+        from research_core.rag.query_rewriter import _nmt_translate
+        def _load_nmt():
+            _nmt_translate("test", target_len=8)
+        t = threading.Thread(target=_load_nmt, daemon=True)
+        t.start()
+        t.join(timeout=30)
+        if t.is_alive():
+            logger.warning("NMT preload taking >30s — continuing startup")
+        else:
+            logger.info("✓ NMT model preloaded")
+    except Exception as e:
+        logger.debug(f"NMT preload skipped: {e}")
+
+
 def _startup_diagnostics() -> None:
-    """Log startup health status for troubleshooting."""
+    """Log startup health status for troubleshooting.
+
+    Heavy model preloading is handled by _preload_models() in the lifespan
+    before the server accepts connections. This function only runs lightweight
+    health checks (Zotero API, index count) that don't block startup.
+    """
     try:
         import httpx
         resp = httpx.get("http://127.0.0.1:23119/api/", timeout=3)
@@ -189,11 +243,6 @@ def _startup_diagnostics() -> None:
             logger.info(f"✓ Vector index ready ({count} chunks)")
     except Exception as e:
         err_msg = str(e).lower()
-        # Detect HNSW index corruption (ChromaDB 1.5.x compaction bug).
-        # When the HNSW segment files are corrupted, every ChromaDB query
-        # fails with "Error loading hnsw index" or "Error sending backfill
-        # request to compactor". Auto-repair: drop the broken collection and
-        # trigger a full reindex from source PDFs.
         if "hnsw" in err_msg or "backfill" in err_msg or "compactor" in err_msg:
             logger.error(
                 f"✗ ChromaDB HNSW index corrupted ({e})\n"
@@ -209,28 +258,6 @@ def _startup_diagnostics() -> None:
                 logger.error(f"  Auto-repair failed: {repair_err}")
         else:
             logger.warning(f"⚠ Cannot check vector index: {e}")
-
-    # Preload Cross-Encoder reranker so the first search isn't penalized
-    # by ~18s model loading latency.
-    try:
-        from research_core.rag.reranker import get_reranker
-        reranker = get_reranker()
-        if reranker is not None:
-            reranker.load()
-            logger.info("✓ Reranker preloaded")
-    except Exception as e:
-        logger.debug(f"Reranker preload skipped: {e}")
-
-    # Preload OPUS-MT NMT model for bilingual query translation.
-    # Run synchronously within the diagnostics thread (not in a nested
-    # daemon thread) so the model is guaranteed loaded before the first
-    # search arrives. ~20s on first load, cached afterward.
-    try:
-        from research_core.rag.query_rewriter import _nmt_translate
-        _nmt_translate("测试", target_len=8)
-        logger.info("✓ NMT model preloaded")
-    except Exception as e:
-        logger.debug(f"NMT preload skipped: {e}")
 
     # Log rotation: cleanup entries older than 90 days
     try:

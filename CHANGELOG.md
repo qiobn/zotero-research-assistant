@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-07-17
+
+### Fixed
+- **First-search timeout** — Cross-Encoder (~18s) and NMT (~23s) models are now
+  preloaded synchronously in the server lifespan, *before* the MCP server accepts
+  connections. Previously preloading ran in a background thread that raced with
+  the first search request; if the first request arrived before preloading
+  completed, model lazy-loading pushed total latency past typical MCP client
+  timeouts (30s). Now the server doesn't yield until models are ready (with 30s
+  per-model timeout to prevent hanging).
+
 ## [0.4.3] - 2026-07-16
 
 ### Fixed
