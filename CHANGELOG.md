@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-07-17
+
+### Fixed
+- **NMT model loading timeout** — HuggingFace download can hang for 36-100s
+  when the endpoint is unreachable (common in China). Added a 10s socket timeout
+  to `_get_nmt_model()` so it fails fast instead of blocking the search pipeline.
+  NMT translation is Layer 4 of query expansion — if it fails, search proceeds
+  with Layers 1-3 (dictionary, tags, user synonyms) which are sufficient for
+  good results.
+- **HF mirror support** — `.env.example` already documented `HF_ENDPOINT`.
+  Added `.env` template guidance in README for Chinese users.
+
 ## [0.4.4] - 2026-07-17
 
 ### Fixed

@@ -1,6 +1,6 @@
 [project]
 name = "zra-mcp"
-version = "0.4.4"
+version = "0.4.5"
 description = "AI-powered Zotero research assistant — a standalone MCP server with 39 tools for literature search, bilingual retrieval (NMT CN→EN), reading analysis, citation management, and review writing."
 readme = "README.md"
 license = {text = "MIT"}

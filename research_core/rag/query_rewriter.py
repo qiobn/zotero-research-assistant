@@ -202,7 +202,14 @@ def _get_nmt_model():
         os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
         try:
+            import socket
             from transformers import MarianMTModel, MarianTokenizer
+
+            # Set a socket timeout so unreachable HF endpoints don't
+            # block search for 30+ seconds. Cached models load from
+            # disk in ~1s; downloads need < 10s on a good connection.
+            default_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(10)
 
             model_name = "Helsinki-NLP/opus-mt-zh-en"
             tokenizer = MarianTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
@@ -212,6 +219,9 @@ def _get_nmt_model():
         except Exception as e:
             logger.warning(f"NMT model failed to load: {e}")
             _nmt_pipeline = (None, None)  # prevent retry
+        finally:
+            if default_timeout is not None:
+                socket.setdefaulttimeout(default_timeout)
 
         return _nmt_pipeline
 
