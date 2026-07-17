@@ -67,24 +67,18 @@ def _detect_query_language(query: str) -> str:
 def _dict_expand(query: str, lang: str) -> list[str]:
     """Scan the bilingual dictionary for terms that appear in the query,
     returning their translations.
+
+    Rule: always supplement with English (academic lingua franca), but
+    English queries do NOT expand to other languages.
+    - zh/mixed → CN→EN: find Chinese terms, add English translations
+    - en → no expansion (English is already the target language)
     """
     found: list[str] = []
 
     if lang in ("zh", "mixed"):
-        # Scan CN→EN: find Chinese terms in the query, add English translations
         for cn_term, en_terms in _ENTRIES.items():
             if cn_term in query:
                 found.extend(en_terms)
-
-    if lang in ("en", "mixed"):
-        # Scan EN→CN: find English terms in the query, add Chinese translations
-        query_lower = query.lower()
-        # Sort by length descending so longer matches take precedence
-        for en_term in sorted(_EN_TO_CN, key=len, reverse=True):
-            if en_term in query_lower:
-                cn_term = _EN_TO_CN[en_term]
-                if cn_term not in found:
-                    found.append(cn_term)
 
     return found
 
@@ -108,19 +102,22 @@ def load_user_tags(tags: list[str]) -> None:
 
 def _tag_expand(query: str, lang: str) -> list[str]:
     """Match query against user's Zotero tags. If a tag relates to the
-    query, add it as an expansion term."""
+    query, add it as an expansion term.
+
+    For English queries, only match English tags (skip CJK tags).
+    Chinese/mixed queries match all tags.
+    """
     found: list[str] = []
     query_lower = query.lower()
 
     for tag, variants in _user_tags.items():
-        # Check if query contains the tag or vice versa
         if tag in query_lower or any(v.lower() in query_lower for v in variants):
-            # Add the tag as an expansion term unless it's already in the query
-            if tag not in query_lower:
-                found.append(tag)
-            for v in variants:
-                if v.lower() not in query_lower:
-                    found.append(v)
+            for item in [tag] + variants:
+                if item.lower() not in query_lower:
+                    # For English queries, skip CJK terms
+                    if lang == "en" and any("一" <= c <= "鿿" for c in item):
+                        continue
+                    found.append(item)
 
     return found
 
@@ -155,18 +152,20 @@ def get_user_synonyms() -> dict[str, list[str]]:
 
 
 def _user_expand(query: str, lang: str) -> list[str]:
-    """Look up user-defined synonym dictionary."""
+    """Look up user-defined synonym dictionary.
+
+    Rule: always supplement with English, but English queries do NOT
+    expand to other languages.
+    - zh/mixed → CN→EN: find Chinese synonyms, add English equivalents
+    - en → no expansion
+    """
     found: list[str] = []
     query_lower = query.lower()
 
-    for cn_term, en_terms in _user_synonyms.items():
-        if lang in ("zh", "mixed") and cn_term in query:
-            found.extend(en_terms)
-        elif lang in ("en", "mixed"):
-            for en_t in en_terms:
-                if en_t.lower() in query_lower:
-                    found.append(cn_term)
-                    break
+    if lang in ("zh", "mixed"):
+        for cn_term, en_terms in _user_synonyms.items():
+            if cn_term in query:
+                found.extend(en_terms)
 
     return found
 
