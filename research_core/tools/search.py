@@ -46,7 +46,6 @@ def search_papers(
     expand_context: bool = False,
     expand_neighbors: bool = False,
     diversity_weight: float = 0.4,
-    language: str = "auto",
 ) -> list[PaperHit]:
     """Hybrid search: keyword (Zotero API) + semantic (vector store) merged via RRF.
 
@@ -108,41 +107,13 @@ def search_papers(
     overfetch = 3 if reranker is None else 5
     rrf_k = 60
 
-    # ── Query expansion (bilingual + synonym) ──
-    expanded_queries: list[tuple[str, float]] = [(query, 1.0)]
-    if has_query:
-        try:
-            from research_core.rag.query_rewriter import get_rewriter
-            expanded_queries = get_rewriter().expand(query, language=language)
-        except Exception:
-            pass  # query expansion is best-effort; never block search
-
     if has_query:
         t0 = time.time()
-        # Run semantic search with each expanded query, weighted by expansion score
-        if len(expanded_queries) > 1:
-            # Multi-query semantic search: run each expanded query, merge via RRF
-            all_semantic: list = []
-            for eq_text, eq_weight in expanded_queries:
-                eq_hits = retriever.search(
-                    eq_text, n_results=max(limit * overfetch, 15),
-                    expand_context=expand_context,
-                    expand_neighbors=expand_neighbors,
-                )
-                # Apply expansion weight to scores
-                for h in eq_hits:
-                    h.score *= eq_weight
-                all_semantic.extend(eq_hits)
-            # Merge: dedupe by item_key, keep max weighted score
-            merged: dict[str, type(all_semantic[0])] = {}
-            for h in all_semantic:
-                if h.item_key not in merged or h.score > merged[h.item_key].score:
-                    merged[h.item_key] = h
-            semantic_hits = sorted(merged.values(), key=lambda h: h.score, reverse=True)
-        else:
-            semantic_hits = retriever.search(query, n_results=limit * overfetch,
-                                              expand_context=expand_context,
-                                              expand_neighbors=expand_neighbors)
+        semantic_hits = retriever.search(
+            query, n_results=limit * overfetch,
+            expand_context=expand_context,
+            expand_neighbors=expand_neighbors,
+        )
         t_semantic = (time.time() - t0) * 1000
 
     # ── BM25 Sparse Keyword Search (chunk text) ──
@@ -362,8 +333,7 @@ def search_papers(
     # --- Emit retrieval trace ---
     logger.log(RetrievalLog(
         query=query,
-        expanded_queries=[{"text": eq[0], "weight": eq[1]} for eq in expanded_queries]
-                          if len(expanded_queries) > 1 else [],
+        expanded_queries=[],
         strategy="hybrid" if (has_query and bm25_hits and semantic_hits)
         else ("semantic" if semantic_hits else "keyword" if bm25_hits else "fallback"),
         parameters=log_params,

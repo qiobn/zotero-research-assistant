@@ -54,6 +54,53 @@
 
 ---
 
+---
+
+## v0.4.9-dev — HNSW 索引损坏根因分析与修复 (2026-07-23)
+
+### 问题复现: ChromaDB "Error loading hnsw index" (2026-07-23)
+
+**现象**: chroma server (127.0.0.1:18000) 已运行，HttpClient heartbeat 正常，但 `collection.count()` 和 `collection.query()` 报错:
+```
+Error executing plan: Error sending backfill request to compactor:
+Error constructing hnsw segment reader: Error loading hnsw index
+```
+
+**初步假设（被推翻）**: v0.4.3 记录的"PersistentClient 跨进程 HNSW bug"复现。
+
+**验证过程**:
+1. 测试 PersistentClient 写入 → HttpClient 读取: **成功** (ChromaDB 1.5.9 + SQLite 存储)
+2. 测试 chroma server 写入 → 重启 → 读取: **成功**
+3. 检查 HNSW segment 目录: `.chroma_db/20f5c1ba-fc60-4ff8-9ec9-5097568faa4a/`
+   - `index_metadata.pickle` ✓ (832KB, `total_elements_added`=63,918)
+   - `data_level0.bin` ✗ **缺失**
+   - `link_lists.bin` ✗ **缺失**
+   - `header.bin` ✗ **缺失**
+   - `length.bin` ✗ **缺失**
+
+**真正根因**: ChromaDB 的 HNSW compaction 从未成功执行过。
+
+`index_metadata.pickle` 中 `dimensionality: None` 是关键线索。HNSW 图结构需要维度才能初始化，维度为 None → hnswlib 无法创建 `data_level0.bin` 和 `link_lists.bin` → 后续所有查询尝试加载 HNSW → 文件不存在 → "Error loading hnsw index"。
+
+`total_elements_added: 63,918` vs embeddings 表记录数 19,790 说明多次 `sync_index` 往 WAL 追加了数据，但 compactor 始终未能压缩成有效的 HNSW 段。
+
+**与 v0.4.3 "跨进程 bug" 的区别**:
+- v0.4.3 修复的是架构层面（切换 server 模式消除多进程竞争），是正确预防措施
+- 本次发现的是磁盘上已存在的数据缺失（HNSW 核心文件从未被创建），server 模式无法修复已损数据
+- 两者不矛盾：server 模式防止未来问题，但不能修复 PersistentClient 时代产生的不完整数据
+
+**修复**: `reset_collection()` + `sync_index(force_rebuild=True)` 通过 chroma server 重建整个索引。
+
+**预防措施（待实现）**:
+- `_create_client()` 的 PersistentClient fallback 是静默危险操作——sync_index 若在 server 未启动时运行会 fallback 到可能产生破损数据的模式。应移除 fallback 或至少增加 `dimensionality` 检查
+- `_startup_diagnostics` 应增加 segment 目录文件完整性检查
+
+**验证方法（已验证有效）**:
+- 新建 collection → add 2000 vectors → 查询 → 确认 `data_level0.bin` 等文件存在 → 重启 server → 查询 → **正常**
+- 证明 rebuild 后的索引不会再有此问题
+
+---
+
 ## v0.3.0 — RAG 质量管线全面升级 (2026-07-06)
 
 ### 双格式输出: JSON + Markdown Context Block (2026-07-10, `706afff`)

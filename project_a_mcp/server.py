@@ -150,11 +150,8 @@ async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
             logger.warning(f"ChromaDB embedded server failed to start: {e}")
 
     # ── Preload heavy models BEFORE accepting requests ──
-    # The first search triggers lazy loading of ONNX (~10s), Cross-Encoder
-    # (~18s), and NMT (~23s). If the first request arrives before preloading
-    # completes, Cherry Studio's MCP client times out (default ~30s).
-    # Preloading synchronously in the lifespan ensures models are ready
-    # before the server yields to accept connections.
+    # Cross-Encoder (~18s) is lazy-loaded on first use. Preloading
+    # synchronously ensures it's ready before the server accepts connections.
     _preload_models()
 
     if os.getenv("ZRA_AUTO_SYNC", "true").lower() != "false":
@@ -173,14 +170,10 @@ async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
 
 
 def _preload_models() -> None:
-    """Preload Cross-Encoder and NMT models before server accepts connections.
+    """Preload Cross-Encoder model before server accepts connections.
 
-    These models are lazy-loaded on first use. Without preloading, the first
-    search after server start can take 40-50s (ONNX 10s + CE 18s + NMT 23s),
-    exceeding typical MCP client timeouts.
-
-    Each model load is guarded by a 30s timeout so one slow model doesn't
-    block startup indefinitely.
+    Bilingual search strategy is now owned by the external LLM (no NMT needed).
+    Only the Cross-Encoder reranker needs preloading (~18s first load, ~80MB).
     """
     # Cross-Encoder reranker (~18s first load, ~80MB)
     try:
@@ -196,21 +189,6 @@ def _preload_models() -> None:
                 logger.info("✓ Cross-Encoder preloaded")
     except Exception as e:
         logger.debug(f"Cross-Encoder preload skipped: {e}")
-
-    # OPUS-MT NMT model (~23s first load, ~300MB)
-    try:
-        from research_core.rag.query_rewriter import _nmt_translate
-        def _load_nmt():
-            _nmt_translate("test", target_len=8)
-        t = threading.Thread(target=_load_nmt, daemon=True)
-        t.start()
-        t.join(timeout=30)
-        if t.is_alive():
-            logger.warning("NMT preload taking >30s — continuing startup")
-        else:
-            logger.info("✓ NMT model preloaded")
-    except Exception as e:
-        logger.debug(f"NMT preload skipped: {e}")
 
 
 def _startup_diagnostics() -> None:
@@ -574,31 +552,48 @@ def search_papers(
     tags_exclude: list[str] | None = None,
     collection_key: str = "",
     limit: int = 10,
-    language: str = "auto",
     expand_context: bool = False,
     expand_neighbors: bool = False,
     diversity_weight: float = 0.4,
 ) -> dict:
     """Find papers in your Zotero library by topic, keywords, or filters.
 
-    PRIMARY discovery tool. Combines keyword (Zotero API) + dense semantic
-    (bge-m3 vectors) + sparse keyword (BM25) search, merged with Reciprocal
-    Rank Fusion and Cross-Encoder reranking for precision.
+    Pure single-query retrieval engine: BM25 + Dense (bge-m3) + Cross-Encoder
+    + MMR diversity. No internal query rewriting or translation.
 
-    *** CRITICAL — BILINGUAL SEARCH ***
-    This tool handles Chinese↔English translation AUTOMATICALLY. Pass the
-    user's query in their ORIGINAL language — do NOT translate it yourself.
-    When the user types Chinese, the tool expands with: built-in CN↔EN
-    dictionary (~300 pairs), user's Zotero tags, custom synonyms, and OPUS-MT
-    neural translation. Each expanded term runs independent semantic search
-    and results are merged. Translating before calling this tool DISABLES
-    bilingual expansion and misses Chinese papers.
+    *** BILINGUAL SEARCH — MANDATORY MULTI-CALL STRATEGY ***
 
-    *** LANGUAGE PARAMETER ***
-    Use language=\"zh\" when: the user wrote in Chinese but you extracted
-    English keywords. This forces Chinese expansion regardless of query text.
-    Use language=\"en\" when: the user explicitly wants English-only search.
-    Default \"auto\" detects language from the query text.
+    Single-vector embedding can only approximate one semantic direction.
+    To match recall of a full search pipeline, you MUST make multiple calls.
+    This is NOT optional — single-call recall is ~30% lower.
+
+    === FOR CHINESE QUERIES (3-5 calls) ===
+
+    1. CN original: search_papers("原始中文查询")
+    2. EN translation: search_papers("your English translation")
+    3. CN keywords-only: extract 3-5 key terms, search_papers("关键词1 关键词2 ...")
+    4. EN synonyms: call expand_query() for methodology terms, then search_papers("EN term1 synonym1 synonym2")
+    5. (if causal/relationship) CN reverse angle: search_papers("B如何影响A" or "A与B的相关性")
+
+    Merge: pool all results, sort by frequency of appearance across calls
+    (papers appearing in 3+ calls → rank higher), remove duplicates.
+
+    For METHODOLOGY terms — ALWAYS call expand_query() before EN search:
+      expand_query("两步移动搜索法") → use returned synonyms in EN query
+      expand_query("多主体建模") → use returned synonyms in EN query
+
+    Example — "社区公共体育设施与居民健康满意度的关系":
+      1. search_papers("社区公共体育设施 居民 健康 满意度 关系")
+      2. search_papers("community public sports facilities resident health satisfaction impact")
+      3. search_papers("公共体育设施 健康 满意度 影响 因素")    ← keyword-only angle
+      4. search_papers("community sports infrastructure population health wellbeing empirical") ← broader EN angle
+      → Merge 4 result sets, prioritize papers found in 3+ calls
+
+    === FOR ENGLISH QUERIES (1-2 calls) ===
+    Single call is usually sufficient. Optionally add a synonym variant.
+
+    === FOR COMPLEX / CAUSAL QUERIES ===
+    Add a 5th call with reversed or complementary angle.
 
     Two usage modes:
       1. With query: hybrid search (keyword + semantic + BM25 + reranking).
@@ -613,15 +608,13 @@ def search_papers(
     - User wants papers NOT in their library → use search_online_literature.
 
     Args:
-        query: Natural-language topic or keywords. Pass the user's ORIGINAL
-               language text — the tool handles translation internally.
+        query: Natural-language topic or keywords in ANY language.
+               bge-m3 embeddings are multilingual — CN and EN both work.
         year_from/year_to: Publication year window (inclusive).
         tags_include: Only papers carrying ALL these tags.
         tags_exclude: Drop papers carrying ANY of these tags.
         collection_key: Restrict to a single Zotero collection.
         limit: Max results (default 10).
-        language: \"auto\" (detect from query) | \"zh\" (force CN→EN expansion)
-                  | \"en\" (English-only, skip CN expansion).
         expand_context: Attach full section text (2000 chars vs 300).
         expand_neighbors: Attach ±1 neighbor chunks (lighter alternative).
         diversity_weight: MMR diversity (0.4=default, 0=disabled).
@@ -643,7 +636,6 @@ def search_papers(
         expand_context=expand_context,
         expand_neighbors=expand_neighbors,
         diversity_weight=diversity_weight,
-        language=language,
     )
 
     from research_core.rag.rendering import get_renderer
@@ -1977,18 +1969,40 @@ def retrieval_stats() -> dict:
     return get_retrieval_stats()
 
 
-# ── Query Synonym Management ──────────────────────────────────────────
+# ── Bilingual Term Lookup & Synonym Management ──────────────────────────
+
+@mcp.tool()
+def expand_query(term: str) -> dict:
+    """Look up a term in the user's bilingual thesaurus and Zotero tags.
+
+    Use this BEFORE translating a Chinese query to English — it tells you
+    the standard English name for methodology terms and domain jargon.
+
+    Returns two lists:
+    - synonyms: user-defined CN→EN mappings (from add_query_synonym)
+    - tags: matching Zotero tags from the user's library
+
+    Example:
+      expand_query("两步移动搜索法")
+      → {"synonyms": [], "tags": ["两步移动搜索法", "可达性", "2SFCA"]}
+
+    Args:
+        term: A Chinese methodology/domain term to look up
+    """
+    from research_core.rag.query_rewriter import get_rewriter
+    return get_rewriter().expand(term)
+
 
 @mcp.tool()
 def add_query_synonym(cn_term: str, en_terms: list[str]) -> dict:
-    """Add a bilingual synonym pair for query expansion.
+    """Add a bilingual synonym pair to the user's personal thesaurus.
 
-    After adding, searches will automatically expand matching queries:
-    - A Chinese query containing 'cn_term' will also search with 'en_terms'
-    - An English query containing one of 'en_terms' will also search with 'cn_term'
+    These synonyms are used by expand_query() to help translate Chinese
+    methodology terms to their standard English equivalents.
 
-    Synonyms are persisted to .chroma_db/query_dict_user.json and survive
-    index rebuilds. Use an empty list for en_terms to remove a synonym.
+    Synonyms are persisted to .chroma_db/query_dict_user.json.
+
+    Use an empty list for en_terms to remove a synonym.
 
     Args:
         cn_term: Chinese term (e.g. "社会网络分析")
@@ -2006,21 +2020,15 @@ def add_query_synonym(cn_term: str, en_terms: list[str]) -> dict:
     synonym_file = os.path.join(persist_dir, "query_dict_user.json")
 
     if not en_terms:
-        # Remove synonym
         syns = get_user_synonyms()
         syns.pop(cn_term.strip(), None)
     else:
         add_user_synonym(cn_term, en_terms)
 
-    # Persist
     syns = get_user_synonyms()
     os.makedirs(persist_dir, exist_ok=True)
     with open(synonym_file, "w", encoding="utf-8") as f:
         json.dump({"entries": syns}, f, ensure_ascii=False, indent=2)
-
-    # Clear cache so new synonym takes effect immediately
-    from research_core.rag.query_rewriter import _cached_expand
-    _cached_expand.cache_clear()
 
     return {
         "status": "ok",
@@ -2032,9 +2040,6 @@ def add_query_synonym(cn_term: str, en_terms: list[str]) -> dict:
 @mcp.tool()
 def remove_query_synonym(term: str) -> dict:
     """Remove a user-defined bilingual synonym pair.
-
-    The term is the Chinese key that was used when adding the synonym.
-    The change is persisted immediately and takes effect on the next search.
 
     Args:
         term: The Chinese term to remove (e.g. "社会网络分析")
@@ -2053,9 +2058,6 @@ def remove_query_synonym(term: str) -> dict:
     if removed is not None:
         with open(synonym_file, "w", encoding="utf-8") as f:
             json.dump({"entries": syns}, f, ensure_ascii=False, indent=2)
-
-        from research_core.rag.query_rewriter import _cached_expand
-        _cached_expand.cache_clear()
 
     return {
         "status": "ok" if removed is not None else "not_found",
@@ -2129,10 +2131,6 @@ def import_query_dict(entries: str) -> dict:
     os.makedirs(persist_dir, exist_ok=True)
     with open(synonym_file, "w", encoding="utf-8") as f:
         json.dump({"entries": syns}, f, ensure_ascii=False, indent=2)
-
-    # Clear cache
-    from research_core.rag.query_rewriter import _cached_expand
-    _cached_expand.cache_clear()
 
     return {
         "status": "ok",

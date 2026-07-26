@@ -1,21 +1,17 @@
-"""Multi-layer query expansion for bilingual academic search.
+"""Lightweight query validation and user-built bilingual term lookup.
 
-Layers:
-1. Built-in methodology dictionary (~200 pairs, query_dict.json)
-2. Auto-extracted from user's Zotero tags/keywords (populated during sync_index)
-3. User-defined synonyms (add_query_synonym MCP tool)
-4. NMT query translation (OPUS-MT CN→EN for Chinese queries; lazy-loaded)
+Design principle: bilingual search strategy is OWNED by the external LLM.
+This module provides ONLY:
+- User-built synonym thesaurus (add / list / remove / lookup)
+- Zotero tag auto-collection (populated during sync_index)
+- Basic query validation (not empty, not gibberish)
 
-Zero external LLM calls. In-memory LRU cache. The NMT model is loaded on
-first Chinese query (~3-5s cold start, ~300MB RAM after loading).
+The external LLM:
+- Detects the user's language and decides whether to search CN+EN or EN-only
+- Calls expand_query() when it needs standard EN equivalents of methodology terms
+- Decomposes complex queries into multiple search_papers() calls itself
 
-Usage:
-    from research_core.rag.query_rewriter import QueryRewriter
-    rewriter = QueryRewriter()
-    expanded = rewriter.expand("城市公共服务可达性")
-    # -> [("城市公共服务可达性", 1.0), ("urban public service accessibility", 0.4),
-    #      ("urban public service accessibility", 0.8), ...]
-    #    ^--- dict-based layer 1  +  ^--- NMT translation layer 4
+No preset dictionaries. No NMT. No internal query rewriting.
 """
 
 from __future__ import annotations
@@ -23,112 +19,73 @@ from __future__ import annotations
 import json
 import os
 import re
-import threading
 from functools import lru_cache
 
 from loguru import logger
 
-# ── Load built-in dictionary ──────────────────────────────────────────
-
-_DICT_PATH = os.path.join(os.path.dirname(__file__), "query_dict.json")
-
-with open(_DICT_PATH, encoding="utf-8") as f:
-    _RAW = json.load(f)
-
-_ENTRIES: dict[str, list[str]] = _RAW.get("entries", {})
-
-# Build reverse index: EN → CN terms (auto-generated from the CN→EN dict)
-_EN_TO_CN: dict[str, str] = {}
-for cn_key, en_list in _ENTRIES.items():
-    for en_term in en_list:
-        en_lower = en_term.lower()
-        if en_lower not in _EN_TO_CN:
-            _EN_TO_CN[en_lower] = cn_key
-
-
 # ── Language detection ─────────────────────────────────────────────────
 
-def _detect_query_language(query: str) -> str:
-    """Detect language of a query string. Returns 'zh', 'en', or 'mixed'."""
-    cjk = sum(1 for c in query if "一" <= c <= "鿿" or "㐀" <= c <= "䶿")
-    ascii_alpha = sum(1 for c in query if c.isascii() and c.isalpha())
+_DETECT_CACHE: dict[str, str] = {}
+
+
+def detect_language(text: str) -> str:
+    """Detect language of a query string. Returns 'zh', 'en', or 'mixed'.
+
+    Uses CJK character ratio. Cached for repeated calls on the same text.
+    """
+    if text in _DETECT_CACHE:
+        return _DETECT_CACHE[text]
+
+    cjk = sum(1 for c in text if "一" <= c <= "鿿" or "㐀" <= c <= "䶿")
+    ascii_alpha = sum(1 for c in text if c.isascii() and c.isalpha())
     total = cjk + ascii_alpha
     if total == 0:
-        return "en"
-    if cjk / max(total, 1) > 0.5:
-        return "zh"
-    if ascii_alpha / max(total, 1) > 0.8:
-        return "en"
-    return "mixed"
+        result = "en"
+    elif cjk / max(total, 1) > 0.5:
+        result = "zh"
+    elif ascii_alpha / max(total, 1) > 0.8:
+        result = "en"
+    else:
+        result = "mixed"
+
+    _DETECT_CACHE[text] = result
+    if len(_DETECT_CACHE) > 256:
+        _DETECT_CACHE.clear()
+    return result
 
 
-# ── Layer 1: Dictionary expansion ─────────────────────────────────────
+# ── Query validation ────────────────────────────────────────────────────
 
-def _dict_expand(query: str, lang: str) -> list[str]:
-    """Scan the bilingual dictionary for terms that appear in the query,
-    returning their translations.
+# Characters that should never dominate a query (gibberish / encoding errors)
+_GIBBERISH_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
-    Rule: always supplement with English (academic lingua franca), but
-    English queries do NOT expand to other languages.
-    - zh/mixed → CN→EN: find Chinese terms, add English translations
-    - en → no expansion (English is already the target language)
+
+def validate(query: str) -> str | None:
+    """Validate a search query. Returns error message string or None if valid.
+
+    Checks: not empty, minimum length, no control characters.
+    Does NOT modify the query — the external LLM owns query formulation.
     """
-    found: list[str] = []
+    if not query or not query.strip():
+        return "Query is empty"
 
-    if lang in ("zh", "mixed"):
-        for cn_term, en_terms in _ENTRIES.items():
-            if cn_term in query:
-                found.extend(en_terms)
+    stripped = query.strip()
+    if len(stripped) < 2:
+        return "Query too short (minimum 2 characters)"
 
-    return found
+    if _GIBBERISH_RE.search(stripped):
+        return "Query contains invalid characters"
 
-
-# ── Layer 2: User tag expansion (loaded from Zotero) ───────────────────
-
-_user_tags: dict[str, list[str]] = {}
+    return None
 
 
-def load_user_tags(tags: list[str]) -> None:
-    """Feed Zotero tags into the rewriter for personalized expansion.
-
-    Called during sync_index or whenever tag data is refreshed.
-    Each tag becomes a known term that can expand matching queries.
-    """
-    for tag in tags:
-        tag_lower = tag.strip().lower()
-        if tag_lower not in _user_tags:
-            _user_tags[tag_lower] = [tag.strip()]
-
-
-def _tag_expand(query: str, lang: str) -> list[str]:
-    """Match query against user's Zotero tags. If a tag relates to the
-    query, add it as an expansion term.
-
-    For English queries, only match English tags (skip CJK tags).
-    Chinese/mixed queries match all tags.
-    """
-    found: list[str] = []
-    query_lower = query.lower()
-
-    for tag, variants in _user_tags.items():
-        if tag in query_lower or any(v.lower() in query_lower for v in variants):
-            for item in [tag] + variants:
-                if item.lower() not in query_lower:
-                    # For English queries, skip CJK terms
-                    if lang == "en" and any("一" <= c <= "鿿" for c in item):
-                        continue
-                    found.append(item)
-
-    return found
-
-
-# ── Layer 3: User-defined synonyms ─────────────────────────────────────
+# ── User-built synonym thesaurus ────────────────────────────────────────
 
 _user_synonyms: dict[str, list[str]] = {}
 
 
 def load_user_synonyms(synonym_file: str) -> None:
-    """Load user-defined synonyms from a JSON file (persisted to disk)."""
+    """Load user-defined synonyms from a persisted JSON file."""
     global _user_synonyms
     if not os.path.exists(synonym_file):
         return
@@ -136,230 +93,105 @@ def load_user_synonyms(synonym_file: str) -> None:
         with open(synonym_file, encoding="utf-8") as f:
             data = json.load(f)
         _user_synonyms = data.get("entries", {})
+        logger.info(f"Loaded {len(_user_synonyms)} user synonym pairs")
     except (json.JSONDecodeError, OSError):
         _user_synonyms = {}
 
 
 def add_user_synonym(cn_term: str, en_terms: list[str]) -> None:
-    """Add a user-defined synonym pair. Persisted on next save."""
+    """Add or update a user-defined synonym pair."""
     cn_term = cn_term.strip()
     _user_synonyms[cn_term] = [t.strip() for t in en_terms]
 
 
+def remove_user_synonym(cn_term: str) -> bool:
+    """Remove a user synonym. Returns True if it existed."""
+    cn_term = cn_term.strip()
+    if cn_term in _user_synonyms:
+        del _user_synonyms[cn_term]
+        return True
+    return False
+
+
 def get_user_synonyms() -> dict[str, list[str]]:
-    """Return all user-defined synonyms (for saving to disk)."""
-    return _user_synonyms
+    """Return all user-defined synonyms (for persistence)."""
+    return dict(_user_synonyms)
 
 
-def _user_expand(query: str, lang: str) -> list[str]:
-    """Look up user-defined synonym dictionary.
+# ── Zotero tag auto-collection ──────────────────────────────────────────
 
-    Rule: always supplement with English, but English queries do NOT
-    expand to other languages.
-    - zh/mixed → CN→EN: find Chinese synonyms, add English equivalents
-    - en → no expansion
+_user_tags: dict[str, list[str]] = {}
+
+
+def load_user_tags(tags: list[str]) -> None:
+    """Feed Zotero tags into the rewriter for term lookup.
+
+    Called during sync_index or whenever tag data is refreshed.
     """
-    found: list[str] = []
-
-    if lang in ("zh", "mixed"):
-        for cn_term, en_terms in _user_synonyms.items():
-            if cn_term in query:
-                found.extend(en_terms)
-
-    return found
+    for tag in tags:
+        tag_lower = tag.strip().lower()
+        if tag_lower not in _user_tags:
+            _user_tags[tag_lower] = [tag.strip()]
 
 
-# ── Layer 4: NMT query translation (CN→EN) ──────────────────────────────
-
-_NMT_LOCK = threading.Lock()
-_nmt_pipeline = None  # lazy-loaded: (tokenizer, model)
+# ── Term expansion (user dict + tags only) ──────────────────────────────
 
 
-def _get_nmt_model():
-    """Lazy-load OPUS-MT zh→en model. Returns (tokenizer, model).
+@lru_cache(maxsize=1024)
+def expand_query(term: str) -> dict:
+    """Look up a term in user-built thesaurus and Zotero tags.
 
-    Thread-safe: only one thread loads the model; others wait.
-    Model is cached at module level after first load.
+    Returns a dict with 'synonyms' (user-defined) and 'tags' (Zotero).
+    The external LLM calls this to find standard EN equivalents of
+    methodology terms before constructing EN search queries.
+
+    Example:
+        expand_query("两步移动搜索法")
+        → {"synonyms": [], "tags": ["可达性", "两步移动搜索法", "2SFCA"]}
     """
-    global _nmt_pipeline
-    if _nmt_pipeline is not None:
-        return _nmt_pipeline
+    term_lower = term.strip().lower()
+    result: dict = {"synonyms": [], "tags": []}
 
-    with _NMT_LOCK:
-        if _nmt_pipeline is not None:  # double-check after acquiring lock
-            return _nmt_pipeline
+    # User-defined synonym lookup (exact match on CN term)
+    for cn_term, en_terms in _user_synonyms.items():
+        if cn_term in term or term_lower in cn_term.lower():
+            result["synonyms"].extend(en_terms)
 
-        cache_dir = os.getenv("ZRA_NMT_CACHE_DIR")
-        if not cache_dir:
-            d = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
-            if os.path.isabs(d) and all(ord(c) < 128 for c in d):
-                cache_dir = os.path.join(d, "hf_cache")
-            else:
-                cache_dir = "D:\\tmp\\zra_nmt_cache"
-                os.makedirs(cache_dir, exist_ok=True)
-        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+    # Zotero tag lookup (substring match)
+    for tag, variants in _user_tags.items():
+        if term_lower in tag or tag in term_lower:
+            for v in variants:
+                if v.lower() not in [s.lower() for s in result["tags"]]:
+                    result["tags"].append(v)
+            if len(result["tags"]) >= 20:
+                break
 
-        try:
-            import socket
-            from transformers import MarianMTModel, MarianTokenizer
-
-            # Set a socket timeout so unreachable HF endpoints don't
-            # block search for 30+ seconds. Cached models load from
-            # disk in ~1s; downloads need < 10s on a good connection.
-            default_timeout = socket.getdefaulttimeout()
-            socket.setdefaulttimeout(10)
-
-            model_name = "Helsinki-NLP/opus-mt-zh-en"
-            tokenizer = MarianTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
-            model = MarianMTModel.from_pretrained(model_name, cache_dir=cache_dir)
-            _nmt_pipeline = (tokenizer, model)
-            logger.info(f"NMT model loaded from {model_name}")
-        except Exception as e:
-            logger.warning(f"NMT model failed to load: {e}")
-            _nmt_pipeline = (None, None)  # prevent retry
-        finally:
-            if default_timeout is not None:
-                socket.setdefaulttimeout(default_timeout)
-
-        return _nmt_pipeline
-
-
-def _nmt_translate(text: str, target_len: int = 128) -> str:
-    """Translate Chinese text to English using OPUS-MT.
-
-    Returns empty string on any failure (non-fatal — search proceeds
-    with the original query + other expansion layers).
-    """
-    tokenizer, model = _get_nmt_model()
-    if tokenizer is None or model is None:
-        return ""
-
-    try:
-        inputs = tokenizer(text, return_tensors="pt", padding=True,
-                           truncation=True, max_length=target_len)
-        outputs = model.generate(**inputs, max_new_tokens=target_len)
-        return tokenizer.decode(outputs[0], skip_special_tokens=True)
-    except Exception as e:
-        logger.debug(f"NMT translation failed for '{text[:40]}': {e}")
-        return ""
-
-
-# ── Query decomposition ────────────────────────────────────────────────
-
-_CLAUSE_SPLIT_RE = re.compile(r"[和与及或;；,，、\s]+(?:以及|并且|或者|并且|还有)?\s*")
-
-
-def _decompose_query(query: str, lang: str) -> list[str]:
-    """Split compound queries into sub-queries for independent retrieval.
-    Only splits on clear conjunction markers, not on every separator.
-    """
-    # Don't decompose short queries or queries with meaningful compound terms
-    if len(query) < 15:
-        return [query]
-
-    # Split on major clause boundaries
-    parts = re.split(r"\s*(?:和|与|以及|并且|或者|and|or|;|；)\s*", query)
-    # Filter out fragments that are too short to be meaningful
-    parts = [p.strip() for p in parts if len(p.strip()) >= 6]
-    if len(parts) <= 1:
-        return [query]
-    # Add the original query as the primary
-    return [query] + parts
-
-
-# ── Main expander ──────────────────────────────────────────────────────
-
-
-class QueryRewriter:
-    """Multi-layer bilingual query expander for academic search."""
-
-    def __init__(self) -> None:
-        self._layer1_enabled = True
-        self._layer2_enabled = True
-        self._layer3_enabled = True
-
-    def expand(self, query: str, language: str = "auto") -> list[tuple[str, float]]:
-        """Expand a query into weighted search terms.
-
-        Args:
-            query: The user's search query.
-            language: \"auto\" to detect from text, \"zh\" to force Chinese
-                      expansion, \"en\" to force English-only.
-
-        Returns list of (query_text, weight) where:
-        - weight 1.0 = original query
-        - weight 0.8 = NMT translation (Layer 4 — OPUS-MT CN→EN)
-        - weight 0.4 = dictionary expansion term (Layer 1)
-        - weight 0.3 = tag/synonym expansion term (Layer 2/3)
-        - 0 < weight < 0.3 = decomposed sub-query
-        """
-        return _cached_expand(query, self._layer1_enabled,
-                              self._layer2_enabled, self._layer3_enabled,
-                              language)
-
-    def disable_layer(self, layer: int) -> None:
-        """Disable a specific expansion layer (1/2/3)."""
-        if layer == 1:
-            self._layer1_enabled = False
-        elif layer == 2:
-            self._layer2_enabled = False
-        elif layer == 3:
-            self._layer3_enabled = False
-
-
-@lru_cache(maxsize=512)
-def _cached_expand(query: str, l1: bool, l2: bool, l3: bool,
-                   language: str = "auto") -> list[tuple[str, float]]:
-    """Cached expansion — same query + same layer config → same result.
-
-    Args:
-        language: \"auto\" to detect, \"zh\"/\"en\" to override detection.
-    """
-    if language == "auto":
-        lang = _detect_query_language(query)
-    else:
-        lang = language
-
-    results: list[tuple[str, float]] = [(query, 1.0)]
-
-    if l1:
-        for term in _dict_expand(query, lang):
-            results.append((term, 0.4))
-
-    if l2:
-        for term in _tag_expand(query, lang):
-            results.append((term, 0.3))
-
-    if l3:
-        for term in _user_expand(query, lang):
-            results.append((term, 0.3))
-
-    # Layer 4: NMT translation for Chinese queries (CN→EN)
-    if lang in ("zh", "mixed"):
-        translated = _nmt_translate(query)
-        if translated and translated.lower().strip() != query.lower().strip():
-            results.append((translated.strip(), 0.8))
-
-    # Decompose compound queries into sub-queries
-    sub_queries = _decompose_query(query, lang)
-    for sq in sub_queries[1:]:  # skip the first (original)
-        results.append((sq, 0.2))
-
-    # Deduplicate by text
-    seen: set[str] = set()
-    unique: list[tuple[str, float]] = []
-    for text, weight in results:
-        text_lower = text.strip().lower()
-        if text_lower and text_lower not in seen:
-            seen.add(text_lower)
-            unique.append((text.strip(), weight))
-
-    return unique
+    return result
 
 
 # ── Singleton ──────────────────────────────────────────────────────────
 
 _rewriter: QueryRewriter | None = None
+
+
+class QueryRewriter:
+    """Minimal rewriter — exposes user synonym management and term lookup.
+
+    The actual query expansion strategy is owned by the external LLM.
+    This class only provides the data (user dict + tags) for lookup.
+    """
+
+    def list_synonyms(self) -> dict[str, list[str]]:
+        return get_user_synonyms()
+
+    def add_synonym(self, cn_term: str, en_terms: list[str]) -> None:
+        add_user_synonym(cn_term, en_terms)
+
+    def remove_synonym(self, cn_term: str) -> bool:
+        return remove_user_synonym(cn_term)
+
+    def expand(self, term: str) -> dict:
+        return expand_query(term)
 
 
 def get_rewriter() -> QueryRewriter:

@@ -5,7 +5,31 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.5] - 2026-07-17
+## [0.4.9] - 2026-07-23
+
+### Fixed
+- **HNSW 索引损坏 "Error loading hnsw index"** — 彻底定位并修复了持续数月的
+  ChromaDB 查询失败问题。此前 v0.4.3 的修复（切换 client-server 模式）正确解决了
+  架构层面的跨进程竞争，但未能修复磁盘上已存在的不完整数据。
+
+**根因**: HNSW segment 目录下缺少核心数据文件（`data_level0.bin`、
+`link_lists.bin`、`header.bin`、`length.bin`），仅有 `index_metadata.pickle`。
+metadata 中 `dimensionality: None` 导致 hnswlib 无法初始化图结构，compaction
+从未成功生成 HNSW 文件。`total_elements_added: 63,918`（多次 sync 累积）vs
+实际 19,790 条 embedding 记录，确认数据一直在 WAL 中累积但未能压缩。
+
+**与 v0.4.3 修复的关系**: v0.4.3 的 client-server 模式是正确的架构修复，
+防止新数据产生问题。但 PersistentClient 时代写入的数据在当时 compactor 就
+未能正常完成——文件一开始就缺失，不是后来被跨进程破坏。
+
+**验证**: PersistentClient → HttpClient 读写测试通过（ChromaDB 1.5.9 + SQLite
+存储不存在跨进程 bug）。rebuild 后 HNSW 文件完整创建，server 重启后查询正常。
+
+### Changed
+- **`_create_client()` 增加 httpx FastAPI transport patch** — 修复 Windows 上
+  chromadb.HttpClient 对本地服务器间歇性返回 502 的问题。
+- **ZoteroClient 使用显式 `httpx.HTTPTransport()`** — 修复 pyzotero 在 Windows
+  上与 Zotero 本地 API 的 502 兼容性问题。
 
 ### Fixed
 - **NMT model loading timeout** — HuggingFace download can hang for 36-100s

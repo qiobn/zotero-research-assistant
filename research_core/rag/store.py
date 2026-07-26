@@ -61,7 +61,6 @@ def _create_client(persist_dir: str) -> chromadb.ClientAPI:
 
     try:
         client = chromadb.HttpClient(host=host, port=port)
-        # Verify connectivity
         client.heartbeat()
         logger.info(f"ChromaDB mode: HttpClient ({host}:{port})")
         return client

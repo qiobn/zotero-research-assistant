@@ -123,37 +123,40 @@ class ZoteroClient:
         self._library_type = library_type
         self._api_key = api_key
 
+        # ── Build httpx.Client with explicit HTTPTransport ──
+        # Without explicit transport, httpx on Windows sends requests in a way
+        # that causes Zotero's embedded HTTP server to return 502 Bad Gateway.
+        _transport = httpx.HTTPTransport()
+        _http_client = httpx.Client(
+            transport=_transport,
+            headers={
+                "User-Agent": "ZoteroResearchAssistant/0.4.8",
+                "Zotero-API-Version": "3",
+            },
+            timeout=_ZOTERO_TIMEOUT,
+            follow_redirects=True,
+        )
+
         if local:
-            self._zot = zotero.Zotero(self._library_id, library_type, api_key="", local=True)
-            # local=True sets endpoint to http://localhost:23119/api with HTTP/1.1 transport.
+            self._zot = zotero.Zotero(
+                self._library_id, library_type, api_key="", local=True,
+                client=_http_client,
+            )
             # Override to 127.0.0.1 for reliability (avoids IPv4/v6 resolution variance).
             self._zot.endpoint = "http://127.0.0.1:23119/api"
         else:
-            self._zot = zotero.Zotero(self._library_id, library_type, api_key)
+            self._zot = zotero.Zotero(
+                self._library_id, library_type, api_key,
+                client=_http_client,
+            )
 
         self._write_zot: zotero.Zotero | None = None
         if local and api_key and library_id:
-            self._write_zot = zotero.Zotero(library_id, library_type, api_key)
+            self._write_zot = zotero.Zotero(
+                library_id, library_type, api_key,
+                client=_http_client,
+            )
             logger.info("Hybrid mode enabled: local reads + web API writes")
-
-        self._apply_timeout(self._zot)
-        if self._write_zot:
-            self._apply_timeout(self._write_zot)
-
-    @staticmethod
-    def _apply_timeout(zot_instance: zotero.Zotero) -> None:
-        """Configure socket-level timeout on pyzotero's underlying requests session."""
-        from requests.adapters import HTTPAdapter
-
-        class _TimeoutAdapter(HTTPAdapter):
-            def send(self, request, **kwargs):
-                kwargs.setdefault("timeout", _ZOTERO_TIMEOUT)
-                return super().send(request, **kwargs)
-
-        adapter = _TimeoutAdapter()
-        if hasattr(zot_instance, "session"):
-            zot_instance.session.mount("http://", adapter)
-            zot_instance.session.mount("https://", adapter)
 
     @property
     def can_write(self) -> bool:
