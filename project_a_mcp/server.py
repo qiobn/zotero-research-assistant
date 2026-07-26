@@ -564,43 +564,69 @@ def search_papers(
     *** BILINGUAL SEARCH — MANDATORY MULTI-CALL STRATEGY ***
 
     Single-vector embedding can only approximate one semantic direction.
-    To match recall of a full search pipeline, you MUST make multiple calls.
-    This is NOT optional — single-call recall is ~30% lower.
+    To match the recall of a full search pipeline (dictionary + NMT +
+    tags + decomposition), you MUST make 5-7 calls per Chinese query.
+    This is NOT optional — single-call or dual-call recall is significantly
+    lower than what a proper multi-query strategy achieves.
 
-    === FOR CHINESE QUERIES (3-5 calls) ===
+    === MANDATORY CALLS FOR CHINESE QUERIES (5-7 calls) ===
 
-    1. CN original: search_papers("原始中文查询")
-    2. EN translation: search_papers("your English translation")
-    3. CN keywords-only: extract 3-5 key terms, search_papers("关键词1 关键词2 ...")
-    4. EN synonyms: call expand_query() for methodology terms, then search_papers("EN term1 synonym1 synonym2")
-    5. (if causal/relationship) CN reverse angle: search_papers("B如何影响A" or "A与B的相关性")
+    A. CN ORIGINAL (weight: high):
+       search_papers("original Chinese query text")
 
-    Merge: pool all results, sort by frequency of appearance across calls
-    (papers appearing in 3+ calls → rank higher), remove duplicates.
+    B. EN TRANSLATION (weight: high):
+       translate the FULL query to academic English
+       search_papers("your full EN translation")
 
-    For METHODOLOGY terms — ALWAYS call expand_query() before EN search:
-      expand_query("两步移动搜索法") → use returned synonyms in EN query
-      expand_query("多主体建模") → use returned synonyms in EN query
+    C. CN KEYWORDS-ONLY (weight: medium):
+       extract 3-6 core keywords, drop function words (的/与/和/在/中)
+       search_papers("关键词1 关键词2 关键词3 ...")
 
-    Example — "社区公共体育设施与居民健康满意度的关系":
-      1. search_papers("社区公共体育设施 居民 健康 满意度 关系")
-      2. search_papers("community public sports facilities resident health satisfaction impact")
-      3. search_papers("公共体育设施 健康 满意度 影响 因素")    ← keyword-only angle
-      4. search_papers("community sports infrastructure population health wellbeing empirical") ← broader EN angle
-      → Merge 4 result sets, prioritize papers found in 3+ calls
+    D. EN KEYWORDS (weight: medium):
+       translate those keywords to English
+       search_papers("keyword1 keyword2 keyword3 ...")
 
-    === FOR ENGLISH QUERIES (1-2 calls) ===
-    Single call is usually sufficient. Optionally add a synonym variant.
+    E. EXPANDED EN with SYNONYMS (weight: low):
+       call expand_query() for methodology terms, combine with EN keywords
+       search_papers("synonym1 synonym2 keyword1 keyword2 ...")
 
-    === FOR COMPLEX / CAUSAL QUERIES ===
-    Add a 5th call with reversed or complementary angle.
+    F. REVERSE/COMPLEMENTARY ANGLE (weight: low, for cross-document/causal):
+       reformulate from the opposite perspective
+       e.g. "A对B的影响" → search_papers("B的影响因素 A")
+       e.g. "设施满意度" → search_papers("公共体育设施 居民 主观感受 评价")
+
+    G. (optional) BROADER CONCEPT:
+       search_papers with a broader framing of the topic
+       e.g. "老年人出行行为" → search_papers("older adults mobility daily activity")
+
+    === MERGE STRATEGY (RRF-like weighting) ===
+
+    Pool all results from calls A-G. Score each paper:
+      score = 0
+      +3 if in call A (original) or B (EN translation)
+      +2 if in call C (CN keywords) or D (EN keywords)
+      +1 if in call E (synonyms) or F (reverse) or G (broad)
+      +1 bonus per additional call (up to +4)
+    Sort by score descending, break ties by best individual rank.
+    Remove duplicates. Present top 15-20.
+
+    === COMPLETE EXAMPLE — "社区公共体育设施与居民健康满意度的关系" ===
+    A. search_papers("社区公共体育设施 居民 健康 满意度 关系")
+    B. search_papers("community public sports facilities resident health satisfaction impact relationship")
+    C. search_papers("公共体育设施 健康 满意度 影响 因素 居民")
+    D. search_papers("public sports facilities health satisfaction wellbeing residents")
+    E. expand_query("公共体育设施") → use synonyms
+       search_papers("public sports infrastructure community fitness facilities health outcomes")
+    F. search_papers("居民 主观幸福感 社区体育设施 影响 因素")   ← reverse: B→A
+    G. search_papers("community sports participation neighborhood wellbeing") ← broader
+    → Weight-merge 7 result sets by RRF score, present top 20
 
     *** GRAPH EXPANSION — FOR MAXIMAL RECALL ***
-    After initial multi-angle search, use EXISTING tools to expand around
-    the top seed papers (zero new dependencies — all tools already available):
+    After the 5-7 multi-angle calls above, use EXISTING tools for graph
+    expansion around the top seed papers. Zero new dependencies.
 
     STEP 1 — Seed discovery:
-      Run the 3-5 search_papers calls as described above.
+      Run the 5-7 search_papers calls as described above.
       Identify the top 3-5 most promising papers from merged results.
 
     STEP 2 — Graph expansion (for each top seed paper):
