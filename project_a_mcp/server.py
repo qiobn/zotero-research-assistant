@@ -595,6 +595,34 @@ def search_papers(
     === FOR COMPLEX / CAUSAL QUERIES ===
     Add a 5th call with reversed or complementary angle.
 
+    *** GRAPH EXPANSION — FOR MAXIMAL RECALL ***
+    After initial multi-angle search, use EXISTING tools to expand around
+    the top seed papers (zero new dependencies — all tools already available):
+
+    STEP 1 — Seed discovery:
+      Run the 3-5 search_papers calls as described above.
+      Identify the top 3-5 most promising papers from merged results.
+
+    STEP 2 — Graph expansion (for each top seed paper):
+      → find_similar_papers(seed_key, limit=10)
+        (vector-based similar content — finds papers missed by keyword search)
+      → search_papers with the seed paper's KEY TAGS
+        (e.g. search_papers("", tags_include=["两步移动搜索法", "可达性"]))
+      → expand_citation_network(seed_doi)
+        (forward/backward citations via OpenAlex — finds citing/cited papers)
+
+    STEP 3 — Merge all results:
+      Pool everything from Steps 1+2, sort by frequency (papers found in
+      3+ expansion paths rank highest), remove duplicates, present to user.
+
+    When to use graph expansion:
+      - Cross-document / relationship queries (need broad coverage)
+      - User explicitly asks for comprehensive literature review
+      - Initial search_papers returns <10 results
+    When NOT needed:
+      - Single-concept or title-match queries
+      - User is in a hurry and wants quick results
+
     Two usage modes:
       1. With query: hybrid search (keyword + semantic + BM25 + reranking).
       2. Without query (query=\"\"): pure filter mode — returns all papers
