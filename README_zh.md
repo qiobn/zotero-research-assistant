@@ -268,6 +268,12 @@ ZOTERO_API_KEY=your_api_key_here
 
 </details>
 
+### 双语检索 Skills
+
+面向 Claude Code 等支持 skill 的客户端，多调用加权双语检索与 GraphRAG 图扩展策略以可加载的 skill 文件发布：
+`.claude/skills/bilingual-search/SKILL.md` 与 `.claude/skills/graph-expansion/SKILL.md`。
+所有 MCP 客户端仍可获得同样的策略——`search_papers` 工具描述中保留了紧凑摘要（槽位/权重表 + 合并规则）。
+
 ---
 
 ## 配置项说明
@@ -289,6 +295,7 @@ ZOTERO_API_KEY=your_api_key_here
 | `ZRA_AUTO_SYNC` | `true` | 启动时自动增量同步 |
 | `ZRA_CLEAN_ENABLED` | `true` | 分块前去除期刊 boilerplate |
 | `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | OPUS-MT 翻译模型缓存目录 (~300MB) |
+| `ZRA_INDEX_BILINGUAL_ENRICHMENT` | `true` | 索引时追加 `[Title_EN]` / `[Keywords_EN]` 提示（仅用于消融实验，关闭后需重建索引） |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | 提升在线搜索速率 |
 | `OPENALEX_MAILTO` | — | OpenAlex 礼貌池 |
 | `UNPAYWALL_EMAIL` | — | Unpaywall OA PDF 查找 |

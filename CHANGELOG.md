@@ -5,7 +5,27 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Search strategy relocated from docstring to skills** — the mandatory 7-call
+  weighted bilingual search strategy and the GraphRAG graph-expansion method are
+  now standalone skill files (`.claude/skills/bilingual-search/SKILL.md`,
+  `.claude/skills/graph-expansion/SKILL.md`) instead of 100+ lines living inside
+  the `search_papers` tool docstring. The docstring keeps a compact actionable
+  summary (slot/weight table + merge rule + short example, ~50% shorter), so all
+  MCP clients keep the same retrieval behavior. `tests/strategy_variants_7call.json`
+  now points to the skill as its authoritative prose source instead of the server
+  code, removing double maintenance of the strategy.
+
 ## [0.4.9] - 2026-07-23
+
+### Changed
+- **Index-time bilingual enrichment is now explicitly configurable** — added
+  `ZRA_INDEX_BILINGUAL_ENRICHMENT` (default `true`) to gate whether Chinese
+  papers append `[Title_EN: ...] [Keywords_EN: ...]` during indexing. This does
+  not change current behavior; it exists so bilingual retrieval ablation can be
+  run cleanly with an explicit rebuild.
 
 ### Fixed
 - **HNSW 索引损坏 "Error loading hnsw index"** — 彻底定位并修复了持续数月的

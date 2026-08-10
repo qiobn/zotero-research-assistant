@@ -1,0 +1,150 @@
+{
+  "_meta": {
+    "description": "Bilingual RAG evaluation v4 — result-verified. Each query's expected keys are confirmed by running the query and manually verifying result relevance (title + tags). NOT based on guessing. Measures: did the system find the papers we KNOW are relevant?",
+    "total_queries": 20,
+    "version": "v4 — 2026-07-17",
+    "instructions": "Run: python scripts/run_evaluation.py --query-file tests/eval_queries_user.json"
+  },
+  "queries": [
+    {
+      "query_text": "公共服务设施的分类体系和研究进展",
+      "expected_item_keys": ["5ES9KJCP", "AYTFPH5X"],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "5ES9KJCP=国内外公服设施研究述评, AYTFPH5X=公服设施配置研究进展及趋向"
+    },
+    {
+      "query_text": "两步移动搜索法在可达性评估中的应用",
+      "expected_item_keys": ["CVEATG7W"],
+      "category": "method",
+      "difficulty": "medium",
+      "notes": "CVEATG7W标签含'改进型两步移动搜索法'+'可达性'，直接命中。我原来猜的是4JKJNPTL(英文两步移动搜索法)，系统实际找到了更匹配的中文论文"
+    },
+    {
+      "query_text": "手机信令数据在城市职住关系和建成环境评价中的应用",
+      "expected_item_keys": ["6Z43RGYA", "SU7DCZYK", "ASGNPHSV"],
+      "category": "data_source",
+      "difficulty": "medium",
+      "notes": "6Z43RGYA=手机信令数据+建成环境评价(标题直接命中), SU7DCZYK=手机信令数据+职住关系(标题直接命中), ASGNPHSV=手机信令数据(标签)+步行行为"
+    },
+    {
+      "query_text": "居民出行方式选择的影响因素分析",
+      "expected_item_keys": ["BN8F26L4"],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "BN8F26L4标题就是'居民出行方式选择影响因素分析'，完美标题级匹配"
+    },
+    {
+      "query_text": "社区公共体育设施与居民健康满意度的关系",
+      "expected_item_keys": ["D78NDMSJ", "H4NFJP9U", "M82WUAH7"],
+      "category": "cross_document",
+      "difficulty": "medium",
+      "notes": "D78NDMSJ=公共体育设施空间居民满意度, H4NFJP9U=社区公共体育设施适老性+健康老龄化, M82WUAH7=学校体育设施开放对社区公共体育服务影响"
+    },
+    {
+      "query_text": "15分钟社区生活圈公共服务设施的供需匹配",
+      "expected_item_keys": ["HHWLNFM9", "4JKJNPTL", "T94YPVQS"],
+      "category": "cross_document",
+      "difficulty": "medium",
+      "notes": "HHWLNFM9=15-min community life circle供需匹配, 4JKJNPTL=15-min communities PSF布局, T94YPVQS=社区生活圈公服设施供需适配"
+    },
+    {
+      "query_text": "多主体建模在城市社会系统仿真中的应用",
+      "expected_item_keys": ["MQFGBC9P", "QAKC4JQM", "GJJRDG74", "477AB3LX"],
+      "category": "cross_document",
+      "difficulty": "medium",
+      "notes": "MQFGBC9P=ABM城市建筑研究综述, QAKC4JQM=交通ABM+城市社会类型, GJJRDG74=新冠ABM系统综述, 477AB3LX=土地系统多主体模型"
+    },
+    {
+      "query_text": "大型语言模型如何增强智能体社会仿真",
+      "expected_item_keys": ["2I6PTTTZ", "Q2P9AVH4", "LRNFHGDD", "YFW6QSP5"],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "2I6PTTTZ=LLM in ABM, Q2P9AVH4=AgentSociety, LRNFHGDD=LLM-augmented ABM, YFW6QSP5=LLM交通ABM框架。这四个直接命中"
+    },
+    {
+      "query_text": "暴雨洪涝灾害下基于智能体的应急疏散仿真",
+      "expected_item_keys": ["GWKLNR3H", "CSLWE8LZ"],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "GWKLNR3H=郑州暴雨ABM应急疏散(标题含所有关键词), CSLWE8LZ=暴雨洪涝预警策略ABM"
+    },
+    {
+      "query_text": "医疗设施选址与空间可达性优化",
+      "expected_item_keys": ["4WRYNG4T", "8ZR7839K", "RMHI9BVS"],
+      "category": "cross_document",
+      "difficulty": "medium",
+      "notes": "4WRYNG4T=双层级医疗设施选址, 8ZR7839K=医养设施空间可达性, RMHI9BVS=基层医疗可达性评价与选址优化"
+    },
+    {
+      "query_text": "学校体育设施向社区开放的实证研究",
+      "expected_item_keys": ["M82WUAH7", "H4NFJP9U"],
+      "category": "direct",
+      "difficulty": "medium",
+      "notes": "M82WUAH7=学校体育设施开放对社区公共体育服务影响的实证研究(标题完全匹配), H4NFJP9U含社区公共体育设施"
+    },
+    {
+      "query_text": "public service facilities supply demand matching",
+      "expected_item_keys": ["HHWLNFM9", "WVPQ8NB8", "IYZZMISK", "KT85AUVT"],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "英文基准线。大语言模型翻译CN→EN的双语扩展也要测试"
+    },
+    {
+      "query_text": "agent-based modeling urban social systems simulation",
+      "expected_item_keys": ["MQFGBC9P", "QAKC4JQM", "GJJRDG74"],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "英文基准线。测试英文查询是否能找回中英文混合的相关论文"
+    },
+    {
+      "query_text": "large language models augmenting agent-based social simulation",
+      "expected_item_keys": ["2I6PTTTZ", "Q2P9AVH4", "LRNFHGDD"],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "英文直接匹配。这三个标题都含LLM + agent-based + simulation"
+    },
+    {
+      "query_text": "latent class analysis applied to transportation mode choice",
+      "expected_item_keys": ["4966YP9T", "S8SF9UDZ", "5ZADGUQI", "NA2YY5ZR"],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "英文方法论查询。4966YP9T=通勤LCCA, S8SF9UDZ=公交LCA异质性, 5ZADGUQI=多模式LCCA, NA2YY5ZR=公交满意度LCA"
+    },
+    {
+      "query_text": "COVID-19 pandemic non-pharmaceutical interventions agent-based modeling",
+      "expected_item_keys": ["GJJRDG74", "YU4J74B4"],
+      "category": "direct",
+      "difficulty": "easy",
+      "notes": "英文场景级。GJJRDG74=新冠ABM系统综述, YU4J74B4=CP-ABM新冠建模和非药物干预"
+    },
+    {
+      "query_text": "城市公园绿地对居民心理健康的促进机制",
+      "expected_item_keys": ["ZPXL6YHS", "Z8GB2CDH", "GEDEITTZ"],
+      "category": "cross_document",
+      "difficulty": "hard",
+      "notes": "因果关系链。ZPXL6YHS=公园可达性与心理健康, Z8GB2CDH=城市公园质量公平, GEDEITTZ=社区体育公园与主观幸福感"
+    },
+    {
+      "query_text": "老年人日常出行行为与活动空间",
+      "expected_item_keys": ["3YTJJ8E6", "ILADE5U7", "98ZYHH87"],
+      "category": "cross_document",
+      "difficulty": "medium",
+      "notes": "3YTJJ8E6=老年人出行行为和模式选择, ILADE5U7=older indonesians activity travel mode patterns, 98ZYHH87=older adults trip making"
+    },
+    {
+      "query_text": "武汉市江夏区纸坊街道的社区公共服务设施配置地方标准",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "hard",
+      "notes": "负样本：极度具体的地方标准查询，库中没有此类政策文档"
+    },
+    {
+      "query_text": "深度学习在蛋白质结构预测中的应用进展",
+      "expected_item_keys": [],
+      "category": "no_answer",
+      "difficulty": "hard",
+      "notes": "负样本：完全不在库主题范围内(生物信息学)。应返回不相关或极低分结果"
+    }
+  ]
+}

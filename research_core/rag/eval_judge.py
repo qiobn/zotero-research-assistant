@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import dataclass
 
 from loguru import logger
+
+
+class JudgeResponseParseError(ValueError):
+    """Raised when the judge API responds but the payload cannot be parsed."""
 
 
 @dataclass
@@ -187,8 +190,10 @@ class LLMJudge:
 
             # Parse JSON response
             parsed = self._parse_response(content, len(papers))
-            return dict(zip([p["key"] for p in papers], parsed))
+            return dict(zip([p["key"] for p in papers], parsed, strict=True))
 
+        except JudgeResponseParseError:
+            raise
         except Exception as e:
             logger.warning(f"Judge API call failed: {e}")
             logger.info("Falling back to tag-based heuristic judge")
@@ -212,7 +217,13 @@ class LLMJudge:
         return "\n".join(lines)
 
     def _parse_response(self, content: str, expected_n: int) -> list[bool]:
-        """Parse the LLM response into a list of booleans."""
+        """Parse the LLM response into a list of booleans.
+
+        Raises JudgeResponseParseError when the judge responded but the payload
+        cannot be interpreted safely. Transport/API failures are handled in
+        _judge_batch(); parse failures should surface to the evaluator so the
+        query is marked as errored instead of contaminating recall statistics.
+        """
         # Try to extract JSON block
         cleaned = content.strip()
         if "```json" in cleaned:
@@ -241,7 +252,10 @@ class LLMJudge:
         except (json.JSONDecodeError, TypeError) as e:
             logger.warning(f"Failed to parse judge response: {e}")
             logger.debug(f"Raw response: {content[:500]}")
-            return [True] * expected_n  # conservative: assume all relevant
+            snippet = content[:500].replace("\n", " ").strip()
+            raise JudgeResponseParseError(
+                f"Judge response was not valid JSON: {snippet}"
+            ) from e
 
     def _tag_heuristic_fallback(
         self, query: str, papers: list[dict]

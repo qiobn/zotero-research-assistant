@@ -1,0 +1,284 @@
+{
+  "_meta": {
+    "description": "Deterministic query variants for the 7-call weighted bilingual strategy.",
+    "strategy": "7call_rrf",
+    "notes": [
+      "Each plan is explicit on purpose: the repo does not auto-translate Chinese queries inside the evaluation harness.",
+      "AUTHORITATIVE STRATEGY SOURCE: .claude/skills/bilingual-search/SKILL.md — this JSON is its machine-readable executable form.",
+      "Weights default to A/B=3, C/D=2, E/F/G=1 (+1 bonus per extra call, max +4) unless overridden explicitly.",
+      "English-source queries may omit unused slots; the harness merges whatever slots are present."
+    ]
+  },
+  "plans": [
+    {
+      "query_id": "Q000",
+      "query_text": "公共服务设施的分类体系和研究进展",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "公共服务设施的分类体系和研究进展",
+        "B": "classification system and research progress of public service facilities",
+        "C": "公共服务设施 分类体系 研究进展",
+        "D": "public service facilities classification research progress",
+        "E": "public facilities service provision classification review",
+        "F": "公共服务设施 配置 类型 演化 综述",
+        "G": "public service provision urban facilities research review"
+      }
+    },
+    {
+      "query_id": "Q001",
+      "query_text": "两步移动搜索法在可达性评估中的应用",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "两步移动搜索法在可达性评估中的应用",
+        "B": "two-step floating catchment area method applied to accessibility evaluation",
+        "C": "两步移动搜索法 可达性 评估",
+        "D": "2SFCA accessibility evaluation",
+        "E": "two-step floating catchment area accessibility measurement",
+        "F": "可达性 评估 方法 两步移动搜索法",
+        "G": "healthcare accessibility spatial accessibility methods"
+      }
+    },
+    {
+      "query_id": "Q002",
+      "query_text": "手机信令数据在城市职住关系和建成环境评价中的应用",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "手机信令数据在城市职住关系和建成环境评价中的应用",
+        "B": "mobile phone signaling data applications in jobs housing relationship and built environment evaluation",
+        "C": "手机信令数据 城市 职住关系 建成环境 评价",
+        "D": "mobile phone signaling jobs housing built environment evaluation",
+        "E": "mobile phone data commuting jobs housing built environment",
+        "F": "建成环境 职住关系 手机信令数据 应用",
+        "G": "urban mobility big data built environment commuting"
+      }
+    },
+    {
+      "query_id": "Q003",
+      "query_text": "居民出行方式选择的影响因素分析",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "居民出行方式选择的影响因素分析",
+        "B": "factors influencing residents travel mode choice",
+        "C": "居民 出行方式 选择 影响因素",
+        "D": "residents travel mode choice factors",
+        "E": "travel behavior mode choice determinants residents",
+        "F": "出行方式选择 居民行为 解释变量",
+        "G": "daily travel behavior mobility decision making"
+      }
+    },
+    {
+      "query_id": "Q004",
+      "query_text": "社区公共体育设施与居民健康满意度的关系",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "社区公共体育设施与居民健康满意度的关系",
+        "B": "relationship between community public sports facilities and resident health satisfaction",
+        "C": "社区 公共体育设施 居民 健康 满意度",
+        "D": "community public sports facilities health satisfaction residents",
+        "E": "community fitness facilities wellbeing satisfaction residents",
+        "F": "居民 健康满意度 社区体育设施 影响因素",
+        "G": "community sports participation neighborhood wellbeing"
+      }
+    },
+    {
+      "query_id": "Q005",
+      "query_text": "15分钟社区生活圈公共服务设施的供需匹配",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "15分钟社区生活圈公共服务设施的供需匹配",
+        "B": "supply demand matching of public service facilities in 15 minute community life circles",
+        "C": "15分钟 社区生活圈 公共服务设施 供需匹配",
+        "D": "15 minute community public service facilities supply demand matching",
+        "E": "15 minute community life circle facility allocation matching",
+        "F": "社区生活圈 公共服务设施 配置 供需适配",
+        "G": "community life circle service provision accessibility"
+      }
+    },
+    {
+      "query_id": "Q006",
+      "query_text": "多主体建模在城市社会系统仿真中的应用",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "多主体建模在城市社会系统仿真中的应用",
+        "B": "agent-based modeling applications in urban social systems simulation",
+        "C": "多主体建模 城市 社会系统 仿真",
+        "D": "agent-based modeling urban social systems simulation",
+        "E": "multi-agent model urban simulation social systems",
+        "F": "城市 社会系统 仿真 多主体模型",
+        "G": "urban simulation complex systems agents"
+      }
+    },
+    {
+      "query_id": "Q007",
+      "query_text": "大型语言模型如何增强智能体社会仿真",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "大型语言模型如何增强智能体社会仿真",
+        "B": "how large language models enhance agent-based social simulation",
+        "C": "大型语言模型 智能体 社会仿真 增强",
+        "D": "large language models agent-based social simulation",
+        "E": "LLM augmented agent-based modeling social simulation",
+        "F": "智能体社会仿真 大语言模型 框架",
+        "G": "generative agents social simulation language models"
+      }
+    },
+    {
+      "query_id": "Q008",
+      "query_text": "暴雨洪涝灾害下基于智能体的应急疏散仿真",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "暴雨洪涝灾害下基于智能体的应急疏散仿真",
+        "B": "agent-based emergency evacuation simulation under rainstorm flood disasters",
+        "C": "暴雨 洪涝灾害 智能体 应急疏散 仿真",
+        "D": "rainstorm flood agent-based evacuation simulation",
+        "E": "flood evacuation ABM emergency response",
+        "F": "应急疏散 仿真 暴雨 洪涝 智能体",
+        "G": "disaster evacuation simulation emergency management"
+      }
+    },
+    {
+      "query_id": "Q009",
+      "query_text": "医疗设施选址与空间可达性优化",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "医疗设施选址与空间可达性优化",
+        "B": "healthcare facility location and spatial accessibility optimization",
+        "C": "医疗设施 选址 空间可达性 优化",
+        "D": "healthcare facility location spatial accessibility optimization",
+        "E": "medical facilities siting accessibility planning",
+        "F": "空间可达性 优化 医疗设施 布局",
+        "G": "health service allocation accessibility"
+      }
+    },
+    {
+      "query_id": "Q010",
+      "query_text": "学校体育设施向社区开放的实证研究",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "学校体育设施向社区开放的实证研究",
+        "B": "empirical study of opening school sports facilities to communities",
+        "C": "学校 体育设施 社区开放 实证研究",
+        "D": "school sports facilities community opening empirical study",
+        "E": "shared school sports facilities community public service",
+        "F": "社区 公共体育服务 学校体育设施 开放",
+        "G": "community sports facility sharing public service"
+      }
+    },
+    {
+      "query_id": "Q011",
+      "query_text": "public service facilities supply demand matching",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "public service facilities supply demand matching",
+        "D": "public service facilities demand supply matching",
+        "E": "public facilities service provision allocation matching",
+        "F": "community service facilities supply demand adaptation",
+        "G": "service provision accessibility facility allocation"
+      }
+    },
+    {
+      "query_id": "Q012",
+      "query_text": "agent-based modeling urban social systems simulation",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "agent-based modeling urban social systems simulation",
+        "D": "ABM urban social systems simulation",
+        "E": "multi-agent urban social simulation",
+        "F": "urban simulation agent systems society",
+        "G": "complex urban systems simulation agents"
+      }
+    },
+    {
+      "query_id": "Q013",
+      "query_text": "large language models augmenting agent-based social simulation",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "large language models augmenting agent-based social simulation",
+        "D": "LLM augmented agent-based social simulation",
+        "E": "language models for agent-based modeling social simulation",
+        "F": "agent society simulation with large language models",
+        "G": "generative agents social simulation"
+      }
+    },
+    {
+      "query_id": "Q014",
+      "query_text": "latent class analysis applied to transportation mode choice",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "latent class analysis applied to transportation mode choice",
+        "D": "latent class analysis transportation mode choice",
+        "E": "latent class choice model travel mode",
+        "F": "heterogeneity travel mode choice latent classes",
+        "G": "travel behavior segmentation mode choice"
+      }
+    },
+    {
+      "query_id": "Q015",
+      "query_text": "COVID-19 pandemic non-pharmaceutical interventions agent-based modeling",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "COVID-19 pandemic non-pharmaceutical interventions agent-based modeling",
+        "D": "COVID-19 non-pharmaceutical interventions ABM",
+        "E": "pandemic agent-based modeling NPI",
+        "F": "epidemic simulation interventions agent-based",
+        "G": "infectious disease simulation public health interventions"
+      }
+    },
+    {
+      "query_id": "Q016",
+      "query_text": "城市公园绿地对居民心理健康的促进机制",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "城市公园绿地对居民心理健康的促进机制",
+        "B": "mechanisms by which urban parks and green spaces promote residents mental health",
+        "C": "城市 公园绿地 居民 心理健康 促进机制",
+        "D": "urban parks green space mental health mechanisms",
+        "E": "urban green space wellbeing psychological health",
+        "F": "居民 心理健康 公园 可达性 影响机制",
+        "G": "urban green space health wellbeing"
+      }
+    },
+    {
+      "query_id": "Q017",
+      "query_text": "老年人日常出行行为与活动空间",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "老年人日常出行行为与活动空间",
+        "B": "older adults daily travel behavior and activity space",
+        "C": "老年人 日常 出行行为 活动空间",
+        "D": "older adults travel behavior activity space",
+        "E": "elderly mobility activity travel patterns",
+        "F": "活动空间 老年人 出行模式 日常行为",
+        "G": "older adults daily mobility trip making"
+      }
+    },
+    {
+      "query_id": "Q018",
+      "query_text": "武汉市江夏区纸坊街道的社区公共服务设施配置地方标准",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "武汉市江夏区纸坊街道的社区公共服务设施配置地方标准",
+        "B": "community public service facility allocation standards for Zhifang Street Jiangxia District Wuhan",
+        "C": "武汉 江夏区 纸坊街道 社区公共服务设施 标准",
+        "D": "Wuhan Jiangxia Zhifang community public service facility standards",
+        "E": "local standards community service facilities Wuhan",
+        "F": "社区 公共服务设施 配置 标准 地方规范",
+        "G": "public service facility standards community planning"
+      }
+    },
+    {
+      "query_id": "Q019",
+      "query_text": "深度学习在蛋白质结构预测中的应用进展",
+      "strategy": "7call_rrf",
+      "variants": {
+        "A": "深度学习在蛋白质结构预测中的应用进展",
+        "B": "progress of deep learning in protein structure prediction",
+        "C": "深度学习 蛋白质结构 预测 应用进展",
+        "D": "deep learning protein structure prediction",
+        "E": "protein folding deep neural networks",
+        "F": "蛋白质 结构预测 深度学习 综述",
+        "G": "computational biology protein modeling"
+      }
+    }
+  ]
+}

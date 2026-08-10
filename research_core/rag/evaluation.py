@@ -45,6 +45,7 @@ class SingleQueryResult:
     recall_at_10: float = 0.0
     recall_at_20: float = 0.0
     reciprocal_rank: float = 0.0
+    ndcg_at_10: float = 0.0
     first_hit_rank: int = 0  # 1-indexed, 0 = no hit
     total_expected: int = 0
     latency_ms: float = 0.0
@@ -55,7 +56,10 @@ class SingleQueryResult:
 class EvalResult:
     """Aggregated evaluation results."""
     total_queries: int = 0
+    valid_queries: int = 0
     queries_with_errors: int = 0
+    no_answer_queries: int = 0
+    no_answer_with_hits: int = 0
     recall_at_5: float = 0.0
     recall_at_10: float = 0.0
     recall_at_20: float = 0.0
@@ -68,26 +72,36 @@ class EvalResult:
 
     def summary(self) -> str:
         lines = [
-            f"Eval: {self.total_queries} queries ({self.queries_with_errors} errors)",
+            f"Eval: {self.total_queries} total, {self.valid_queries} valid, "
+            f"{self.queries_with_errors} errors",
             f"  Recall@5:  {self.recall_at_5:.3f}",
             f"  Recall@10: {self.recall_at_10:.3f}",
             f"  Recall@20: {self.recall_at_20:.3f}",
             f"  MRR:       {self.mrr:.3f}",
             f"  NDCG@10:   {self.ndcg_at_10:.3f}",
         ]
+        if self.no_answer_queries:
+            lines.append(
+                f"  No-answer diagnostics: {self.no_answer_with_hits}/{self.no_answer_queries} "
+                f"queries returned hits"
+            )
         if self.by_category:
             lines.append("  By category:")
             for cat, stats in self.by_category.items():
                 lines.append(
                     f"    {cat}: R@10={stats['recall_at_10']:.3f}, "
-                    f"MRR={stats['mrr']:.3f}, n={stats['count']}"
+                    f"MRR={stats['mrr']:.3f}, n={stats['count']}, "
+                    f"valid={stats['valid_count']}, errors={stats['error_count']}"
                 )
         return "\n".join(lines)
 
     def to_dict(self) -> dict:
         return {
             "total_queries": self.total_queries,
+            "valid_queries": self.valid_queries,
             "queries_with_errors": self.queries_with_errors,
+            "no_answer_queries": self.no_answer_queries,
+            "no_answer_with_hits": self.no_answer_with_hits,
             "recall_at_5": self.recall_at_5,
             "recall_at_10": self.recall_at_10,
             "recall_at_20": self.recall_at_20,
@@ -99,10 +113,19 @@ class EvalResult:
             "per_query": [
                 {
                     "query_id": r.query_id,
+                    "query_text": r.query_text,
                     "category": r.category,
+                    "total_expected": r.total_expected,
+                    "hits_at_5": r.hits_at_5,
+                    "hits_at_10": r.hits_at_10,
+                    "hits_at_20": r.hits_at_20,
+                    "recall_at_5": r.recall_at_5,
                     "recall_at_10": r.recall_at_10,
+                    "recall_at_20": r.recall_at_20,
                     "mrr": r.reciprocal_rank,
+                    "ndcg_at_10": r.ndcg_at_10,
                     "first_hit_rank": r.first_hit_rank,
+                    "latency_ms": r.latency_ms,
                     "error": r.error,
                 }
                 for r in self.per_query
@@ -131,6 +154,14 @@ def _ndcg(retrieved_keys: list[str], expected_keys: set[str], k: int) -> float:
     if ideal_dcg == 0:
         return 0.0
     return actual_dcg / ideal_dcg
+
+
+def _recall_at_k(retrieved_keys: list[str], expected_keys: set[str], k: int) -> float:
+    """Recall at k for a fixed expected set."""
+    if not expected_keys:
+        return 1.0
+    hits = len(set(retrieved_keys[:k]) & expected_keys)
+    return hits / len(expected_keys)
 
 
 def evaluate_retrieval(
@@ -164,7 +195,7 @@ def evaluate_retrieval(
 
     t0 = time.time()
 
-    for i, q in enumerate(queries):
+    for _i, q in enumerate(queries):
         sqr = SingleQueryResult(
             query_id=q.query_id,
             query_text=q.query_text,
@@ -184,16 +215,9 @@ def evaluate_retrieval(
             retrieved_keys = [r.item_key for r in results]
             expected = set(q.expected_item_keys)
 
-            # Recall at each cutoff
-            def _recall_at(k: int) -> float:
-                if not expected:
-                    return 1.0
-                hits = len(set(retrieved_keys[:k]) & expected)
-                return hits / len(expected)
-
-            sqr.recall_at_5 = _recall_at(5)
-            sqr.recall_at_10 = _recall_at(10)
-            sqr.recall_at_20 = _recall_at(20)
+            sqr.recall_at_5 = _recall_at_k(retrieved_keys, expected, 5)
+            sqr.recall_at_10 = _recall_at_k(retrieved_keys, expected, 10)
+            sqr.recall_at_20 = _recall_at_k(retrieved_keys, expected, 20)
             sqr.hits_at_5 = retrieved_keys[:5]
             sqr.hits_at_10 = retrieved_keys[:10]
             sqr.hits_at_20 = retrieved_keys[:20]
@@ -207,24 +231,31 @@ def evaluate_retrieval(
                     break
 
             # NDCG
-            sqr.ndcg_10 = _ndcg(retrieved_keys, expected, 10)
+            sqr.ndcg_at_10 = _ndcg(retrieved_keys, expected, 10)
+
+            if not expected:
+                result.no_answer_queries += 1
+                if retrieved_keys:
+                    result.no_answer_with_hits += 1
 
         except Exception as e:
             sqr.error = str(e)
             result.queries_with_errors += 1
             logger.warning(f"Query '{q.query_id}' failed: {e}")
 
-        all_recall_5.append(sqr.recall_at_5)
-        all_recall_10.append(sqr.recall_at_10)
-        all_recall_20.append(sqr.recall_at_20)
-        all_mrr.append(sqr.reciprocal_rank)
-        all_ndcg_10.append(sqr.ndcg_10)
+        if not sqr.error:
+            result.valid_queries += 1
+            all_recall_5.append(sqr.recall_at_5)
+            all_recall_10.append(sqr.recall_at_10)
+            all_recall_20.append(sqr.recall_at_20)
+            all_mrr.append(sqr.reciprocal_rank)
+            all_ndcg_10.append(sqr.ndcg_at_10)
         result.per_query.append(sqr)
 
     result.elapsed_seconds = time.time() - t0
 
-    # Aggregate
-    n = len(queries)
+    # Aggregate over valid (non-error) queries only
+    n = result.valid_queries
     if n > 0:
         result.recall_at_5 = sum(all_recall_5) / n
         result.recall_at_10 = sum(all_recall_10) / n
@@ -238,18 +269,29 @@ def evaluate_retrieval(
         cat = sqr.category or "unknown"
         if cat not in cat_results:
             cat_results[cat] = {
-                "count": 0, "recall_at_5": 0.0, "recall_at_10": 0.0,
-                "recall_at_20": 0.0, "mrr": 0.0, "ndcg_at_10": 0.0,
+                "count": 0,
+                "valid_count": 0,
+                "error_count": 0,
+                "recall_at_5": 0.0,
+                "recall_at_10": 0.0,
+                "recall_at_20": 0.0,
+                "mrr": 0.0,
+                "ndcg_at_10": 0.0,
             }
-        cat_results[cat]["count"] += 1
-        cat_results[cat]["recall_at_5"] += sqr.recall_at_5
-        cat_results[cat]["recall_at_10"] += sqr.recall_at_10
-        cat_results[cat]["recall_at_20"] += sqr.recall_at_20
-        cat_results[cat]["mrr"] += sqr.reciprocal_rank
-        cat_results[cat]["ndcg_at_10"] += sqr.ndcg_10
+        stats = cat_results[cat]
+        stats["count"] += 1
+        if sqr.error:
+            stats["error_count"] += 1
+            continue
+        stats["valid_count"] += 1
+        stats["recall_at_5"] += sqr.recall_at_5
+        stats["recall_at_10"] += sqr.recall_at_10
+        stats["recall_at_20"] += sqr.recall_at_20
+        stats["mrr"] += sqr.reciprocal_rank
+        stats["ndcg_at_10"] += sqr.ndcg_at_10
 
-    for cat, stats in cat_results.items():
-        c = stats["count"]
+    for _cat, stats in cat_results.items():
+        c = stats["valid_count"]
         for metric in ["recall_at_5", "recall_at_10", "recall_at_20", "mrr", "ndcg_at_10"]:
             stats[metric] = round(stats[metric] / c, 4) if c > 0 else 0.0
     result.by_category = cat_results
@@ -292,7 +334,7 @@ def evaluate_full_pipeline(
 
     t0 = time.time()
 
-    for i, q in enumerate(queries):
+    for _i, q in enumerate(queries):
         sqr = SingleQueryResult(
             query_id=q.query_id,
             query_text=q.query_text,
@@ -317,15 +359,9 @@ def evaluate_full_pipeline(
             retrieved_keys = [h.key for h in hits]
             expected = set(q.expected_item_keys)
 
-            def _recall_at(k: int) -> float:
-                if not expected:
-                    return 1.0
-                hits_n = len(set(retrieved_keys[:k]) & expected)
-                return hits_n / len(expected)
-
-            sqr.recall_at_5 = _recall_at(5)
-            sqr.recall_at_10 = _recall_at(10)
-            sqr.recall_at_20 = _recall_at(20)
+            sqr.recall_at_5 = _recall_at_k(retrieved_keys, expected, 5)
+            sqr.recall_at_10 = _recall_at_k(retrieved_keys, expected, 10)
+            sqr.recall_at_20 = _recall_at_k(retrieved_keys, expected, 20)
             sqr.hits_at_5 = retrieved_keys[:5]
             sqr.hits_at_10 = retrieved_keys[:10]
             sqr.hits_at_20 = retrieved_keys[:20]
@@ -339,24 +375,31 @@ def evaluate_full_pipeline(
                     break
 
             # NDCG
-            sqr.ndcg_10 = _ndcg(retrieved_keys, expected, 10)
+            sqr.ndcg_at_10 = _ndcg(retrieved_keys, expected, 10)
+
+            if not expected:
+                result.no_answer_queries += 1
+                if retrieved_keys:
+                    result.no_answer_with_hits += 1
 
         except Exception as e:
             sqr.error = str(e)
             result.queries_with_errors += 1
             logger.warning(f"Query '{q.query_id}' failed (full pipeline): {e}")
 
-        all_recall_5.append(sqr.recall_at_5)
-        all_recall_10.append(sqr.recall_at_10)
-        all_recall_20.append(sqr.recall_at_20)
-        all_mrr.append(sqr.reciprocal_rank)
-        all_ndcg_10.append(sqr.ndcg_10)
+        if not sqr.error:
+            result.valid_queries += 1
+            all_recall_5.append(sqr.recall_at_5)
+            all_recall_10.append(sqr.recall_at_10)
+            all_recall_20.append(sqr.recall_at_20)
+            all_mrr.append(sqr.reciprocal_rank)
+            all_ndcg_10.append(sqr.ndcg_at_10)
         result.per_query.append(sqr)
 
     result.elapsed_seconds = time.time() - t0
 
-    # Aggregate
-    n = len(queries)
+    # Aggregate over valid (non-error) queries only
+    n = result.valid_queries
     if n > 0:
         result.recall_at_5 = sum(all_recall_5) / n
         result.recall_at_10 = sum(all_recall_10) / n
@@ -370,18 +413,29 @@ def evaluate_full_pipeline(
         cat = sqr.category or "unknown"
         if cat not in cat_results:
             cat_results[cat] = {
-                "count": 0, "recall_at_5": 0.0, "recall_at_10": 0.0,
-                "recall_at_20": 0.0, "mrr": 0.0, "ndcg_at_10": 0.0,
+                "count": 0,
+                "valid_count": 0,
+                "error_count": 0,
+                "recall_at_5": 0.0,
+                "recall_at_10": 0.0,
+                "recall_at_20": 0.0,
+                "mrr": 0.0,
+                "ndcg_at_10": 0.0,
             }
-        cat_results[cat]["count"] += 1
-        cat_results[cat]["recall_at_5"] += sqr.recall_at_5
-        cat_results[cat]["recall_at_10"] += sqr.recall_at_10
-        cat_results[cat]["recall_at_20"] += sqr.recall_at_20
-        cat_results[cat]["mrr"] += sqr.reciprocal_rank
-        cat_results[cat]["ndcg_at_10"] += sqr.ndcg_10
+        stats = cat_results[cat]
+        stats["count"] += 1
+        if sqr.error:
+            stats["error_count"] += 1
+            continue
+        stats["valid_count"] += 1
+        stats["recall_at_5"] += sqr.recall_at_5
+        stats["recall_at_10"] += sqr.recall_at_10
+        stats["recall_at_20"] += sqr.recall_at_20
+        stats["mrr"] += sqr.reciprocal_rank
+        stats["ndcg_at_10"] += sqr.ndcg_at_10
 
-    for cat, stats in cat_results.items():
-        c = stats["count"]
+    for _cat, stats in cat_results.items():
+        c = stats["valid_count"]
         for metric in ["recall_at_5", "recall_at_10", "recall_at_20", "mrr", "ndcg_at_10"]:
             stats[metric] = round(stats[metric] / c, 4) if c > 0 else 0.0
     result.by_category = cat_results
@@ -403,11 +457,11 @@ def compare_results(before: EvalResult, after: EvalResult) -> dict:
         "mrr": _delta(after.mrr, before.mrr),
         "ndcg_at_10": _delta(after.ndcg_at_10, before.ndcg_at_10),
         "queries_improved": sum(
-            1 for a, b in zip(after.per_query, before.per_query)
+            1 for a, b in zip(after.per_query, before.per_query, strict=True)
             if a.recall_at_10 > b.recall_at_10
         ),
         "queries_regressed": sum(
-            1 for a, b in zip(after.per_query, before.per_query)
+            1 for a, b in zip(after.per_query, before.per_query, strict=True)
             if a.recall_at_10 < b.recall_at_10
         ),
     }

@@ -21,6 +21,8 @@ from research_core.rag.evaluation import (
     EvalQuery,
     EvalResult,
     compare_results,
+    evaluate_full_pipeline,
+    evaluate_retrieval,
 )
 from research_core.rag.retriever import Retriever
 from research_core.zotero.client import ZoteroClient
@@ -81,8 +83,6 @@ def main():
     print("Connecting to Zotero...")
     zot = ZoteroClient(library_id="0", local=True)
     retriever = Retriever(persist_dir=args.persist_dir)
-
-    from research_core.rag.evaluation import evaluate_retrieval, evaluate_full_pipeline
 
     if args.full_pipeline:
         label = args.label or "full-pipeline"
@@ -145,6 +145,10 @@ def main():
         # Reconstruct baseline result (minimal — just metrics)
         baseline = EvalResult(
             total_queries=baseline_data["total_queries"],
+            valid_queries=baseline_data.get("valid_queries", baseline_data["total_queries"]),
+            queries_with_errors=baseline_data.get("queries_with_errors", 0),
+            no_answer_queries=baseline_data.get("no_answer_queries", 0),
+            no_answer_with_hits=baseline_data.get("no_answer_with_hits", 0),
             recall_at_5=baseline_data["recall_at_5"],
             recall_at_10=baseline_data["recall_at_10"],
             recall_at_20=baseline_data["recall_at_20"],

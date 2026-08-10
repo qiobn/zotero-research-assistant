@@ -281,6 +281,14 @@ Verify: `codex mcp list`.
 
 </details>
 
+### Bilingual Search Skills
+
+For Claude Code and other skill-aware clients, the mandatory multi-call bilingual
+search and GraphRAG expansion strategies ship as loadable skills:
+`.claude/skills/bilingual-search/SKILL.md` and `.claude/skills/graph-expansion/SKILL.md`.
+Every MCP client still gets the same strategy — `search_papers` carries a condensed
+summary (slot/weight table + merge rule) in its tool description.
+
 ---
 
 ## Configuration
@@ -302,6 +310,7 @@ Verify: `codex mcp list`.
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on startup |
 | `ZRA_CLEAN_ENABLED` | `true` | Strip journal boilerplate before chunking |
 | `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | Cache directory for OPUS-MT translation model (~300MB) |
+| `ZRA_INDEX_BILINGUAL_ENRICHMENT` | `true` | Append `[Title_EN]` / `[Keywords_EN]` hints during indexing (set `false` only for ablation + reindex) |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | Higher rate limits for online search |
 | `OPENALEX_MAILTO` | — | OpenAlex polite pool |
 | `UNPAYWALL_EMAIL` | — | Unpaywall OA PDF lookup |

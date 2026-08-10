@@ -15,12 +15,17 @@ build/
 .vscode/
 .idea/
 .cursor/
-.claude/
 *.swp
 *.swo
 
+# Claude Code: keep local config (settings, worktrees) ignored, but TRACK skills/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
+
 # ChromaDB / Vector store
 .chroma_db/
+.chroma_ablate_*/
 
 # Sync state + retrieval logs (generated per-machine, inside .chroma_db/)
 _sync_state.json

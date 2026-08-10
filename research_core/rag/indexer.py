@@ -17,6 +17,15 @@ _NMT_LOCK = threading.Lock()
 _nmt_pipeline = None  # lazy-loaded: (tokenizer, model)
 
 
+def _index_bilingual_enrichment_enabled() -> bool:
+    """Whether to append translated title/keyword hints during indexing.
+
+    Defaults to enabled so current retrieval behavior stays unchanged. This is
+    exposed as a config switch for ablation experiments only.
+    """
+    return os.getenv("ZRA_INDEX_BILINGUAL_ENRICHMENT", "true").lower() == "true"
+
+
 def _is_chinese_text(text: str, threshold: float = 0.3) -> bool:
     """Detect if a text is primarily Chinese by CJK character ratio."""
     if not text:
@@ -146,12 +155,14 @@ def _enrich_chunk_text(
         parts.append(f"[Section: {short_section}]")
 
     # Bilingual enrichment: for Chinese papers, append English translations
-    # so BM25 can match English queries against Chinese content.
-    trans = _translate_paper_metadata(title, keywords)
-    if trans.get("title_en"):
-        parts.append(f"[Title_EN: {trans['title_en'][:150]}]")
-    if trans.get("keywords_en"):
-        parts.append(f"[Keywords_EN: {trans['keywords_en'][:200]}]")
+    # so BM25 can match English queries against Chinese content. This remains
+    # enabled by default; the env switch is only for controlled ablation runs.
+    if _index_bilingual_enrichment_enabled():
+        trans = _translate_paper_metadata(title, keywords)
+        if trans.get("title_en"):
+            parts.append(f"[Title_EN: {trans['title_en'][:150]}]")
+        if trans.get("keywords_en"):
+            parts.append(f"[Keywords_EN: {trans['keywords_en'][:200]}]")
 
     if not parts:
         return chunk.text

@@ -7,6 +7,37 @@
 
 ---
 
+## 策略外置为 Skills: docstring → .claude/skills (2026-08-10)
+
+### 问题
+
+7-call 双语检索策略和 GraphRAG 图扩展策略以 100+ 行散文形式内嵌在 `search_papers` 的 docstring 中,带来三个问题:
+
+1. **Token 成本** — 每次调用 `search_papers`(哪怕纯标题匹配)都要把 ~5600 字符的策略完整注入 LLM 上下文,稀释注意力
+2. **不可复用** — 策略与 search_papers 强耦合,无法被其他工具/场景复用,也无法按需加载、版本化、单独测试
+3. **双份维护** — `tests/strategy_variants_7call.json` 必须手工"重建"docstring 里的策略才能做确定性评估,策略改动要同步两处
+
+### 方案
+
+把策略从 docstring 抽离为独立 skill 文件(Claude Code 标准格式),能力保留在 MCP 层:
+
+- `.claude/skills/bilingual-search/SKILL.md` — 7-call 加权双语检索 + RRF 合并(槽位权重表、合并公式、完整示例、评估对齐说明)
+- `.claude/skills/graph-expansion/SKILL.md` — 种子发现 → 图扩展(`find_similar_papers` / 标签搜索 / 引用网络)→ 按出现频率合并
+
+### 技术决策
+
+- **docstring 不全删,压到一半** — 非 skill 客户端(Cherry Studio / Claude Desktop)无法按需加载 skill,完全移除会退化它们的检索质量。因此 docstring 保留紧凑可执行版(槽位/权重/合并规则/精简示例),115 → 59 行,约省 50% 常驻上下文
+- **JSON 是机器可执行形态,skill 是权威散文形态** — `tests/strategy_variants_7call.json` 的 `_meta` 现在指向 skill 文件,策略只有一份散文权威来源,消除双份维护
+- **FastMCP 3.4.2 原生支持 skill**(SKILL.md 可作为 MCP resource 暴露),后续可让同一份 skill 文件同时服务 skill 感知客户端
+
+### 后续优化方向
+
+- 用 FastMCP skills provider 把 `.claude/skills/` 暴露为 MCP resource,让 Claude Desktop / Cherry Studio 也能读取
+- 从 strategy JSON 自动生成 docstring 策略段,彻底消除双份维护
+- 把 CORPUS-FIRST 文献发现策略也从 `instructions=` 下沉到 skill
+
+---
+
 ## v0.4.0-dev — 双语检索增强 (2026-07-14)
 
 ### NMT 查询翻译 (Layer 4): OPUS-MT CN→EN (2026-07-14)
@@ -56,7 +87,28 @@
 
 ---
 
-## v0.4.9-dev — HNSW 索引损坏根因分析与修复 (2026-07-23)
+## v0.4.9-dev — Retrieval Evaluation Hardening & Ablation Controls (2026-07-28)
+
+### Index-time bilingual enrichment ablation switch (2026-07-28)
+
+**Problem:** 查询侧双语策略已经外置给外部 LLM，但索引侧仍保留中译英 metadata 富化（`[Title_EN]` / `[Keywords_EN]`）。在没有显式开关的情况下，无法做干净的 bilingual ablation，也难以回答“当前跨语种效果到底来自多调用策略还是索引时英译提示”。
+
+**Solution:** 在 `research_core/rag/indexer.py` 增加 `ZRA_INDEX_BILINGUAL_ENRICHMENT` 环境变量，默认值为 `true`。`_enrich_chunk_text()` 只在该开关开启时追加 `[Title_EN]` / `[Keywords_EN]`，从而允许通过“关开关 + 重建索引”进行受控对照实验。
+
+**Technical decisions:**
+- 默认保持 `true`，确保当前业务检索行为完全不变
+- 仅把它定位为**消融实验开关**，不是日常建议配置
+- 不修改查询侧逻辑、不移除 OPUS-MT、不改变已有索引格式；只有显式关闭并重建索引时才会影响行为
+- 文档同步到 `.env.example`、`README.md`、`README_zh.md`、`CHANGELOG.md`
+
+**Why this shape:**
+- 用户明确要求：所有业务逻辑变动先确认；这次只批准“加开关”这一项
+- 先做显式变量，比直接删除逻辑安全，也更适合跑前后对照
+
+**How to use:**
+1. 保持默认：不设置该变量，当前行为不变
+2. 做消融：设置 `ZRA_INDEX_BILINGUAL_ENRICHMENT=false`
+3. 重建索引后再运行同一套 recall/strategy evaluation，比较差异
 
 ### 问题复现: ChromaDB "Error loading hnsw index" (2026-07-23)
 

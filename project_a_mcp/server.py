@@ -561,93 +561,32 @@ def search_papers(
     Pure single-query retrieval engine: BM25 + Dense (bge-m3) + Cross-Encoder
     + MMR diversity. No internal query rewriting or translation.
 
-    *** BILINGUAL SEARCH — MANDATORY MULTI-CALL STRATEGY ***
+    *** BILINGUAL SEARCH — MULTI-CALL IS MANDATORY ***
+    For each Chinese query make 5-7 calls and weight-merge the results
+    (single/dual-call recall is measurably lower):
 
-    Single-vector embedding can only approximate one semantic direction.
-    To match the recall of a full search pipeline (dictionary + NMT +
-    tags + decomposition), you MUST make 5-7 calls per Chinese query.
-    This is NOT optional — single-call or dual-call recall is significantly
-    lower than what a proper multi-query strategy achieves.
+      A. CN original               (w3)
+      B. EN full translation       (w3)
+      C. CN keywords-only          (w2)
+      D. EN keywords               (w2)
+      E. EN + expand_query() syns  (w1)
+      F. Reverse angle             (w1)
+      G. Broader concept           (w1)
 
-    === MANDATORY CALLS FOR CHINESE QUERIES (5-7 calls) ===
+    Merge: score = sum(slot weights) + 1 bonus per extra call (max +4);
+    sort descending, dedup, present top 15-20.
+    E.g. "社区公共体育设施与居民健康满意度的关系":
+      A→CN original, B→community public sports facilities resident health
+      satisfaction, C→公共体育设施 健康 满意度, D→public sports facilities
+      health satisfaction, E→expand_query("公共体育设施"), F→居民 主观幸福感
+      社区体育设施, G→community sports participation neighborhood wellbeing.
 
-    A. CN ORIGINAL (weight: high):
-       search_papers("original Chinese query text")
-
-    B. EN TRANSLATION (weight: high):
-       translate the FULL query to academic English
-       search_papers("your full EN translation")
-
-    C. CN KEYWORDS-ONLY (weight: medium):
-       extract 3-6 core keywords, drop function words (的/与/和/在/中)
-       search_papers("关键词1 关键词2 关键词3 ...")
-
-    D. EN KEYWORDS (weight: medium):
-       translate those keywords to English
-       search_papers("keyword1 keyword2 keyword3 ...")
-
-    E. EXPANDED EN with SYNONYMS (weight: low):
-       call expand_query() for methodology terms, combine with EN keywords
-       search_papers("synonym1 synonym2 keyword1 keyword2 ...")
-
-    F. REVERSE/COMPLEMENTARY ANGLE (weight: low, for cross-document/causal):
-       reformulate from the opposite perspective
-       e.g. "A对B的影响" → search_papers("B的影响因素 A")
-       e.g. "设施满意度" → search_papers("公共体育设施 居民 主观感受 评价")
-
-    G. (optional) BROADER CONCEPT:
-       search_papers with a broader framing of the topic
-       e.g. "老年人出行行为" → search_papers("older adults mobility daily activity")
-
-    === MERGE STRATEGY (RRF-like weighting) ===
-
-    Pool all results from calls A-G. Score each paper:
-      score = 0
-      +3 if in call A (original) or B (EN translation)
-      +2 if in call C (CN keywords) or D (EN keywords)
-      +1 if in call E (synonyms) or F (reverse) or G (broad)
-      +1 bonus per additional call (up to +4)
-    Sort by score descending, break ties by best individual rank.
-    Remove duplicates. Present top 15-20.
-
-    === COMPLETE EXAMPLE — "社区公共体育设施与居民健康满意度的关系" ===
-    A. search_papers("社区公共体育设施 居民 健康 满意度 关系")
-    B. search_papers("community public sports facilities resident health satisfaction impact relationship")
-    C. search_papers("公共体育设施 健康 满意度 影响 因素 居民")
-    D. search_papers("public sports facilities health satisfaction wellbeing residents")
-    E. expand_query("公共体育设施") → use synonyms
-       search_papers("public sports infrastructure community fitness facilities health outcomes")
-    F. search_papers("居民 主观幸福感 社区体育设施 影响 因素")   ← reverse: B→A
-    G. search_papers("community sports participation neighborhood wellbeing") ← broader
-    → Weight-merge 7 result sets by RRF score, present top 20
-
-    *** GRAPH EXPANSION — FOR MAXIMAL RECALL ***
-    After the 5-7 multi-angle calls above, use EXISTING tools for graph
-    expansion around the top seed papers. Zero new dependencies.
-
-    STEP 1 — Seed discovery:
-      Run the 5-7 search_papers calls as described above.
-      Identify the top 3-5 most promising papers from merged results.
-
-    STEP 2 — Graph expansion (for each top seed paper):
-      → find_similar_papers(seed_key, limit=10)
-        (vector-based similar content — finds papers missed by keyword search)
-      → search_papers with the seed paper's KEY TAGS
-        (e.g. search_papers("", tags_include=["两步移动搜索法", "可达性"]))
-      → expand_citation_network(seed_doi)
-        (forward/backward citations via OpenAlex — finds citing/cited papers)
-
-    STEP 3 — Merge all results:
-      Pool everything from Steps 1+2, sort by frequency (papers found in
-      3+ expansion paths rank highest), remove duplicates, present to user.
-
-    When to use graph expansion:
-      - Cross-document / relationship queries (need broad coverage)
-      - User explicitly asks for comprehensive literature review
-      - Initial search_papers returns <10 results
-    When NOT needed:
-      - Single-concept or title-match queries
-      - User is in a hurry and wants quick results
+    *** GRAPH EXPANSION (maximal recall) ***
+    For cross-document queries, comprehensive review, or <10 results: pick the
+    top 3-5 seeds, then per seed run find_similar_papers(seed),
+    tag-based search_papers, and expand_citation_network(seed_doi); pool all
+    and sort by appearance frequency. Skip for quick/title-match queries.
+    (Full methodology lives in the bilingual-search and graph-expansion skills.)
 
     Two usage modes:
       1. With query: hybrid search (keyword + semantic + BM25 + reranking).

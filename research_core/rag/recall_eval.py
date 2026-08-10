@@ -28,11 +28,15 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from research_core.rag.eval_judge import LLMJudge
+from research_core.zotero.client import ZoteroClient
+
+if TYPE_CHECKING:
+    from research_core.tools.search import PaperHit
 
 
 @dataclass
@@ -113,11 +117,13 @@ class RecallEvalResult:
     per_query: list[SingleQueryRecallResult] = field(default_factory=list)
     by_category: dict[str, dict[str, Any]] = field(default_factory=dict)
     elapsed_seconds: float = 0.0
+    valid_queries: int = 0
 
     def summary(self) -> str:
         lines = [
             f"Recall Evaluation (judge: {self.judge_model})",
-            f"  Queries: {self.total_queries} ({self.queries_with_errors} errors)",
+            f"  Queries: {self.total_queries} total, {self.valid_queries} valid, "
+            f"{self.queries_with_errors} errors",
             f"  Pool: {self.total_pool_entries} query-paper pairs judged, "
             f"{self.total_relevant} relevant",
             "",
@@ -141,7 +147,8 @@ class RecallEvalResult:
             lines.append("  ── By Category ──")
             for cat, stats in sorted(self.by_category.items()):
                 lines.append(
-                    f"    {cat} (n={stats['count']}): "
+                    f"    {cat} (n={stats['count']}, valid={stats['valid_count']}, "
+                    f"errors={stats['error_count']}): "
                     f"R@10={stats['recall_at_10']:.1%}, "
                     f"P@10={stats['precision_at_10']:.1%}, "
                     f"MRR={stats['mrr']:.3f}"
@@ -153,6 +160,7 @@ class RecallEvalResult:
             "judge_model": self.judge_model,
             "total_queries": self.total_queries,
             "queries_with_errors": self.queries_with_errors,
+            "valid_queries": self.valid_queries,
             "total_pool_entries": self.total_pool_entries,
             "total_relevant": self.total_relevant,
             "recall_at_5": round(self.recall_at_5, 4),
@@ -183,6 +191,7 @@ class RecallEvalResult:
                     "ndcg_at_10": round(r.ndcg_at_10, 4),
                     "first_relevant_rank": r.first_relevant_rank,
                     "error": r.error,
+                    "latency_ms": round(r.latency_ms, 1),
                 }
                 for r in self.per_query
             ],
@@ -224,7 +233,7 @@ def evaluate_recall(
     )
     t0 = time.time()
 
-    # Stats accumulators
+    # Stats accumulators (valid queries only; errored queries are tracked separately)
     all_recall_5: list[float] = []
     all_recall_10: list[float] = []
     all_recall_20: list[float] = []
@@ -247,18 +256,12 @@ def evaluate_recall(
 
         if sqr.error:
             result.queries_with_errors += 1
-            # Still accumulate metrics (zeros) for consistency
-            all_recall_5.append(sqr.recall_at_5)
-            all_recall_10.append(sqr.recall_at_10)
-            all_recall_20.append(sqr.recall_at_20)
-            all_recall_50.append(sqr.recall_at_50)
-            all_precision_5.append(sqr.precision_at_5)
-            all_precision_10.append(sqr.precision_at_10)
-            all_precision_20.append(sqr.precision_at_20)
-            all_mrr.append(sqr.mrr)
-            all_ndcg_10.append(sqr.ndcg_at_10)
+            logger.warning(
+                f"[{q_idx + 1}/{len(queries)}] {q.query_id}: ERROR {sqr.error}"
+            )
             continue
 
+        result.valid_queries += 1
         all_recall_5.append(sqr.recall_at_5)
         all_recall_10.append(sqr.recall_at_10)
         all_recall_20.append(sqr.recall_at_20)
@@ -279,18 +282,18 @@ def evaluate_recall(
             f"relevant={sqr.pool_relevant}/{sqr.pool_judged}"
         )
 
-    # Aggregate (skip error-only queries from average for cleaner metrics)
-    n_valid = len(queries) - result.queries_with_errors
+    # Aggregate over valid (non-error) queries only
+    n_valid = result.valid_queries
     if n_valid > 0:
-        result.recall_at_5 = sum(all_recall_5) / len(queries)
-        result.recall_at_10 = sum(all_recall_10) / len(queries)
-        result.recall_at_20 = sum(all_recall_20) / len(queries)
-        result.recall_at_50 = sum(all_recall_50) / len(queries)
-        result.precision_at_5 = sum(all_precision_5) / len(queries)
-        result.precision_at_10 = sum(all_precision_10) / len(queries)
-        result.precision_at_20 = sum(all_precision_20) / len(queries)
-        result.mrr = sum(all_mrr) / len(queries)
-        result.ndcg_at_10 = sum(all_ndcg_10) / len(queries)
+        result.recall_at_5 = sum(all_recall_5) / n_valid
+        result.recall_at_10 = sum(all_recall_10) / n_valid
+        result.recall_at_20 = sum(all_recall_20) / n_valid
+        result.recall_at_50 = sum(all_recall_50) / n_valid
+        result.precision_at_5 = sum(all_precision_5) / n_valid
+        result.precision_at_10 = sum(all_precision_10) / n_valid
+        result.precision_at_20 = sum(all_precision_20) / n_valid
+        result.mrr = sum(all_mrr) / n_valid
+        result.ndcg_at_10 = sum(all_ndcg_10) / n_valid
 
     # By category
     cat_results: dict[str, dict] = {}
@@ -298,27 +301,42 @@ def evaluate_recall(
         cat = sqr.category or "unknown"
         if cat not in cat_results:
             cat_results[cat] = {
-                "count": 0, "recall_at_5": 0.0, "recall_at_10": 0.0,
-                "recall_at_20": 0.0, "recall_at_50": 0.0,
-                "precision_at_5": 0.0, "precision_at_10": 0.0,
-                "precision_at_20": 0.0, "mrr": 0.0, "ndcg_at_10": 0.0,
-                "pool_relevant": 0, "pool_total": 0,
+                "count": 0,
+                "valid_count": 0,
+                "error_count": 0,
+                "recall_at_5": 0.0,
+                "recall_at_10": 0.0,
+                "recall_at_20": 0.0,
+                "recall_at_50": 0.0,
+                "precision_at_5": 0.0,
+                "precision_at_10": 0.0,
+                "precision_at_20": 0.0,
+                "mrr": 0.0,
+                "ndcg_at_10": 0.0,
+                "pool_relevant": 0,
+                "pool_total": 0,
             }
-        cat_results[cat]["count"] += 1
-        cat_results[cat]["recall_at_5"] += sqr.recall_at_5
-        cat_results[cat]["recall_at_10"] += sqr.recall_at_10
-        cat_results[cat]["recall_at_20"] += sqr.recall_at_20
-        cat_results[cat]["recall_at_50"] += sqr.recall_at_50
-        cat_results[cat]["precision_at_5"] += sqr.precision_at_5
-        cat_results[cat]["precision_at_10"] += sqr.precision_at_10
-        cat_results[cat]["precision_at_20"] += sqr.precision_at_20
-        cat_results[cat]["mrr"] += sqr.mrr
-        cat_results[cat]["ndcg_at_10"] += sqr.ndcg_at_10
-        cat_results[cat]["pool_relevant"] += sqr.pool_relevant
-        cat_results[cat]["pool_total"] += sqr.pool_size
+        stats = cat_results[cat]
+        stats["count"] += 1
+        if sqr.error:
+            stats["error_count"] += 1
+            continue
 
-    for cat, stats in cat_results.items():
-        c = stats["count"]
+        stats["valid_count"] += 1
+        stats["recall_at_5"] += sqr.recall_at_5
+        stats["recall_at_10"] += sqr.recall_at_10
+        stats["recall_at_20"] += sqr.recall_at_20
+        stats["recall_at_50"] += sqr.recall_at_50
+        stats["precision_at_5"] += sqr.precision_at_5
+        stats["precision_at_10"] += sqr.precision_at_10
+        stats["precision_at_20"] += sqr.precision_at_20
+        stats["mrr"] += sqr.mrr
+        stats["ndcg_at_10"] += sqr.ndcg_at_10
+        stats["pool_relevant"] += sqr.pool_relevant
+        stats["pool_total"] += sqr.pool_size
+
+    for _cat, stats in cat_results.items():
+        c = stats["valid_count"]
         for metric in [
             "recall_at_5", "recall_at_10", "recall_at_20", "recall_at_50",
             "precision_at_5", "precision_at_10", "precision_at_20",
@@ -340,6 +358,7 @@ def _evaluate_single_query(
     judge: LLMJudge,
     pool_limit: int = 50,
     include_abstracts: bool = True,
+    preset_hits: list[PaperHit] | None = None,
 ) -> SingleQueryRecallResult:
     """Evaluate recall for a single query.
 
@@ -373,20 +392,22 @@ def _evaluate_single_query(
         t_query = time.time()
 
         # ── Step 1: Run search with large pool ──
-        from research_core.tools.search import search_papers
+        if preset_hits is None:
+            from research_core.tools.search import search_papers
 
-        # Create retriever for pool construction
-        retriever = Retriever()
-
-        hits = search_papers(
-            query=query.query_text,
-            zot=zot,
-            retriever=retriever,
-            limit=pool_limit,
-            expand_context=False,
-            expand_neighbors=False,
-            diversity_weight=0.4,
-        )
+            # Create retriever for pool construction
+            retriever = Retriever()
+            hits = search_papers(
+                query=query.query_text,
+                zot=zot,
+                retriever=retriever,
+                limit=pool_limit,
+                expand_context=False,
+                expand_neighbors=False,
+                diversity_weight=0.4,
+            )
+        else:
+            hits = preset_hits[:pool_limit]
 
         # ── Step 2: Build pool from search results ──
         pool: dict[str, PoolEntry] = {}

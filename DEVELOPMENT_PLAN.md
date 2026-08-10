@@ -119,6 +119,18 @@ Issues identified during full architecture review:
 
 ### 4.8 Personalized Re-Ranking ⬜ 🔵 FUTURE
 
+> 继续保留为未来项；当前优先级低于评估可信度与双语消融控制。
+
+### 4.9 Retrieval evaluation hardening + bilingual ablation control ✅
+
+> **Completed**: evaluator reliability repaired (`eval_judge.py`, `recall_eval.py`, `evaluation.py`), deterministic 7-call strategy harness added (`run_strategy_eval.py` + `strategy_eval.py`), and index-time bilingual enrichment is now gated by `ZRA_INDEX_BILINGUAL_ENRICHMENT` for controlled ablation without changing default retrieval behavior.
+
+### 4.10 Strategy relocation from docstring to skills ✅
+
+> **Completed**: the 7-call weighted bilingual search and GraphRAG expansion strategies were extracted from the `search_papers` docstring into standalone skill files — `.claude/skills/bilingual-search/SKILL.md` and `.claude/skills/graph-expansion/SKILL.md`. The docstring was slimmed 115→59 lines (keeps the slot/weight table, merge rule, and compact example so non-skill MCP clients keep working) and now points to the skills. `tests/strategy_variants_7call.json` (the executable form used by `run_strategy_eval.py`) now cites the skill as its authoritative prose source, removing double maintenance of the strategy.
+
+---
+
 > **Problem**: User engagement signals (annotations, reading depth, saved notes) are never used for ranking.
 >
 > **Fix**: Light boost for papers with user annotations/notes. Available from Zotero local API.
@@ -135,8 +147,8 @@ Issues identified during full architecture review:
 | Phase 1 (P0) | 3 | 3 | 0 |
 | Phase 2 (P1) | 5 | 4 | 1 (deferred) |
 | Phase 3 (P2) | 5 | 2 | 3 (deferred) |
-| Phase 4 (v0.4.0) | 8 | 0 | 8 |
-| **Total** | **26** | **14** | **12** |
+| Phase 4 (v0.4.0) | 10 | 6 | 4 |
+| **Total** | **28** | **20** | **8** |
 
 ### Immediate Next Steps
 

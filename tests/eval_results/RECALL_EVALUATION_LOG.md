@@ -192,6 +192,71 @@ Merge: sort by total score descending, dedup
 
 ---
 
+### Test 7 — Formal Full 20-Query Re-run: Strict GPT-5.4-mini Judge (Baseline vs 7-Call)
+
+**Date**: 2026-07-29  |  **Judge**: gpt-5.4-mini
+**Purpose**: Re-run the complete 20-query benchmark with a stable judge endpoint after prior runs were distorted by 429 fallback.
+
+**Important evaluation note**:
+- This run used a real LLM judge successfully (token usage logged on every query).
+- However, the `no_answer` queries still show anomalously high Recall@10 (`100%` baseline, `83.3%` strategy), which indicates the judge remains too permissive on negative examples.
+- Therefore this run is best treated as a **formal relative comparison** between strategies, not the final calibrated absolute benchmark.
+
+#### Test 7A — Baseline full pipeline (single-call)
+
+| Overall | R@5 | R@10 | R@20 | MRR | NDCG@10 |
+|---------|-----|------|------|-----|---------|
+| | 25.8% | **40.8%** | 56.8% | 0.611 | 0.505 |
+
+| Category | R@10 |
+|----------|------|
+| direct | 56.1% |
+| cross_document | **15.9%** |
+| method | 37.5% |
+| data_source | 60.0% |
+| no_answer | 100.0% *(judge too permissive)* |
+
+**Key observation**: under the stricter judge, `cross_document` falls to 15.9%, confirming this is the real baseline bottleneck.
+
+#### Test 7B — 7-call RRF-weighted strategy (formal full set)
+
+| Overall | R@5 | R@10 | R@20 | MRR | NDCG@10 |
+|---------|-----|------|------|-----|---------|
+| | 39.3% | **56.3%** | 77.5% | 0.800 | 0.602 |
+
+| Category | R@10 |
+|----------|------|
+| direct | 51.7% |
+| cross_document | **55.2%** |
+| method | 27.3% |
+| data_source | 83.3% |
+| no_answer | 83.3% *(judge too permissive)* |
+
+#### Formal comparison (same judge, same 20-query set)
+
+| Metric | Baseline | 7-call | Delta |
+|--------|----------|--------|-------|
+| Recall@5 | 25.8% | 39.3% | **+13.5pp** |
+| Recall@10 | 40.8% | 56.3% | **+15.5pp** |
+| Recall@20 | 56.8% | 77.5% | **+20.7pp** |
+| Precision@10 | 23.0% | 37.5% | **+14.5pp** |
+| MRR | 0.611 | 0.800 | **+0.189** |
+| NDCG@10 | 0.505 | 0.602 | **+0.097** |
+
+| Category | Baseline R@10 | 7-call R@10 | Delta |
+|----------|---------------|------------|-------|
+| direct | 56.1% | 51.7% | -4.4pp |
+| cross_document | 15.9% | **55.2%** | **+39.3pp** |
+| method | 37.5% | 27.3% | -10.2pp |
+| data_source | 60.0% | 83.3% | +23.3pp |
+| no_answer | 100.0% | 83.3% | -16.7pp *(still invalid as final negative benchmark)* |
+
+**Most important result**: on the full 20-query set, 7-call RRF improves `cross_document` from 15.9% to 55.2% (+39.3pp). This confirms on a larger formal run what the earlier 5-query subset already suggested: the multi-call weighted strategy is the correct direction for relationship / multi-hop retrieval.
+
+**Caveat**: because `no_answer` remains too permissive even with `gpt-5.4-mini`, one more judge-prompt tightening pass is still needed before treating these absolute values as the final published benchmark.
+
+---
+
 ## Strategy Comparison
 
 | # | Strategy | Calls/Query | Weighted Merge | R@10 | Judge |
