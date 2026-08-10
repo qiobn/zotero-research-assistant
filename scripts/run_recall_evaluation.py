@@ -16,6 +16,10 @@ Usage:
 
     # JSON output
     python scripts/run_recall_evaluation.py --json
+
+    # Component ablation — isolate BM25 / Dense / CE / MMR contributions
+    python scripts/run_recall_evaluation.py --ablation hybrid
+    python scripts/run_recall_evaluation.py --ablation-set   # all + comparison
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from research_core.rag.eval_judge import LLMJudge
+from research_core.rag.eval_judge import JudgeConfig, LLMJudge
 from research_core.rag.recall_eval import (
     RecallEvalQuery,
     RecallEvalResult,
@@ -60,6 +64,69 @@ def load_queries(path: str) -> list[RecallEvalQuery]:
     return queries
 
 
+# Component-ablation configs. Each maps to search_papers knobs; the default
+# (no --ablation) equals "hybrid_ce_mmr" — the production pipeline.
+ABLATIONS: dict[str, dict] = {
+    "dense":         {"enable_semantic": True,  "enable_bm25": False, "enable_rerank": False, "diversity_weight": 0.0},
+    "bm25":          {"enable_semantic": False, "enable_bm25": True,  "enable_rerank": False, "diversity_weight": 0.0},
+    "hybrid":        {"enable_semantic": True,  "enable_bm25": True,  "enable_rerank": False, "diversity_weight": 0.0},
+    "hybrid_ce":     {"enable_semantic": True,  "enable_bm25": True,  "enable_rerank": True,  "diversity_weight": 0.0},
+    "hybrid_ce_mmr": {"enable_semantic": True,  "enable_bm25": True,  "enable_rerank": True,  "diversity_weight": 0.4},
+}
+_ABLATION_LABELS = {
+    "baseline": "Full pipeline (default)",
+    "dense": "Dense only",
+    "bm25": "BM25 only",
+    "hybrid": "Hybrid (BM25+Dense)",
+    "hybrid_ce": "Hybrid + CE",
+    "hybrid_ce_mmr": "Hybrid + CE + MMR (default)",
+}
+
+
+def _detect_lang(text: str) -> str:
+    """Classify a query as Chinese ('zh') or English ('en') by CJK ratio."""
+    cjk = sum(1 for ch in text if "一" <= ch <= "鿿")
+    return "zh" if (cjk / max(len(text), 1)) > 0.1 else "en"
+
+
+def _mean(vals: list[float]) -> float:
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def summarize_by_language(result: RecallEvalResult) -> dict:
+    """Aggregate metrics separately for zh and en queries."""
+    by_lang: dict[str, dict[str, list[float]]] = {
+        "zh": {"r10": [], "r20": [], "mrr": [], "ndcg": []},
+        "en": {"r10": [], "r20": [], "mrr": [], "ndcg": []},
+    }
+    for r in result.per_query:
+        if r.error:
+            continue
+        lang = _detect_lang(r.query_text)
+        by_lang[lang]["r10"].append(r.recall_at_10)
+        by_lang[lang]["r20"].append(r.recall_at_20)
+        by_lang[lang]["mrr"].append(r.mrr)
+        by_lang[lang]["ndcg"].append(r.ndcg_at_10)
+    out: dict[str, dict] = {}
+    for lang, metrics in by_lang.items():
+        n = len(metrics["r10"])
+        out[lang] = {
+            "n": n,
+            "R@10": round(_mean(metrics["r10"]), 4),
+            "R@20": round(_mean(metrics["r20"]), 4),
+            "MRR": round(_mean(metrics["mrr"]), 4),
+            "NDCG@10": round(_mean(metrics["ndcg"]), 4),
+        }
+    return out
+
+
+def print_language_breakdown(result: RecallEvalResult) -> None:
+    print("\n  ── By Query Language ──")
+    for lang, s in summarize_by_language(result).items():
+        print(f"    {lang:<3} (n={s['n']}): R@10={s['R@10']:.1%} "
+              f"R@20={s['R@20']:.1%} MRR={s['MRR']:.3f} NDCG@10={s['NDCG@10']:.3f}")
+
+
 def print_query_detail(result: RecallEvalResult) -> None:
     """Print per-query breakdown."""
     print("\n  ── Per-Query Breakdown ──")
@@ -84,8 +151,16 @@ def run_eval(
     pool_size: int = 50,
     all_judges: bool = False,
     output_json: bool = False,
+    ablation: str = "",
+    ablation_set: bool = False,
 ) -> None:
-    """Run the recall evaluation and print results."""
+    """Run the recall evaluation and print results.
+
+    Args:
+        ablation: Single component-ablation config name to run (dense / bm25 /
+                  hybrid / hybrid_ce / hybrid_ce_mmr). Empty → full pipeline.
+        ablation_set: Run every ablation config and print a comparison table.
+    """
     # Load queries
     if not os.path.exists(query_path):
         # Try default path
@@ -117,45 +192,84 @@ def run_eval(
             "deepseek-openai-deepseek-v4-pro",
         ]
 
-    for model in models_to_run:
-        print(f"\n{'='*60}")
-        print(f"  Judge: {model}")
-        print(f"{'='*60}")
+    # Resolve which ablations to run
+    if ablation_set:
+        ablations: list[tuple[str, dict]] = list(ABLATIONS.items())
+    elif ablation:
+        if ablation not in ABLATIONS:
+            print(f"Error: unknown ablation '{ablation}'. "
+                  f"Available: {', '.join(ABLATIONS)}")
+            sys.exit(1)
+        ablations = [(ablation, ABLATIONS[ablation])]
+    else:
+        ablations = [("baseline", {})]
 
-        from research_core.rag.eval_judge import JudgeConfig
-        config = JudgeConfig.from_env()
-        config.model = model
-        judge = LLMJudge(config)
+    rows: list[tuple[str, str, RecallEvalResult]] = []
+    for name, search_kwargs in ablations:
+        label = _ABLATION_LABELS.get(name, name)
+        for model in models_to_run:
+            print(f"\n{'='*60}")
+            print(f"  Config: {label:<28} Judge: {model}")
+            print(f"{'='*60}")
 
-        result = evaluate_recall(
-            zot=zot,
-            queries=queries,
-            judge=judge,
-            pool_limit=pool_size,
-        )
+            config = JudgeConfig.from_env()
+            config.model = model
+            judge = LLMJudge(config)
 
-        print()
-        print(result.summary())
+            result = evaluate_recall(
+                zot=zot,
+                queries=queries,
+                judge=judge,
+                pool_limit=pool_size,
+                search_kwargs=search_kwargs,
+            )
+            rows.append((name, model, result))
 
-        if output_json:
             print()
-            print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
-        else:
-            print_query_detail(result)
+            print(result.summary())
+            print_language_breakdown(result)
 
-        # Save results
-        model_slug = model.replace("/", "-").replace(".", "-")
-        out_dir = os.path.join(
-            os.path.dirname(__file__), "..", "tests", "eval_results"
-        )
-        os.makedirs(out_dir, exist_ok=True)
-        out_path = os.path.join(
-            out_dir,
-            f"recall_{model_slug}_pool{pool_size}.json",
-        )
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
-        print(f"  Results saved → {out_path}")
+            if output_json:
+                print()
+                print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+            else:
+                print_query_detail(result)
+
+            # Save results
+            model_slug = model.replace("/", "-").replace(".", "-")
+            out_dir = os.path.join(
+                os.path.dirname(__file__), "..", "tests", "eval_results"
+            )
+            os.makedirs(out_dir, exist_ok=True)
+            out_name = f"recall_{model_slug}_pool{pool_size}"
+            if name != "baseline":
+                out_name += f"_ablation_{name}"
+            out_path = os.path.join(out_dir, out_name + ".json")
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
+            print(f"  Results saved → {out_path}")
+
+    # Comparison table when multiple configs ran under the same judge
+    if len(ablations) > 1:
+        print(f"\n{'='*60}")
+        print("  ABLATION COMPARISON")
+        print(f"{'='*60}")
+        for model in models_to_run:
+            model_rows = [(n, r) for (n, m, r) in rows if m == model]
+            if len(model_rows) < 2:
+                continue
+            print(f"\n  Judge: {model}")
+            print(f"  {'Config':<28} {'R@5':<8} {'R@10':<8} {'R@20':<8} "
+                  f"{'P@10':<8} {'MRR':<7} {'NDCG@10':<8} {'zh R@10':<8} {'en R@10':<8}")
+            print(f"  {'-'*106}")
+            for name, r in model_rows:
+                label = _ABLATION_LABELS.get(name, name)
+                lang = summarize_by_language(r)
+                zh_r10 = f"{lang['zh']['R@10']:.1%}" if lang["zh"]["n"] else "-"
+                en_r10 = f"{lang['en']['R@10']:.1%}" if lang["en"]["n"] else "-"
+                print(f"  {label:<28} {r.recall_at_5:<8.1%} {r.recall_at_10:<8.1%} "
+                      f"{r.recall_at_20:<8.1%} {r.precision_at_10:<8.1%} "
+                      f"{r.mrr:<7.3f} {r.ndcg_at_10:<8.3f} {zh_r10:<8} {en_r10:<8}")
 
 
 def main():
@@ -183,6 +297,15 @@ def main():
         help="Output per-query results as JSON",
     )
     parser.add_argument(
+        "--ablation", default="",
+        help="Component ablation to run: dense, bm25, hybrid, hybrid_ce, "
+             "hybrid_ce_mmr (empty = full pipeline)",
+    )
+    parser.add_argument(
+        "--ablation-set", action="store_true",
+        help="Run all ablations and print a per-component comparison table",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Only load queries and build pool, do not call judge API",
     )
@@ -194,6 +317,8 @@ def main():
         pool_size=args.pool_size,
         all_judges=args.all_judges,
         output_json=args.json,
+        ablation=args.ablation,
+        ablation_set=args.ablation_set,
     )
 
 

@@ -208,6 +208,7 @@ def evaluate_recall(
     pool_limit: int = 50,
     judge_model: str = "openai-gpt-5-4",
     include_abstracts: bool = True,
+    search_kwargs: dict | None = None,
 ) -> RecallEvalResult:
     """Run recall evaluation with LLM-as-judge.
 
@@ -219,6 +220,9 @@ def evaluate_recall(
         judge_model: Model name to use for judging.
         include_abstracts: Include paper abstracts in judge input (better accuracy,
                           but more tokens).
+        search_kwargs: Extra kwargs forwarded to search_papers — used by the
+            component-ablation harness (e.g. enable_bm25/enable_semantic/
+            enable_rerank to test single-component retrieval).
 
     Returns:
         RecallEvalResult with metrics.
@@ -251,6 +255,7 @@ def evaluate_recall(
             judge=judge,
             pool_limit=pool_limit,
             include_abstracts=include_abstracts,
+            search_kwargs=search_kwargs,
         )
         result.per_query.append(sqr)
 
@@ -359,6 +364,7 @@ def _evaluate_single_query(
     pool_limit: int = 50,
     include_abstracts: bool = True,
     preset_hits: list[PaperHit] | None = None,
+    search_kwargs: dict | None = None,
 ) -> SingleQueryRecallResult:
     """Evaluate recall for a single query.
 
@@ -405,6 +411,7 @@ def _evaluate_single_query(
                 expand_context=False,
                 expand_neighbors=False,
                 diversity_weight=0.4,
+                **(search_kwargs or {}),
             )
         else:
             hits = preset_hits[:pool_limit]

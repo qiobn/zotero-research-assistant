@@ -46,6 +46,9 @@ def search_papers(
     expand_context: bool = False,
     expand_neighbors: bool = False,
     diversity_weight: float = 0.4,
+    enable_bm25: bool = True,
+    enable_semantic: bool = True,
+    enable_rerank: bool = True,
 ) -> list[PaperHit]:
     """Hybrid search: keyword (Zotero API) + semantic (vector store) merged via RRF.
 
@@ -59,6 +62,14 @@ def search_papers(
     (diversity_weight=0.4). Chunk-level MMR with hard cap of 3 chunks per
     paper and per-document penalty of 0.1. Set diversity_weight=0 to disable
     (e.g. for targeted single-paper retrieval).
+
+    Component-ablation knobs (default True preserves production behavior):
+      enable_semantic=False → skip the dense (ChromaDB) arm
+      enable_bm25=False     → skip the BM25 sparse arm
+      enable_rerank=False   → skip the Cross-Encoder rerank
+    Combined with diversity_weight=0 this gives the controlled single-component
+    configs used by the recall ablation harness (run_recall_evaluation.py
+    --ablation). The Zotero API keyword call is metadata-only and unaffected.
 
     If query is empty, skips semantic search and returns all items matching the filters
     (year/tags/collection), sorted by date added (most recent first).
@@ -103,11 +114,11 @@ def search_papers(
         )
         t_keyword = (time.time() - t0) * 1000
 
-    reranker = get_reranker()
+    reranker = get_reranker() if enable_rerank else None
     overfetch = 3 if reranker is None else 5
     rrf_k = 60
 
-    if has_query:
+    if has_query and enable_semantic:
         t0 = time.time()
         semantic_hits = retriever.search(
             query, n_results=limit * overfetch,
@@ -119,7 +130,7 @@ def search_papers(
     # ── BM25 Sparse Keyword Search (chunk text) ──
     bm25_hits = []
     t_bm25 = 0.0
-    if has_query:
+    if has_query and enable_bm25:
         t0 = time.time()
         bm25_hits = retriever.search_bm25(query, top_k=limit * overfetch * 3)
         t_bm25 = (time.time() - t0) * 1000

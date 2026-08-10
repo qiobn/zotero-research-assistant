@@ -133,6 +133,10 @@ Issues identified during full architecture review:
 
 > **Completed**: `server.py` registers FastMCP's native `SkillsDirectoryProvider` against `.claude/skills/`, exposing `bilingual-search` and `graph-expansion` as MCP resources (`skill://<name>/SKILL.md` + `_manifest`) so skill-aware clients can load the full strategy on demand. Directory overridable via `ZRA_SKILLS_DIR`; missing dir / old FastMCP skips silently. SKILL.md frontmatter reformatted to single-line descriptions for FastMCP's minimal parser.
 
+### 4.12 Component ablation harness 🟡 RUNNING
+
+> `search_papers` gains `enable_semantic`/`enable_bm25`/`enable_rerank` switches; `run_recall_evaluation.py` gains `--ablation` / `--ablation-set` + per-language (zh/en) metric split. Purpose: quantify whether the EN-only Cross-Encoder helps or hurts Chinese queries, whether MMR trades recall, and each component's contribution. **Pending**: full run requires Zotero desktop running (`--ablation-set`); enrichment-switch ablation needs an index rebuilt with `ZRA_INDEX_BILINGUAL_ENRICHMENT=false`.
+
 ---
 
 > **Problem**: User engagement signals (annotations, reading depth, saved notes) are never used for ranking.
@@ -151,8 +155,8 @@ Issues identified during full architecture review:
 | Phase 1 (P0) | 3 | 3 | 0 |
 | Phase 2 (P1) | 5 | 4 | 1 (deferred) |
 | Phase 3 (P2) | 5 | 2 | 3 (deferred) |
-| Phase 4 (v0.4.0) | 11 | 7 | 4 |
-| **Total** | **29** | **21** | **8** |
+| Phase 4 (v0.4.0) | 12 | 8 | 4 |
+| **Total** | **30** | **22** | **8** |
 
 ### Immediate Next Steps
 

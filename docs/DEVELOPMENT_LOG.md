@@ -20,6 +20,39 @@
 
 ---
 
+## 组件消融评估框架 (2026-08-11)
+
+### 问题
+
+评估把完整流水线(BM25 + Dense + CE + MMR)当黑盒测,任何组件回归都无法定位到具体环节。且最尖锐的两个选型质疑从未被量化验证:
+
+1. Cross-Encoder 是纯英文模型(`ms-marco-MiniLM-L-6-v2`),中文查询 × 中文 chunk 是跨语言重排,可能帮倒忙
+2. MMR 用多样性换召回,可能伤害 Recall@K
+
+### 方案
+
+- `search_papers` 增加 `enable_semantic` / `enable_bm25` / `enable_rerank` 三个开关(默认 True,生产行为不变),配合 `diversity_weight=0` 即可精确切出单一组件配置
+- `recall_eval.evaluate_recall` 增加 `search_kwargs` 透传
+- `run_recall_evaluation.py` 增加 `--ablation <name>` 与 `--ablation-set`:
+  - 配置表:`dense` / `bm25` / `hybrid` / `hybrid_ce` / `hybrid_ce_mmr`(默认即生产管线)
+  - 输出新增**中英查询语言拆分**(`_detect_lang` 按 CJK 比例)
+  - `--ablation-set` 打印每组件 × 每语言对比表
+  - 结果存 `recall_<model>_pool<k>_ablation_<name>.json`
+
+### 冒烟测试发现(非结论)
+
+**中文查询下 dense 与 bm25 的 top-20 完全不相交(overlap=0)**,英文仅重叠 3 篇。这实证了两个检索臂确实互补——RRF 混合对中文的价值比预想更大,也说明 dense-only / bm25-only 单臂消融会产生显著差异。
+
+### 待运行
+
+完整 `--ablation-set` 需要 Zotero 桌面端运行(评估依赖本地 API 元数据)。运行:
+```bash
+python scripts/run_recall_evaluation.py --ablation-set --judge gpt-5.4-mini
+```
+富化开关消融(hybrid_ce_mmr + enrichment off)需先以 `ZRA_INDEX_BILINGUAL_ENRICHMENT=false` 重建索引,单独安排。
+
+---
+
 ## Skills 通过 FastMCP Provider 暴露为 MCP Resources (2026-08-10)
 
 ### 问题

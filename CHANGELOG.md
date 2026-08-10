@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Component ablation harness** — `run_recall_evaluation.py` gains `--ablation`
+  and `--ablation-set` to isolate the contribution of each retrieval component
+  (Dense / BM25 / Cross-Encoder / MMR). `search_papers` accepts
+  `enable_semantic` / `enable_bm25` / `enable_rerank` switches (defaults preserve
+  production behavior). Evaluation output now also reports metrics split by query
+  language (zh / en) and, with `--ablation-set`, a per-component comparison table
+  with the Chinese/English split per config.
+
 ## [0.4.9] - 2026-08-10
 
 ### Added
