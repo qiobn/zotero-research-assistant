@@ -37,8 +37,11 @@ for arg in "$@"; do
 done
 
 # Prefer the project venv if present, else fall back to whatever python is on PATH.
+# Check both POSIX (.venv/bin) and Windows (.venv/Scripts) venv layouts.
 if [ -x ".venv/bin/python" ]; then
   PY=".venv/bin/python"
+elif [ -x ".venv/Scripts/python.exe" ]; then
+  PY=".venv/Scripts/python.exe"
 else
   PY="$(command -v python3 || command -v python)"
 fi
@@ -46,7 +49,7 @@ echo "Using interpreter: $PY"
 
 VERSION="$("$PY" - <<'PYEOF'
 import tomllib, pathlib
-data = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+data = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
 print(data["project"]["version"])
 PYEOF
 )"
