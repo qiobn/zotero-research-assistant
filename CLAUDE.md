@@ -117,11 +117,14 @@ When adding/removing features or changing behavior, update:
 | `research_core/rag/evaluation.py` | Recall@K, MRR, NDCG |
 | `research_core/rag/retriever.py` | ChromaDB retriever with section expansion + enrichment |
 
-## Current State (v0.4.0-dev)
+## Current State (v0.4.9)
 
 - Phase 0/1/2/3 (partial) complete; Phase 4 (v0.4.0) in progress
 - 36 MCP tools (32 always-on + 4 CNKI-conditional), all operational
+- Strategy skills (bilingual-search, graph-expansion) in `.claude/skills/`, exposed
+  as MCP resources via FastMCP skills provider
 - Key features: BM25+Dense hybrid retrieval, ONNX INT8 embedding, MMR diversity,
-  bilingual query expansion, contextual chunk enrichment, dual-format output
-- Known issues: evaluation only run on small test set (8 papers)
-- Next priorities: run full-pipeline evaluation on real library, chunk size tuning
+  bilingual query expansion, contextual chunk enrichment, dual-format output,
+  externalized multi-call search strategy (7-call RRF-weighted)
+- Next priorities: judge-prompt calibration for the no_answer category, verify
+  skill resources are consumed by MCP clients, chunk size tuning

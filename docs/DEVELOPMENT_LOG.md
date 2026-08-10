@@ -7,6 +7,19 @@
 
 ---
 
+## v0.4.9 — 正式发布 (2026-08-10)
+
+把自 0.4.8(PyPI 最新)以来的所有未发布工作统一发布为 **v0.4.9**,对齐仓库版本、CHANGELOG、PyPI:
+
+- 索引时双语富化开关 `ZRA_INDEX_BILINGUAL_ENRICHMENT`
+- HNSW 索引损坏修复 + httpx transport patch + NMT 超时修复
+- 检索评估加固 + 确定性 7-call 策略评估框架
+- 策略外置为 `.claude/skills/`(`bilingual-search` / `graph-expansion`)
+- skills 通过 FastMCP `SkillsDirectoryProvider` 暴露为 MCP resources(`ZRA_SKILLS_DIR` 可配)
+- 修正 pyproject 描述工具数 39 → 36(实际 36)
+
+---
+
 ## Skills 通过 FastMCP Provider 暴露为 MCP Resources (2026-08-10)
 
 ### 问题

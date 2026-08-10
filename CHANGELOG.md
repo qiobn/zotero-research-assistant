@@ -5,34 +5,30 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.9] - 2026-08-10
 
 ### Added
-- **Skills served as MCP resources** — the strategy skill files under
-  `.claude/skills/` (`bilingual-search`, `graph-expansion`) are now exposed by
-  the server as MCP resources via FastMCP's native skills provider
+- **Standalone strategy skills** — the mandatory 7-call weighted bilingual search
+  and GraphRAG graph-expansion methods ship as skill files in `.claude/skills/`
+  (`bilingual-search`, `graph-expansion`), loadable on demand by Claude Code and
+  other skill-aware clients.
+- **Skills served as MCP resources** — the strategy skill files are now exposed
+  by the server as MCP resources via FastMCP's native skills provider
   (`skill://bilingual-search/SKILL.md`, `skill://graph-expansion/SKILL.md`), so
-  skill-aware clients (e.g. Claude Desktop) can load the full strategy on demand.
-  Directory configurable via `ZRA_SKILLS_DIR` (defaults to
-  `<project_root>/.claude/skills`); missing directory or old FastMCP skips
-  silently.
+  skill-aware MCP clients can fetch the full strategy on demand. Directory
+  configurable via `ZRA_SKILLS_DIR` (defaults to `<project_root>/.claude/skills`);
+  missing directory or old FastMCP skips silently.
 
 ### Changed
-- **Search strategy relocated from docstring to skills** — the mandatory 7-call
-  weighted bilingual search strategy and the GraphRAG graph-expansion method are
-  now standalone skill files (`.claude/skills/bilingual-search/SKILL.md`,
-  `.claude/skills/graph-expansion/SKILL.md`) instead of 100+ lines living inside
-  the `search_papers` tool docstring. The docstring keeps a compact actionable
-  summary (slot/weight table + merge rule + short example, ~50% shorter), so all
-  MCP clients keep the same retrieval behavior. `tests/strategy_variants_7call.json`
-  now points to the skill as its authoritative prose source instead of the server
-  code, removing double maintenance of the strategy.
+- **Search strategy relocated from docstring to skills** — the 7-call weighted
+  bilingual search strategy and the GraphRAG graph-expansion method are no longer
+  100+ lines living inside the `search_papers` tool docstring. The docstring keeps
+  a compact actionable summary (slot/weight table + merge rule + short example,
+  ~50% shorter), so all MCP clients keep the same retrieval behavior.
+  `tests/strategy_variants_7call.json` now points to the skill as its authoritative
+  prose source instead of the server code, removing double maintenance.
 - **SKILL.md frontmatter uses single-line descriptions** so it parses correctly
   under both Claude Code's skill loader and FastMCP's minimal frontmatter parser.
-
-## [0.4.9] - 2026-07-23
-
-### Changed
 - **Index-time bilingual enrichment is now explicitly configurable** — added
   `ZRA_INDEX_BILINGUAL_ENRICHMENT` (default `true`) to gate whether Chinese
   papers append `[Title_EN: ...] [Keywords_EN: ...]` during indexing. This does

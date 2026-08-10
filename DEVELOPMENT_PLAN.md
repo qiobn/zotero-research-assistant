@@ -1,6 +1,6 @@
 # Development Plan — RAG Full-Pipeline Optimization
 
-> Last updated: 2026-07-13 | Current version: v0.4.0-dev
+> Last updated: 2026-08-10 | Current version: v0.4.9
 
 ---
 
