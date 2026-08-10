@@ -23,6 +23,12 @@
 #
 set -euo pipefail
 
+# Force UTF-8 for all python subprocess output. On Windows Chinese-locale
+# terminals twine/rich write progress glyphs (e.g. the bullet U+2022) that the
+# default GBK codec cannot encode, crashing the upload mid-transfer.
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
+
 cd "$(dirname "$0")/.."
 
 REPO="pypi"
@@ -83,7 +89,10 @@ MSG
 fi
 
 echo "==> Uploading $VERSION to $REPO"
-"$PY" -m twine upload --repository "$REPO" --skip-existing dist/*
+# --disable-progress-bar: avoids rich's progress rendering, which crashes on
+# Windows GBK terminals (UnicodeEncodeError on the bullet glyph) even with
+# PYTHONIOENCODING=utf-8 set above.
+"$PY" -m twine upload --repository "$REPO" --skip-existing --disable-progress-bar dist/*
 
 echo "==> Done. View at:"
 if [ "$REPO" = "testpypi" ]; then
