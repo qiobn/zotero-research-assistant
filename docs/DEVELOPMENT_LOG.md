@@ -7,6 +7,36 @@
 
 ---
 
+## Skills 通过 FastMCP Provider 暴露为 MCP Resources (2026-08-10)
+
+### 问题
+
+策略抽离为 `.claude/skills/` 后,只有 Claude Code 等能读取本地 skill 文件的客户端才能按需加载。Claude Desktop / Cherry Studio 等纯 MCP 客户端仍只能依赖 docstring 里的紧凑摘要,拿不到完整策略。
+
+### 方案
+
+利用 FastMCP 3.4.2 原生 skills provider,把 `.claude/skills/` 扫描为 MCP resources:
+
+- `project_a_mcp/server.py` 新增 `_add_skills_provider()`,在 `mcp = FastMCP(...)` 后注册 `SkillsDirectoryProvider(roots=<skills dir>, reload=True)`
+- 目录默认 `<项目根>/.claude/skills`,可用 `ZRA_SKILLS_DIR` 覆盖;目录不存在或 FastMCP 版本过旧时静默跳过(不阻塞 server 启动)
+- skill 通过 `skill://<name>/SKILL.md` 和 `skill://<name>/_manifest` 两个 resource 暴露
+
+### 技术决策
+
+- **SKILL.md frontmatter 改为单行引号描述**:FastMCP 的 `parse_frontmatter` 是极简解析器,不支持 `description: >` 折叠块(会解析成 `">"`)。改为单行 `description: "..."` 后,Claude Code 与 FastMCP 解析器都兼容,`SkillInfo.description` 取到真实文本
+- **`reload=True`**:每次请求重扫目录,改动即时生效,代价可忽略(两个文件)
+
+### 验证
+
+独立脚本实测:两个 `SkillProvider` 被发现;`skill://bilingual-search/SKILL.md`、`skill://graph-expansion/SKILL.md` 及其 `_manifest` 正确列出;description 解析为真实文本;正文 74/48 行完整读取。
+
+### 后续优化方向
+
+- 确认 Cherry Studio 等客户端是否消费 skill resources;若支持,可把更多策略(如 CORPUS-FIRST)下沉到 skill
+- 评估 `reload=False` 的性能收益(当前无感知)
+
+---
+
 ## 策略外置为 Skills: docstring → .claude/skills (2026-08-10)
 
 ### 问题

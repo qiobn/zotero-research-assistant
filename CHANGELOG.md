@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Skills served as MCP resources** — the strategy skill files under
+  `.claude/skills/` (`bilingual-search`, `graph-expansion`) are now exposed by
+  the server as MCP resources via FastMCP's native skills provider
+  (`skill://bilingual-search/SKILL.md`, `skill://graph-expansion/SKILL.md`), so
+  skill-aware clients (e.g. Claude Desktop) can load the full strategy on demand.
+  Directory configurable via `ZRA_SKILLS_DIR` (defaults to
+  `<project_root>/.claude/skills`); missing directory or old FastMCP skips
+  silently.
+
 ### Changed
 - **Search strategy relocated from docstring to skills** — the mandatory 7-call
   weighted bilingual search strategy and the GraphRAG graph-expansion method are
@@ -17,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   MCP clients keep the same retrieval behavior. `tests/strategy_variants_7call.json`
   now points to the skill as its authoritative prose source instead of the server
   code, removing double maintenance of the strategy.
+- **SKILL.md frontmatter uses single-line descriptions** so it parses correctly
+  under both Claude Code's skill loader and FastMCP's minimal frontmatter parser.
 
 ## [0.4.9] - 2026-07-23
 

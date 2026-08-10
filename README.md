@@ -283,11 +283,18 @@ Verify: `codex mcp list`.
 
 ### Bilingual Search Skills
 
-For Claude Code and other skill-aware clients, the mandatory multi-call bilingual
-search and GraphRAG expansion strategies ship as loadable skills:
-`.claude/skills/bilingual-search/SKILL.md` and `.claude/skills/graph-expansion/SKILL.md`.
-Every MCP client still gets the same strategy — `search_papers` carries a condensed
-summary (slot/weight table + merge rule) in its tool description.
+The mandatory multi-call bilingual search and GraphRAG expansion strategies ship
+as standalone skill files — `.claude/skills/bilingual-search/SKILL.md` and
+`.claude/skills/graph-expansion/SKILL.md`. They are:
+
+- Loadable as project skills by Claude Code and other skill-aware clients.
+- Served as MCP resources by the server
+  (`skill://bilingual-search/SKILL.md`, `skill://graph-expansion/SKILL.md`) via
+  FastMCP's native skills provider, so skill-aware MCP clients can fetch them on
+  demand. Configure the directory with `ZRA_SKILLS_DIR`.
+
+Every MCP client still gets the strategy without loading skills — `search_papers`
+carries a condensed summary (slot/weight table + merge rule) in its tool description.
 
 ---
 
@@ -310,6 +317,7 @@ summary (slot/weight table + merge rule) in its tool description.
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on startup |
 | `ZRA_CLEAN_ENABLED` | `true` | Strip journal boilerplate before chunking |
 | `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | Cache directory for OPUS-MT translation model (~300MB) |
+| `ZRA_SKILLS_DIR` | `<project_root>/.claude/skills` | Directory of strategy skills exposed as MCP resources (`bilingual-search`, `graph-expansion`) |
 | `ZRA_INDEX_BILINGUAL_ENRICHMENT` | `true` | Append `[Title_EN]` / `[Keywords_EN]` hints during indexing (set `false` only for ablation + reindex) |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | Higher rate limits for online search |
 | `OPENALEX_MAILTO` | — | OpenAlex polite pool |

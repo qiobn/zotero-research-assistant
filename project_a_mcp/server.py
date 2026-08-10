@@ -30,6 +30,7 @@ import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import wraps
+from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
@@ -295,6 +296,34 @@ mcp = FastMCP(
     ),
     lifespan=_lifespan,
 )
+
+
+def _add_skills_provider() -> None:
+    """Expose .claude/skills/ as MCP resources for skill-aware clients.
+
+    The bilingual-search and graph-expansion strategies ship as standalone
+    skill files. FastMCP's native skills provider serves them as MCP
+    resources so skill-aware clients (e.g. Claude Desktop) can load the
+    strategy on demand instead of paying the always-on token cost of a fat
+    docstring. Directory defaults to <project_root>/.claude/skills, overridable
+    via ZRA_SKILLS_DIR. Missing directory or old FastMCP → skipped silently.
+    """
+    skills_root = os.getenv("ZRA_SKILLS_DIR", "").strip()
+    if not skills_root:
+        skills_root = str(Path(__file__).resolve().parent.parent / ".claude" / "skills")
+    if not Path(skills_root).is_dir():
+        logger.info(f"Skills provider skipped: {skills_root} not found")
+        return
+    try:
+        from fastmcp.server.providers.skills import SkillsDirectoryProvider
+
+        mcp.add_provider(SkillsDirectoryProvider(roots=skills_root, reload=True))
+        logger.info(f"Skills provider: serving {skills_root}")
+    except ImportError:
+        logger.info("Skills provider unavailable (fastmcp without skills module)")
+
+
+_add_skills_provider()
 
 _CNKI_ENABLED = os.getenv("CNKI_ENABLED", "false").lower() == "true"
 

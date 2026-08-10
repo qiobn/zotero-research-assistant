@@ -1,11 +1,6 @@
 ---
 name: bilingual-search
-description: >
-  How to run the mandatory 5-7 call weighted bilingual search against the Zotero
-  MCP server. Use whenever the user asks a Chinese-language or mixed CN/EN query
-  against their library (search_papers), especially cross-document / relationship
-  queries, comprehensive literature review, or when a single call returns <10
-  results. Skip for pure title/keyword matches or when the user wants a quick answer.
+description: "Run the mandatory 5-7 call weighted bilingual search for Chinese/mixed CN-EN queries against the Zotero library via search_papers. Use for cross-document or relationship queries, comprehensive review, or when one call returns <10 results; skip for quick title/keyword matches."
 ---
 
 # Bilingual Search — Multi-Call Weighted Strategy

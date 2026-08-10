@@ -1,12 +1,6 @@
 ---
 name: graph-expansion
-description: >
-  How to expand retrieval around seed papers using existing Zotero MCP tools
-  (find_similar_papers, tag search, expand_citation_network) after the initial
-  multi-angle search. Zero new dependencies — every tool is already exposed.
-  Use for cross-document / relationship queries, comprehensive literature
-  review, or when initial search_papers returns <10 results. Skip for
-  single-concept or title-match queries, or when the user wants quick results.
+description: "Expand retrieval around seed papers using existing Zotero MCP tools (find_similar_papers, tag search, expand_citation_network) after multi-angle search. Use for cross-document/relationship queries, comprehensive review, or when initial search_papers returns <10 results; skip for single-concept/title matches."
 ---
 
 # Graph Expansion — Seed-First Literature Expansion

@@ -129,6 +129,10 @@ Issues identified during full architecture review:
 
 > **Completed**: the 7-call weighted bilingual search and GraphRAG expansion strategies were extracted from the `search_papers` docstring into standalone skill files — `.claude/skills/bilingual-search/SKILL.md` and `.claude/skills/graph-expansion/SKILL.md`. The docstring was slimmed 115→59 lines (keeps the slot/weight table, merge rule, and compact example so non-skill MCP clients keep working) and now points to the skills. `tests/strategy_variants_7call.json` (the executable form used by `run_strategy_eval.py`) now cites the skill as its authoritative prose source, removing double maintenance of the strategy.
 
+### 4.11 Skills served as MCP resources ✅
+
+> **Completed**: `server.py` registers FastMCP's native `SkillsDirectoryProvider` against `.claude/skills/`, exposing `bilingual-search` and `graph-expansion` as MCP resources (`skill://<name>/SKILL.md` + `_manifest`) so skill-aware clients can load the full strategy on demand. Directory overridable via `ZRA_SKILLS_DIR`; missing dir / old FastMCP skips silently. SKILL.md frontmatter reformatted to single-line descriptions for FastMCP's minimal parser.
+
 ---
 
 > **Problem**: User engagement signals (annotations, reading depth, saved notes) are never used for ranking.
@@ -147,8 +151,8 @@ Issues identified during full architecture review:
 | Phase 1 (P0) | 3 | 3 | 0 |
 | Phase 2 (P1) | 5 | 4 | 1 (deferred) |
 | Phase 3 (P2) | 5 | 2 | 3 (deferred) |
-| Phase 4 (v0.4.0) | 10 | 6 | 4 |
-| **Total** | **28** | **20** | **8** |
+| Phase 4 (v0.4.0) | 11 | 7 | 4 |
+| **Total** | **29** | **21** | **8** |
 
 ### Immediate Next Steps
 
