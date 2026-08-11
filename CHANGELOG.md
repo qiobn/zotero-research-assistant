@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   production behavior). Evaluation output now also reports metrics split by query
   language (zh / en) and, with `--ablation-set`, a per-component comparison table
   with the Chinese/English split per config.
+- **Multi-system pooling** — `--ablation-set` judges the UNION pool of all
+  configs once per query and scores every config against the shared relevance
+  labels. Fixes single-system pooling bias (configs get the same denominator;
+  papers recovered by one config are visible to the others) and costs one judge
+  call per query instead of one per config.
 
 ## [0.4.9] - 2026-08-10
 

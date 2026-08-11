@@ -204,6 +204,47 @@ def run_eval(
     else:
         ablations = [("baseline", {})]
 
+    if ablation_set:
+        # Multi-system pooling: judge the UNION pool once per query, score every
+        # config against the same relevance labels. One judge call per query
+        # (not per config) and no single-system pooling bias.
+        from research_core.rag.recall_eval import evaluate_multi_config
+        from research_core.rag.retriever import Retriever
+        from research_core.tools.search import search_papers
+
+        retriever = Retriever()
+        for model in models_to_run:
+            config = JudgeConfig.from_env()
+            config.model = model
+            judge = LLMJudge(config)
+
+            # NB: every ABLATIONS config carries its own diversity_weight, so
+            # do NOT pass it here as well (duplicate kwarg) — **kw supplies it.
+            runners = {
+                name: (lambda q, kw=kw: search_papers(
+                    query=q, zot=zot, retriever=retriever, limit=pool_size,
+                    expand_context=False, expand_neighbors=False, **kw,
+                ))
+                for name, kw in ABLATIONS.items()
+            }
+            results = evaluate_multi_config(
+                zot=zot, queries=queries, judge=judge,
+                runners=runners, pool_limit=pool_size,
+            )
+
+            for name, result in results.items():
+                label = _ABLATION_LABELS.get(name, name)
+                print(f"\n{'='*60}")
+                print(f"  Config: {label:<28} Judge: {model}")
+                print(f"{'='*60}")
+                print()
+                print(result.summary())
+                print_language_breakdown(result)
+                _save_result(result, model, pool_size, name)
+
+            _print_ablation_comparison(results, model)
+        return
+
     rows: list[tuple[str, str, RecallEvalResult]] = []
     for name, search_kwargs in ablations:
         label = _ABLATION_LABELS.get(name, name)
@@ -235,41 +276,53 @@ def run_eval(
             else:
                 print_query_detail(result)
 
-            # Save results
-            model_slug = model.replace("/", "-").replace(".", "-")
-            out_dir = os.path.join(
-                os.path.dirname(__file__), "..", "tests", "eval_results"
-            )
-            os.makedirs(out_dir, exist_ok=True)
-            out_name = f"recall_{model_slug}_pool{pool_size}"
-            if name != "baseline":
-                out_name += f"_ablation_{name}"
-            out_path = os.path.join(out_dir, out_name + ".json")
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
-            print(f"  Results saved → {out_path}")
+            _save_result(result, model, pool_size, name)
 
     # Comparison table when multiple configs ran under the same judge
     if len(ablations) > 1:
-        print(f"\n{'='*60}")
-        print("  ABLATION COMPARISON")
-        print(f"{'='*60}")
         for model in models_to_run:
             model_rows = [(n, r) for (n, m, r) in rows if m == model]
             if len(model_rows) < 2:
                 continue
-            print(f"\n  Judge: {model}")
-            print(f"  {'Config':<28} {'R@5':<8} {'R@10':<8} {'R@20':<8} "
-                  f"{'P@10':<8} {'MRR':<7} {'NDCG@10':<8} {'zh R@10':<8} {'en R@10':<8}")
-            print(f"  {'-'*106}")
-            for name, r in model_rows:
-                label = _ABLATION_LABELS.get(name, name)
-                lang = summarize_by_language(r)
-                zh_r10 = f"{lang['zh']['R@10']:.1%}" if lang["zh"]["n"] else "-"
-                en_r10 = f"{lang['en']['R@10']:.1%}" if lang["en"]["n"] else "-"
-                print(f"  {label:<28} {r.recall_at_5:<8.1%} {r.recall_at_10:<8.1%} "
-                      f"{r.recall_at_20:<8.1%} {r.precision_at_10:<8.1%} "
-                      f"{r.mrr:<7.3f} {r.ndcg_at_10:<8.3f} {zh_r10:<8} {en_r10:<8}")
+            _print_ablation_comparison(dict(model_rows), model)
+
+
+def _save_result(
+    result: RecallEvalResult, model: str, pool_size: int, name: str
+) -> str:
+    """Persist a RecallEvalResult to tests/eval_results/ and return the path."""
+    model_slug = model.replace("/", "-").replace(".", "-")
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "tests", "eval_results")
+    os.makedirs(out_dir, exist_ok=True)
+    out_name = f"recall_{model_slug}_pool{pool_size}"
+    if name != "baseline":
+        out_name += f"_ablation_{name}"
+    out_path = os.path.join(out_dir, out_name + ".json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
+    print(f"  Results saved → {out_path}")
+    return out_path
+
+
+def _print_ablation_comparison(
+    results: dict[str, RecallEvalResult], model: str
+) -> None:
+    """Print a per-config comparison table with a zh/en split."""
+    print(f"\n{'='*60}")
+    print("  ABLATION COMPARISON (union-pool judge)")
+    print(f"{'='*60}")
+    print(f"\n  Judge: {model}")
+    print(f"  {'Config':<28} {'R@5':<8} {'R@10':<8} {'R@20':<8} "
+          f"{'P@10':<8} {'MRR':<7} {'NDCG@10':<8} {'zh R@10':<8} {'en R@10':<8}")
+    print(f"  {'-'*106}")
+    for name, r in results.items():
+        label = _ABLATION_LABELS.get(name, name)
+        lang = summarize_by_language(r)
+        zh_r10 = f"{lang['zh']['R@10']:.1%}" if lang["zh"]["n"] else "-"
+        en_r10 = f"{lang['en']['R@10']:.1%}" if lang["en"]["n"] else "-"
+        print(f"  {label:<28} {r.recall_at_5:<8.1%} {r.recall_at_10:<8.1%} "
+              f"{r.recall_at_20:<8.1%} {r.precision_at_10:<8.1%} "
+              f"{r.mrr:<7.3f} {r.ndcg_at_10:<8.3f} {zh_r10:<8} {en_r10:<8}")
 
 
 def main():

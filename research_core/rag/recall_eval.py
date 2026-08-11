@@ -562,3 +562,181 @@ def _assign_pool_rank(entry: PoolEntry, rank: int) -> None:
         entry.rank_at_20 = rank
     if rank <= 50:
         entry.rank_at_50 = rank
+
+
+# ── Multi-system pooling ablation ──────────────────────────────────────────
+
+_ABLATION_METRICS = [
+    "recall_at_5", "recall_at_10", "recall_at_20", "recall_at_50",
+    "precision_at_5", "precision_at_10", "precision_at_20", "mrr", "ndcg_at_10",
+]
+
+
+def _sqr_from_ranked(
+    q: RecallEvalQuery,
+    ranked_keys: list[str],
+    relevant: set[str],
+    pool_size: int,
+    pool_judged: int,
+) -> SingleQueryRecallResult:
+    """Build a SingleQueryRecallResult from ranked keys + shared relevance set."""
+    pool_rel = len(relevant)
+
+    def _cnt(k: int) -> int:
+        return sum(1 for key in ranked_keys[:k] if key in relevant)
+
+    def _rec(k: int, n: int) -> float:
+        return (n / pool_rel) if pool_rel else 1.0
+
+    def _prec(k: int, n: int) -> float:
+        return n / k if k else 0.0
+
+    n5, n10, n20, n50 = _cnt(5), _cnt(10), _cnt(20), _cnt(50)
+    mrr, first = 0.0, 0
+    for i, key in enumerate(ranked_keys, 1):
+        if key in relevant:
+            mrr, first = 1.0 / i, i
+            break
+
+    return SingleQueryRecallResult(
+        query_id=q.query_id, query_text=q.query_text, category=q.category,
+        pool_size=pool_size, pool_relevant=pool_rel, pool_judged=pool_judged,
+        recall_at_5=_rec(5, n5), recall_at_10=_rec(10, n10),
+        recall_at_20=_rec(20, n20), recall_at_50=_rec(50, n50),
+        precision_at_5=_prec(5, n5), precision_at_10=_prec(10, n10),
+        precision_at_20=_prec(20, n20), mrr=mrr,
+        ndcg_at_10=_ndcg(ranked_keys, relevant, 10), first_relevant_rank=first,
+        top5_keys=ranked_keys[:5], top10_keys=ranked_keys[:10],
+        top20_keys=ranked_keys[:20], relevant_keys=sorted(relevant),
+    )
+
+
+def evaluate_multi_config(
+    zot: ZoteroClient,
+    queries: list[RecallEvalQuery],
+    judge: LLMJudge,
+    runners: dict[str, Any],
+    pool_limit: int = 50,
+    include_abstracts: bool = True,
+    max_union: int = 120,
+) -> dict[str, RecallEvalResult]:
+    """Multi-system pooling ablation.
+
+    For each query, run every config ``runner`` (callable: query_text -> ranked
+    PaperHits), build a UNION pool across all configs, judge it ONCE, then score
+    each config against the shared relevance labels.
+
+    Why this instead of per-config pooling: a config judged on its own pool
+    cannot see the relevant papers it failed to retrieve (single-system pooling
+    bias) and different configs get different denominators, so their metrics are
+    not comparable. Judging the union once gives every config the same
+    denominator and rewards configs that surface papers others miss. It also
+    costs one judge call per query instead of one per config.
+
+    Returns dict {config_name: RecallEvalResult}.
+    """
+    config_names = list(runners.keys())
+    per_config: dict[str, RecallEvalResult] = {
+        n: RecallEvalResult(total_queries=len(queries), judge_model=judge.config.model)
+        for n in config_names
+    }
+    acc: dict[str, dict[str, list[float]]] = {
+        n: {m: [] for m in _ABLATION_METRICS} for n in config_names
+    }
+    pool_totals: dict[str, dict[str, int]] = {
+        n: {"pool": 0, "relevant": 0} for n in config_names
+    }
+
+    for q in queries:
+        # ── Step 1: run every config ──
+        config_ranked: dict[str, list] = {}
+        for name, runner in runners.items():
+            try:
+                config_ranked[name] = list(runner(q.query_text))[:pool_limit]
+            except Exception as e:
+                logger.warning(f"[{q.query_id}] config {name} failed: {e}")
+                config_ranked[name] = []
+
+        # ── Step 2: build union pool across configs ──
+        pool: dict[str, dict[str, Any]] = {}
+        for name, hits in config_ranked.items():
+            for rank, hit in enumerate(hits, 1):
+                entry = pool.setdefault(hit.key, {
+                    "title": hit.title, "tags": hit.tags,
+                    "abstract": hit.paper_abstract if include_abstracts else "",
+                    "best_rank": rank, "ranks": {},
+                })
+                entry["ranks"][name] = rank
+                entry["best_rank"] = min(entry["best_rank"], rank)
+
+        for ek in q.expected_item_keys:
+            if ek not in pool:
+                try:
+                    item = zot.get_item(ek)
+                    pool[ek] = {
+                        "title": item.title, "tags": item.tags,
+                        "abstract": item.abstract if include_abstracts else "",
+                        "best_rank": pool_limit + 1, "ranks": {},
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not fetch expected item {ek}: {e}")
+
+        if len(pool) > max_union:
+            ordered = sorted(pool.items(), key=lambda kv: kv[1]["best_rank"])
+            pool = dict(ordered[:max_union])
+
+        pool_keys = list(pool.keys())
+        if not pool_keys:
+            for name in config_names:
+                per_config[name].queries_with_errors += 1
+            continue
+
+        # ── Step 3: judge the union pool ONCE ──
+        judge_input = [
+            {"key": k, "title": pool[k]["title"], "tags": pool[k]["tags"],
+             "abstract": pool[k]["abstract"]}
+            for k in pool_keys
+        ]
+        try:
+            judgments = judge.judge_query(q.query_text, judge_input)
+        except Exception as e:
+            logger.warning(f"[{q.query_id}] judge failed: {e}")
+            for name in config_names:
+                per_config[name].queries_with_errors += 1
+                per_config[name].per_query.append(SingleQueryRecallResult(
+                    query_id=q.query_id, query_text=q.query_text, category=q.category,
+                    pool_size=0, pool_relevant=0, pool_judged=0,
+                    recall_at_5=0, recall_at_10=0, recall_at_20=0, recall_at_50=0,
+                    precision_at_5=0, precision_at_10=0, precision_at_20=0,
+                    mrr=0, ndcg_at_10=0, first_relevant_rank=0, error=str(e),
+                ))
+            continue
+
+        relevant: set[str] = {k for k in pool_keys if judgments.get(k, False)}
+        pool_size = len(pool_keys)
+
+        # ── Step 4: score each config against the shared labels ──
+        for name in config_names:
+            ranked_keys = [h.key for h in config_ranked[name]]
+            sqr = _sqr_from_ranked(
+                q=q, ranked_keys=ranked_keys, relevant=relevant,
+                pool_size=pool_size, pool_judged=pool_size,
+            )
+            per_config[name].per_query.append(sqr)
+            per_config[name].valid_queries += 1
+            for m in _ABLATION_METRICS:
+                acc[name][m].append(getattr(sqr, m))
+            pool_totals[name]["pool"] += pool_size
+            pool_totals[name]["relevant"] += len(relevant)
+
+    # ── aggregate each config ──
+    for name in config_names:
+        res = per_config[name]
+        n = res.valid_queries
+        for m in _ABLATION_METRICS:
+            vals = acc[name][m]
+            setattr(res, m, round(sum(vals) / n, 4) if n and vals else 0.0)
+        res.total_pool_entries = pool_totals[name]["pool"]
+        res.total_relevant = pool_totals[name]["relevant"]
+
+    return per_config

@@ -39,13 +39,23 @@
   - `--ablation-set` 打印每组件 × 每语言对比表
   - 结果存 `recall_<model>_pool<k>_ablation_<name>.json`
 
+### 方法论升级:多系统 pooling(recall_eval.evaluate_multi_config)
+
+`--ablation-set` 不再逐个配置独立跑 + 独立判,而是**并集池 + 共享 judge**:
+
+1. 每查询先跑全部 5 个配置,收集各配置 top-K 的**并集**
+2. 并集池**统一判一次**(每查询 1 次 judge 调用,而非每配置 1 次——5 倍省 API)
+3. 各配置用**同一组相关性标签**分别打分
+
+**为什么**:单系统 pooling(每个配置用自己的 pool 判定)有两个问题——配置漏掉的相关论文在其自身分母里不可见(recall 虚高),且各配置分母不同导致不可比。共享并集池给所有配置同一分母,能 catch 到"某配置漏掉但被另一配置找回"的相关论文,并池上限 `max_union=120`(按跨配置最优排名优先保留)。
+
 ### 冒烟测试发现(非结论)
 
 **中文查询下 dense 与 bm25 的 top-20 完全不相交(overlap=0)**,英文仅重叠 3 篇。这实证了两个检索臂确实互补——RRF 混合对中文的价值比预想更大,也说明 dense-only / bm25-only 单臂消融会产生显著差异。
 
 ### 待运行
 
-完整 `--ablation-set` 需要 Zotero 桌面端运行(评估依赖本地 API 元数据)。运行:
+完整 `--ablation-set` 需要:Zotero 桌面端运行 + **可用的 LLM judge 端点**。当前 `EVA_JUDGE_API_BASE=downstream.jbbtoken.cn` 无法连通(连接超时、DNS 解析到异常 IP),需用户确认/更换后再跑。运行:
 ```bash
 python scripts/run_recall_evaluation.py --ablation-set --judge gpt-5.4-mini
 ```
