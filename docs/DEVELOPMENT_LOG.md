@@ -20,6 +20,47 @@
 
 ---
 
+## 分栏感知提取 + 提取质量门控 (2026-08-12)
+
+### 问题
+
+1. **双栏 PDF 被交错提取**:`page.get_text("text")` 对许多期刊 PDF 按"同 y 左栏行、右栏行"交错返回(L1,R1,L2,R2),chunk 里句子被切成碎片。真实库实测确认多例(De Sá 2025、Sasidharan 2015、戢晓峰 2019 等),中文双栏更糟——chunker 的 `_CJK_SOFT_WRAP` 会把两栏文字焊成乱文。
+2. **无质量门控**:只要提取出字就索引,乱序/碎片/乱码静默入库,检索时把乱文当证据返回。
+
+### 方案
+
+**pdf.py 分栏感知提取**:
+- `get_text("dict")` 取每行 (x0, y0, text),按 **x0(起始 x,非行宽)** 聚类成栏目
+- 聚类按"栏内 x0 集中、栏间跳变"的原理;按行宽聚类会把左栏宽行的右边界顶到右栏导致合并(已实测踩坑)
+- **真栏过滤**:行数 ≥ max(3, 最大栏行数×25%),排除页眉/图注/侧边栏
+- 多栏 → 左栏到右栏,栏内按 y 排序;栏间 `\n\n` 段落分隔(防止跨栏焊合)
+- 单栏 → 保持原有 y 排序行为
+
+**质量门控**(不静默入库):
+- `ExtractionQuality` dataclass:`scanned`(无文本)、`garbled`(U+FFFD/NUL)、`fragmented`(逐词碎片)、`empty_pages`
+- **碎片检测**:纯拉丁单/双词行占采样页 >40% 的页数 ≥60%,且**首内容页也是高密度**——因为真碎片化(Sasidharan)从第 1 页就碎,而表格页只在正文局部
+- `_parse_and_chunk` 返回 5 元组 `(chunks, total_chars, cleaning_stats, quality, err)`;sync_index 命中 scanned/garbled/fragmented → 进 `report.failed` 带 hint,不索引
+- 报告 `extraction_quality: {scanned, garbled, fragmented}` 计数;**不加 OCR,只报扫描件数量**
+- CHUNKING_VERSION → v3.3.0-column-aware,触发一次全量重建
+
+### 验证
+
+- 单元测试 6 个(`tests/core/test_pdf_extraction.py`):合成双栏 → 左栏接右栏;单栏保序;扫描件标记;碎片判定
+- 真实库:De Sá 从交错乱文 → 连贯;Zheng/Hahn/La Delfa(表格多)不误报;Sasidharan 正确拦截
+- 全部 30 个 core/unit 测试通过
+
+### 已知限制
+
+- 单栏但行序本身错乱的 PDF(如 Weng 2019 全宽行乱序)分栏提取修不了,靠碎片/乱码门控拦截
+- 扫描件仍不索引(无 OCR);精确扫描件数量在 sync 报告的 `extraction_quality.scanned`
+
+### 待办
+
+- 运行 `scripts/index_library.py --force` 全量重建,观察 extraction_quality 计数与检索提升
+- 法律文书(64 份)建议从库中隔离,避免未来 sync 污染
+
+---
+
 ## 组件消融评估框架 (2026-08-11)
 
 ### 问题

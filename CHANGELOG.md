@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   labels. Fixes single-system pooling bias (configs get the same denominator;
   papers recovered by one config are visible to the others) and costs one judge
   call per query instead of one per config.
+- **Column-aware PDF extraction** — two/multi-column journal PDFs are now read
+  left column → right column (top-to-bottom within each column), fixing the
+  garbled interleaved text (L1,R1,L2,R2…) that many journal PDFs previously
+  produced. Column clusters are filtered by line share so headers, captions and
+  sidebars are not mistaken for columns. `CHUNKING_VERSION` bumped → one-time
+  automatic index rebuild.
+- **Extraction quality gate** — PDFs whose extraction is broken are no longer
+  silently indexed. Scanned (no text), garbled (replacement/NUL characters) and
+  word-per-line fragmented layouts are skipped and reported in the sync report
+  (`extraction_quality` counts: scanned / garbled / fragmented). No OCR is
+  performed — the scanned count is reported only.
+
+### Changed
 
 ## [0.4.9] - 2026-08-10
 

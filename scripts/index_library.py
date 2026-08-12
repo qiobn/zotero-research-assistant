@@ -36,6 +36,12 @@ def main(force_rebuild: bool = False):
     logger.info(f"  removed: {len(report.removed)}")
     logger.info(f"  failed:  {len(report.failed)}")
     logger.info(f"  total chunks now: {report.total_chunks_after}")
+    eq = (report.quality_summary or {}).get("extraction_quality", {})
+    if eq:
+        logger.info(
+            f"  extraction quality: scanned={eq.get('scanned', 0)} "
+            f"garbled={eq.get('garbled', 0)} fragmented={eq.get('fragmented', 0)}"
+        )
     if report.failed:
         for f in report.failed:
             logger.warning(f"  failed: {f}")

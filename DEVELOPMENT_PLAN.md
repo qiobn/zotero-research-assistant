@@ -137,6 +137,10 @@ Issues identified during full architecture review:
 
 > `search_papers` gains `enable_semantic`/`enable_bm25`/`enable_rerank` switches; `run_recall_evaluation.py` gains `--ablation` / `--ablation-set` + per-language (zh/en) metric split. Purpose: quantify whether the EN-only Cross-Encoder helps or hurts Chinese queries, whether MMR trades recall, and each component's contribution. **Pending**: full run requires Zotero desktop running (`--ablation-set`); enrichment-switch ablation needs an index rebuilt with `ZRA_INDEX_BILINGUAL_ENRICHMENT=false`.
 
+### 4.13 Column-aware extraction + extraction quality gate ✅
+
+> `pdf.py` now clusters text lines into real columns (by start-x) and reads left → right column, top-to-bottom, fixing garbled interleaved two-column extraction. `ExtractionQuality` (scanned / garbled / fragmented) gates indexing: broken extractions are skipped and reported (`extraction_quality` counts in sync report) instead of silently indexed. No OCR added. CHUNKING_VERSION → v3.3.0-column-aware (auto rebuild). **Pending**: run `index_library.py --force` to rebuild and observe the quality counts; consider isolating the 64 legal documents in Zotero.
+
 ---
 
 > **Problem**: User engagement signals (annotations, reading depth, saved notes) are never used for ranking.
@@ -155,8 +159,8 @@ Issues identified during full architecture review:
 | Phase 1 (P0) | 3 | 3 | 0 |
 | Phase 2 (P1) | 5 | 4 | 1 (deferred) |
 | Phase 3 (P2) | 5 | 2 | 3 (deferred) |
-| Phase 4 (v0.4.0) | 12 | 8 | 4 |
-| **Total** | **30** | **22** | **8** |
+| Phase 4 (v0.4.0) | 13 | 9 | 4 |
+| **Total** | **31** | **23** | **8** |
 
 ### Immediate Next Steps
 

@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 
 from research_core.parsers.pdf import PageText
 
-CHUNKING_VERSION = "v3.2.0-bilingual-enrichment"
+CHUNKING_VERSION = "v3.3.0-column-aware"
 
 # Sentence boundaries, CJK-aware. CJK terminators (。！？；…) are NOT followed by
 # a space in Chinese/Japanese text, so we split immediately after them; ASCII

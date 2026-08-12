@@ -34,16 +34,18 @@ from research_core.zotero.client import ZoteroClient
 def _parse_and_chunk(pdf_path: str, clean: bool = True):
     """Parse a PDF and chunk it. Pure CPU/IO work — safe to run in threads.
 
-    Returns (chunks, total_chars, cleaning_stats).
-    chunks is None when no text was extractable.
+    Returns (chunks, total_chars, cleaning_stats, quality, error).
+    chunks is None when no text was extractable or extraction failed quality gates.
     cleaning_stats is a dict {lines_in, lines_out, removed_by_category} or None.
+    quality is an ExtractionQuality (see parsers.pdf); None on hard errors.
+    error is None on success, else the exception/blocking reason string.
     """
     from research_core.parsers.pdf import PageText
     from research_core.parsers.text_cleaner import clean_text
 
     parsed = extract_pdf(pdf_path)
     if not parsed.pages:
-        return None, 0, None
+        return None, 0, None, parsed.quality, None
 
     cleaning_stats: dict | None = None
 
@@ -73,7 +75,7 @@ def _parse_and_chunk(pdf_path: str, clean: bool = True):
 
     total_chars = sum(len(p.text) for p in pages_for_chunking)
     chunks = chunk_text(pages_for_chunking)
-    return chunks, total_chars, cleaning_stats
+    return chunks, total_chars, cleaning_stats, parsed.quality, None
 
 
 def _index_metadata(
@@ -377,6 +379,10 @@ def sync_index(
     # Bounded batches cap peak memory (chunks held before indexing).
     batch_size = max(workers * 4, 16)
 
+    q_scanned = 0
+    q_garbled = 0
+    q_fragmented = 0
+
     for i in range(0, len(process_keys), batch_size):
         batch = process_keys[i:i + batch_size]
 
@@ -394,13 +400,13 @@ def sync_index(
                     try:
                         parsed[k] = fut.result()
                     except Exception as e:
-                        parsed[k] = (None, 0, None, e)
+                        parsed[k] = (None, 0, None, None, e)
         else:
             for k in batch:
                 try:
                     parsed[k] = _parse_and_chunk(pdf_paths[k], clean=clean_enabled)
                 except Exception as e:
-                    parsed[k] = (None, 0, None, e)
+                    parsed[k] = (None, 0, None, None, e)
 
         report.cleaning_enabled = clean_enabled
         total_cleaned_lines = 0
@@ -408,23 +414,38 @@ def sync_index(
 
         # Phase 2: index serially (embedding + ChromaDB upsert under sync_lock).
         for key in batch:
-            result = parsed.get(key, (None, 0, None))
-            if len(result) == 4:
-                chunks, total_chars, cleaning_stats, err = result
-            else:
-                chunks, total_chars, cleaning_stats = result
-                err = None
+            result = parsed.get(key, (None, 0, None, None, None))
+            chunks, total_chars, cleaning_stats, quality, err = result
             if err is not None:
                 logger.error(f"sync_index failed for {key}: {err}")
                 report.failed.append({"key": key, "error": str(err)})
                 continue
-            if chunks is None:
+            if chunks is None or (quality and quality.scanned):
+                q_scanned += 1
                 report.failed.append({
                     "key": key,
                     "error": "no text extracted",
                     "hint": "Possibly scanned/encrypted PDF",
                 })
                 issues.append(f"{key}: no extractable text (scanned/encrypted?)")
+                continue
+            if quality and quality.garbled:
+                q_garbled += 1
+                report.failed.append({
+                    "key": key,
+                    "error": "garbled extraction",
+                    "hint": "Extracted text contains replacement/NUL characters",
+                })
+                issues.append(f"{key}: garbled extraction (replacement chars)")
+                continue
+            if quality and quality.fragmented:
+                q_fragmented += 1
+                report.failed.append({
+                    "key": key,
+                    "error": "fragmented layout",
+                    "hint": "Word-by-word extraction; text is unusable",
+                })
+                issues.append(f"{key}: fragmented layout (word-per-line)")
                 continue
 
             try:
@@ -509,6 +530,11 @@ def sync_index(
     report.cleaning_categories = dict(
         sorted(all_clean_cats.items(), key=lambda x: -x[1])[:15]
     )
+    report.quality_summary = {
+        "scanned": q_scanned,
+        "garbled": q_garbled,
+        "fragmented": q_fragmented,
+    }
 
     # ── Load user Zotero tags into query rewriter for personalized expansion ──
     try:
@@ -578,6 +604,11 @@ def sync_index(
             ),
             "papers_with_issues": len(issues),
             "issues": issues[:20],
+            "extraction_quality": {
+                "scanned": q_scanned,
+                "garbled": q_garbled,
+                "fragmented": q_fragmented,
+            },
         }
 
     # Log rotation: cleanup entries older than 90 days (best-effort)
