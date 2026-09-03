@@ -25,9 +25,18 @@ as `0.4.10.dev0`.
   server prefers installed resources and falls back to source-tree skills.
 - The default index-time NMT cache is now `{CHROMA_PERSIST_DIR}/hf_cache` on every
   platform, replacing a Windows path literal that was invalid as a POSIX default.
+- `_index_manifest.json` now records a build ID, corpus-shaping runtime settings,
+  and Chroma / SQLite / BM25 chunk counts. A sync starts as `building` and becomes
+  `ready` only when all three copies agree; otherwise it is explicitly `degraded`.
+- Deletion, forced rebuild, and PDF replacement now clear both Chroma and SQLite;
+  replacing a shorter revised PDF cannot leave stale tail vectors. Retrievers
+  suppress BM25 while a manifest is `building` or `degraded`, and health checks
+  expose legacy, incomplete, and count-mismatched index states.
+- CI now runs on every branch push, with offline cascade-deletion / BM25-gate
+  regressions and a wheel smoke test for both packaged strategy skills.
 
-Next validation: build and install the wheel in a clean environment, smoke-test
-the MCP skill resources, and add deterministic contract tests for MCP responses.
+Next: implement staging builds and an atomic active-index switch. The manifest
+detects and blocks mixed state today, but a multi-store rebuild is not yet atomic.
 
 ---
 

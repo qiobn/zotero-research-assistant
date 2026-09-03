@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 concurrency:
@@ -38,3 +37,21 @@ jobs:
         # they are intentionally excluded from CI.
         # test_cnki_helpers requires playwright (CNKI extra), skip in CI.
         run: pytest tests/core tests/unit -q --ignore=tests/unit/test_cnki_helpers.py
+
+      - name: Wheel package smoke test
+        run: |
+          python -m build --wheel --outdir dist
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel = next(Path("dist").glob("*.whl"))
+          with ZipFile(wheel) as archive:
+              files = set(archive.namelist())
+          required = {
+              "project_a_mcp/skills/bilingual-search/SKILL.md",
+              "project_a_mcp/skills/graph-expansion/SKILL.md",
+          }
+          missing = required - files
+          assert not missing, f"Wheel is missing packaged skills: {sorted(missing)}"
+          PY

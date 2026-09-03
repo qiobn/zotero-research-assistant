@@ -16,8 +16,11 @@
 - wheel 通过 Hatch `force-include` 打包 `.claude/skills` 到 `project_a_mcp/skills`；服务端优先读取安装后的资源，源码检出回退到 `.claude/skills`。
 - 修正索引期 NMT 默认缓存路径，统一使用 `{CHROMA_PERSIST_DIR}/hf_cache`，不再在 macOS/Linux 中创建字面量 Windows 路径目录。
 - 版本常量、Zotero User-Agent、CNKI 安装提示、PyPI 发布 URL、README、路线图和 CHANGELOG 统一到当前开发状态。
+- 新增 `_index_manifest.json`：一次同步从 `building` 开始，记录 build ID、影响语料的运行时配置，以及 Chroma / SQLite / BM25 三份 chunk 计数；三者一致才标记为 `ready`，否则为 `degraded`。
+- 删除、强制重建和 PDF 更新统一同时清理 Chroma 与 SQLite；更新前先删除旧 chunk，避免新版 PDF chunk 变少时遗留向量尾项。`Retriever` 在 manifest 为 `building` 或 `degraded` 时禁用 BM25，健康检查会显示未验证、未完成或计数不一致的索引。
+- CI 改为每个分支 push 都运行，新增 SQLite 级联删除和 BM25 门禁离线测试，并对 wheel 内两个 strategy skill 做打包 smoke test。
 
-后续验证重点：从干净环境构建/安装 wheel 后读取 MCP skill resources，并把 MCP 返回 envelope 纳入无外部服务的 contract tests。
+下一步：实现 staging index 与活动索引原子切换；当前 manifest 能检测并阻断混合状态，但尚不能让跨 Chroma / SQLite 的重建原子提交。
 
 ---
 

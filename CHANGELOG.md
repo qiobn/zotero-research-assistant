@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Index-copy consistency** — `sync_index` now deletes a paper from both
+  Chroma and SQLite metadata on removal, full rebuild, and before replacing an
+  updated PDF. This prevents deleted metadata and stale tail chunks from
+  surviving when a revised document produces fewer chunks.
+- **Stale BM25 fallback** — an index manifest records one build ID, runtime
+  corpus settings, and observed Chroma/SQLite/BM25 counts. Incomplete or
+  disagreeing builds are marked `degraded`; retrievers then disable sparse
+  retrieval rather than fuse an old pickle with newer vectors.
 - **Release metadata and packaging consistency** — source now identifies as
   `0.4.10.dev0`; documentation and package metadata consistently report 40 MCP
   tools (36 always-on plus 4 CNKI-conditional). The runtime User-Agent now uses
@@ -21,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Windows path literal that created a malformed relative directory on POSIX.
 
 ### Added
+- **Index build diagnostics and regression coverage** — health checks report
+  legacy/unverified, in-progress, degraded, and count-mismatched index states.
+  Offline tests cover SQLite cascade deletion and the BM25 manifest gate; CI now
+  runs for every push and verifies both packaged strategy skills in the wheel.
 - **Component ablation harness** — `run_recall_evaluation.py` gains `--ablation`
   and `--ablation-set` to isolate the contribution of each retrieval component
   (Dense / BM25 / Cross-Encoder / MMR). `search_papers` accepts

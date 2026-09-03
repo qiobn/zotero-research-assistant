@@ -192,7 +192,20 @@ def _check_vector_index(retriever) -> dict:
         }
     try:
         count = retriever._collection.count()
+        from research_core.rag.index_manifest import IndexManifest
+
+        manifest = IndexManifest.load(retriever._persist_dir)
         if count == 0:
+            if manifest is not None and manifest.status != "ready":
+                return {
+                    "name": name,
+                    "status": "error",
+                    "message": (
+                        f"Index build {manifest.build_id} is {manifest.status}: "
+                        f"{manifest.error or 'build did not complete'}"
+                    ),
+                    "fix": "Run sync_index(force_rebuild=True) and wait for it to finish.",
+                }
             return {
                 "name": name,
                 "status": "warning",
@@ -210,12 +223,60 @@ def _check_vector_index(retriever) -> dict:
                     "Wait for indexing (may take minutes)."
                 ),
             }
-        else:
+        if manifest is None:
             return {
                 "name": name,
-                "status": "ok",
-                "message": f"Index healthy: {count} chunks indexed.",
+                "status": "warning",
+                "message": (
+                    f"Index has {count} chunks but no build manifest; "
+                    "sparse-index consistency is unverified."
+                ),
+                "fix": "Run sync_index() once to create and validate the manifest.",
             }
+
+        if not manifest.bm25_is_current:
+            return {
+                "name": name,
+                "status": "error",
+                "message": (
+                    f"Index build {manifest.build_id} is {manifest.status}: "
+                    f"{manifest.error or 'BM25 is not current'}"
+                ),
+                "fix": "Run sync_index(force_rebuild=True) and wait for it to finish.",
+            }
+
+        from research_core.rag.database import DB_FILENAME, count_chunk_metadata, get_db
+
+        db_path = os.path.join(retriever._persist_dir, DB_FILENAME)
+        metadata_count = (
+            count_chunk_metadata(get_db(retriever._persist_dir))
+            if os.path.exists(db_path)
+            else 0
+        )
+        if (
+            manifest.vector_chunks != count
+            or manifest.metadata_chunks != metadata_count
+            or manifest.vector_chunks != manifest.bm25_chunks
+        ):
+            return {
+                "name": name,
+                "status": "error",
+                "message": (
+                    "Index copies disagree: "
+                    f"vector={count}, metadata={metadata_count}, "
+                    f"bm25={manifest.bm25_chunks}."
+                ),
+                "fix": "Run sync_index(force_rebuild=True) to rebuild all index copies.",
+            }
+
+        return {
+            "name": name,
+            "status": "ok",
+            "message": (
+                f"Index healthy: {count} chunks indexed "
+                f"(build {manifest.build_id})."
+            ),
+        }
     except Exception as e:
         return {
             "name": name,

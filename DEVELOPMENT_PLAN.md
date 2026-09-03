@@ -11,7 +11,7 @@ Phase 0 (Audit)    ████████████████████ 
 Phase 1 (P0)       ████████████████████ 100%  ✅ DONE
 Phase 2 (P1)       ████████████████████ 100%  ✅ DONE
 Phase 3 (P2)       ████████░░░░░░░░░░░░  40%  (3.1 superseded, 3.3 complete; 3.2/3.4/3.5 deferred)
-Phase 4 (Hardening) ██████████████░░░░░░  70%  9 of 13 audit/release tasks complete
+Phase 4 (Hardening) ███████████████░░░░░  71%  10 of 14 audit/release tasks complete
 ```
 
 ---
@@ -141,6 +141,19 @@ Issues identified during full architecture review:
 
 > `pdf.py` now clusters text lines into real columns (by start-x) and reads left → right column, top-to-bottom, fixing garbled interleaved two-column extraction. `ExtractionQuality` (scanned / garbled / fragmented) gates indexing: broken extractions are skipped and reported (`extraction_quality` counts in sync report) instead of silently indexed. No OCR added. CHUNKING_VERSION → v3.3.0-column-aware (auto rebuild). **Pending**: run `index_library.py --force` to rebuild and observe the quality counts; consider isolating the 64 legal documents in Zotero.
 
+### 4.14 Verifiable index-build baseline ✅
+
+> **Completed**: Chroma vectors, SQLite structured metadata, and the persisted
+> BM25 corpus now share an `_index_manifest.json` build record with corpus-shaping
+> runtime settings and observed chunk counts. `sync_index` writes `building`
+> before mutations, deletes every store consistently for removals and updates,
+> then marks the build `ready` only when all three counts agree. `Retriever`
+> suppresses BM25 for `building` / `degraded` manifests; health checks expose
+> legacy, incomplete, and count-mismatched states. CI covers this baseline on
+> all branches. **Still pending**: build Chroma and SQLite in a staging location
+> and atomically switch the active build; the current manifest detects and blocks
+> mixed state but does not make a multi-store rebuild atomic.
+
 ---
 
 > **Problem**: User engagement signals (annotations, reading depth, saved notes) are never used for ranking.
@@ -159,13 +172,13 @@ Issues identified during full architecture review:
 | Phase 1 (P0) | 3 | 3 | 0 |
 | Phase 2 (P1) | 5 | 4 | 1 (deferred) |
 | Phase 3 (P2) | 5 | 1 | 1 superseded, 3 deferred |
-| Phase 4 (Hardening) | 13 | 9 | 4 |
-| **Total** | **31** | **22** | **1 superseded, 8 deferred** |
+| Phase 4 (Hardening) | 14 | 10 | 4 |
+| **Total** | **32** | **23** | **1 superseded, 8 deferred** |
 
 ### Immediate Next Steps
 
 ```
-→ Build and install a wheel, then smoke-test packaged MCP skill resources
+→ Implement staging-index build and atomic active-build switching
 → Add deterministic MCP contract tests and run them in CI
 → Calibrate the no-answer evaluation judge with a sanitized fixture corpus
 → Implement section parent linking before relying on nested-section expansion

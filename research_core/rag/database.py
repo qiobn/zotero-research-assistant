@@ -296,6 +296,18 @@ def delete_paper(conn: sqlite3.Connection, item_key: str) -> None:
     # CASCADE handles sections, chunks_meta, figures, table_records
 
 
+def list_paper_keys(conn: sqlite3.Connection) -> set[str]:
+    """Return every paper key currently represented in SQLite metadata."""
+    rows = conn.execute("SELECT item_key FROM papers").fetchall()
+    return {str(row["item_key"]) for row in rows}
+
+
+def count_chunk_metadata(conn: sqlite3.Connection) -> int:
+    """Return the number of SQLite chunk records for index consistency checks."""
+    row = conn.execute("SELECT COUNT(*) AS count FROM chunks_meta").fetchone()
+    return int(row["count"] if row else 0)
+
+
 # ── CRUD: Sections ─────────────────────────────────────────────────────
 
 

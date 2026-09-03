@@ -19,13 +19,17 @@ from research_core.rag.database import (
     FigureRow,
     PaperRow,
     TableRow,
+    count_chunk_metadata,
+    delete_paper,
     get_db,
     insert_chunk_figure_refs,
     insert_chunk_table_refs,
     insert_chunks_meta,
+    list_paper_keys,
     upsert_paper,
 )
 from research_core.rag.indexer import Indexer
+from research_core.rag.index_manifest import IndexManifest, IndexRuntime
 from research_core.rag.retriever import Retriever
 from research_core.rag.sync_state import SyncState
 from research_core.zotero.client import ZoteroClient
@@ -296,6 +300,56 @@ class SyncReport:
     cleaning_enabled: bool = True
     total_lines_cleaned: int = 0
     cleaning_categories: dict = field(default_factory=dict)
+    index_build_id: str = ""
+    index_status: str = ""
+    metadata_chunks: int = 0
+
+
+def _remove_indexed_item(indexer: Indexer, persist_dir: str, item_key: str) -> int:
+    """Delete an item from both search stores before it is removed or replaced."""
+    deleted = indexer.delete_item(item_key)
+    conn = get_db(persist_dir)
+    delete_paper(conn, item_key)
+    conn.commit()
+    return deleted
+
+
+def _finalize_index_build(
+    *,
+    indexer: Indexer,
+    retriever: Retriever,
+    persist_dir: str,
+    manifest: IndexManifest,
+    report: SyncReport,
+) -> None:
+    """Rebuild sparse retrieval and persist one observed index-build outcome."""
+    bm25_count = 0
+    error = ""
+    try:
+        from research_core.rag.bm25_index import BM25Index
+
+        bm25 = BM25Index(persist_dir)
+        bm25_count = bm25.build_from_collection(indexer.collection)
+        retriever._bm25 = None  # noqa: SLF001
+        logger.info(f"BM25 index rebuilt: {bm25_count} chunks")
+    except Exception as exc:
+        error = f"BM25 index rebuild failed: {exc}"
+        logger.warning(error)
+
+    vector_chunks = indexer.count()
+    metadata_chunks = count_chunk_metadata(get_db(persist_dir))
+    manifest.finish(
+        vector_chunks=vector_chunks,
+        metadata_chunks=metadata_chunks,
+        bm25_chunks=bm25_count,
+        error=error,
+    )
+    manifest.save(persist_dir)
+    report.total_chunks_after = vector_chunks
+    report.metadata_chunks = metadata_chunks
+    report.bm25_indexed = bm25_count
+    report.index_build_id = manifest.build_id
+    report.index_status = manifest.status
 
 
 def sync_index(
@@ -317,20 +371,34 @@ def sync_index(
     report = SyncReport(incremental=not force_rebuild)
     persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
     embedding_model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+    runtime = IndexRuntime.from_environment()
 
     state = SyncState.load(persist_dir)
+    previous_manifest = IndexManifest.load(persist_dir)
 
     rebuild_reason = state.needs_rebuild(embedding_model)
-    if rebuild_reason and not force_rebuild:
-        logger.warning(f"{rebuild_reason} — forcing full rebuild")
+    manifest_issues = (
+        previous_manifest.compatibility_issues(runtime)
+        if previous_manifest is not None
+        else []
+    )
+    rebuild_reasons = [reason for reason in (rebuild_reason, *manifest_issues) if reason]
+    if rebuild_reasons and not force_rebuild:
+        report.rebuild_reason = "; ".join(rebuild_reasons)
+        logger.warning(f"{report.rebuild_reason} — forcing full rebuild")
         force_rebuild = True
         report.incremental = False
-        report.rebuild_reason = rebuild_reason
+
+    # Persist the unsafe state before changing any index copy. A restarted MCP
+    # process will therefore suppress BM25 until this build is finalized.
+    manifest = IndexManifest.start(runtime)
+    manifest.save(persist_dir)
 
     if force_rebuild:
-        indexed_keys = retriever.list_indexed_items()
+        conn = get_db(persist_dir)
+        indexed_keys = retriever.list_indexed_items() | list_paper_keys(conn)
         for key in indexed_keys:
-            indexer.delete_item(key)
+            _remove_indexed_item(indexer, persist_dir, key)
             report.removed.append(key)
         state.item_versions.clear()
 
@@ -338,17 +406,23 @@ def sync_index(
     new_keys, modified_keys, deleted_keys = state.diff(current_versions)
 
     for key in deleted_keys:
-        indexer.delete_item(key)
+        _remove_indexed_item(indexer, persist_dir, key)
         report.removed.append(key)
         state.item_versions.pop(key, None)
 
     keys_to_process = new_keys | modified_keys
     if not keys_to_process:
         logger.info("No new or modified items to index")
-        report.total_chunks_after = indexer.count()
         state.embedding_model = embedding_model
         state.chunking_version = CHUNKING_VERSION
         state.save()
+        _finalize_index_build(
+            indexer=indexer,
+            retriever=retriever,
+            persist_dir=persist_dir,
+            manifest=manifest,
+            report=report,
+        )
         for key in current_versions:
             if key not in keys_to_process and key not in deleted_keys:
                 report.skipped.append(key)
@@ -472,6 +546,9 @@ def sync_index(
                 ]
                 keywords_str = ", ".join(meaningful_tags) if meaningful_tags else ""
 
+                # Remove every old chunk first. Upserts alone leave stale tail
+                # chunks when a revised PDF produces fewer chunks than before.
+                _remove_indexed_item(indexer, persist_dir, key)
                 indexer.index_chunks(
                     chunks, item_key=key, title=item.title, year=year,
                     keywords=keywords_str,
@@ -525,7 +602,6 @@ def sync_index(
     state.embedding_model = embedding_model
     state.chunking_version = CHUNKING_VERSION
     state.save()
-    report.total_chunks_after = indexer.count()
     report.total_lines_cleaned = total_cleaned_lines
     report.cleaning_categories = dict(
         sorted(all_clean_cats.items(), key=lambda x: -x[1])[:15]
@@ -559,20 +635,6 @@ def sync_index(
     except Exception:
         pass  # best-effort; query expansion still works with Layer 1 (built-in)
 
-    # ── Rebuild BM25 sparse index (on full chunk corpus) ──
-    bm25_count = 0
-    try:
-        from research_core.rag.bm25_index import BM25Index
-        bm25 = BM25Index(persist_dir)
-        bm25_count = bm25.build_from_collection(indexer.collection)
-        report.bm25_indexed = bm25_count
-        # Invalidate retriever's cached BM25 so next search picks up fresh index
-        retriever._bm25 = None  # noqa: SLF001
-        logger.info(f"BM25 index rebuilt: {bm25_count} chunks")
-    except Exception as e:
-        logger.warning(f"BM25 index rebuild failed (non-fatal): {e}")
-        report.bm25_indexed = 0
-
     # ── Ensure ChromaDB HNSW segment is fully persisted ──
     # ChromaDB 1.5.x uses async Rust compaction; the HNSW segment may be
     # incomplete when the Python process exits. Force a clean rebuild to
@@ -588,6 +650,14 @@ def sync_index(
             )
     except Exception as e:
         logger.warning(f"HNSW health check failed (non-fatal): {e}")
+
+    _finalize_index_build(
+        indexer=indexer,
+        retriever=retriever,
+        persist_dir=persist_dir,
+        manifest=manifest,
+        report=report,
+    )
 
     if chunk_lengths:
         report.quality_summary = {

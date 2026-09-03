@@ -147,6 +147,12 @@ class BM25Index:
 
         if not all_ids:
             logger.warning("BM25: no chunks found in collection — index empty")
+            # Do not leave a previous corpus on disk: a zero-vector index and a
+            # stale sparse pickle would otherwise look superficially healthy.
+            self.delete()
+            self._chunk_ids = []
+            self._item_keys = []
+            self._chunk_texts = []
             return 0
 
         # Tokenize all texts

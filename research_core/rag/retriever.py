@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import chromadb
+from loguru import logger
 
 from research_core.rag.store import get_collection
 
@@ -82,6 +83,16 @@ class Retriever:
     def bm25(self):
         """Lazy-load the BM25 index. Returns None if not built yet."""
         if self._bm25 is None:
+            from research_core.rag.index_manifest import IndexManifest
+
+            manifest = IndexManifest.load(self._persist_dir)
+            if manifest is not None and not manifest.bm25_is_current:
+                logger.warning(
+                    f"BM25 disabled because index build {manifest.build_id} is "
+                    f"{manifest.status}: "
+                    f"{manifest.error or 'sparse index is not current'}"
+                )
+                return None
             from research_core.rag.bm25_index import BM25Index
             self._bm25 = BM25Index(self._persist_dir)
             self._bm25.load()  # Try loading; stays unready if file missing
