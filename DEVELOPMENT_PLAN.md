@@ -1,6 +1,6 @@
 # Development Plan — RAG Full-Pipeline Optimization
 
-> Last updated: 2026-08-10 | Current version: v0.4.9
+> Last updated: 2026-09-03 | Current development version: v0.4.10.dev0
 
 ---
 
@@ -10,17 +10,17 @@
 Phase 0 (Audit)    ████████████████████ 100%  ✅ DONE
 Phase 1 (P0)       ████████████████████ 100%  ✅ DONE
 Phase 2 (P1)       ████████████████████ 100%  ✅ DONE
-Phase 3 (P2)       ████████░░░░░░░░░░░░  40%  (completed: 3.1, 3.3; remaining: 3.2, 3.4, 3.5)
-Phase 4 (v0.4.0)   ██████████░░░░░░░░░░░░  50%  Architecture audit findings
+Phase 3 (P2)       ████████░░░░░░░░░░░░  40%  (3.1 superseded, 3.3 complete; 3.2/3.4/3.5 deferred)
+Phase 4 (Hardening) ██████████████░░░░░░  70%  9 of 13 audit/release tasks complete
 ```
 
 ---
 
 ## Phase 3: P2 — Refinements (Partial)
 
-### 3.1 Query Rewrite (Academic Scene) ✅
+### 3.1 Query Rewrite (Academic Scene) ↩️ Superseded
 
-> Implemented: `research_core/rag/query_rewriter.py`. Three-layer bilingual expansion (built-in ~310 pairs + Zotero tags + user synonyms). LRU-cached. `research_core/rag/query_dict.json`.
+> The former built-in dictionary and query-time NMT approach was removed. `research_core/rag/query_rewriter.py` now provides only query validation, user-defined synonyms, and Zotero-tag lookup through `expand_query`. The MCP client owns translation, decomposition, and multi-call retrieval strategy; index-time OPUS-MT metadata enrichment remains separately configurable.
 
 ### 3.2 Adaptive Chunk Granularity ⬜
 
@@ -43,7 +43,7 @@ Phase 4 (v0.4.0)   ██████████░░░░░░░░░░�
 
 ---
 
-## Phase 4: v0.4.0 — Architecture Audit Findings (2026-07-13)
+## Phase 4: Retrieval and Release Hardening (2026-07-13 onward)
 
 Issues identified during full architecture review:
 
@@ -131,7 +131,7 @@ Issues identified during full architecture review:
 
 ### 4.11 Skills served as MCP resources ✅
 
-> **Completed**: `server.py` registers FastMCP's native `SkillsDirectoryProvider` against `.claude/skills/`, exposing `bilingual-search` and `graph-expansion` as MCP resources (`skill://<name>/SKILL.md` + `_manifest`) so skill-aware clients can load the full strategy on demand. Directory overridable via `ZRA_SKILLS_DIR`; missing dir / old FastMCP skips silently. SKILL.md frontmatter reformatted to single-line descriptions for FastMCP's minimal parser.
+> **Completed**: `server.py` registers FastMCP's native `SkillsDirectoryProvider`, exposing `bilingual-search` and `graph-expansion` as MCP resources (`skill://<name>/SKILL.md` + `_manifest`) so skill-aware clients can load the full strategy on demand. Source checkouts use `.claude/skills`; wheel builds package the same files under `project_a_mcp/skills`. Directory is overridable via `ZRA_SKILLS_DIR`; missing directories / old FastMCP versions skip silently.
 
 ### 4.12 Component ablation harness 🟡 RUNNING
 
@@ -158,15 +158,15 @@ Issues identified during full architecture review:
 | Phase 0 (Audit) | 5 | 5 | 0 |
 | Phase 1 (P0) | 3 | 3 | 0 |
 | Phase 2 (P1) | 5 | 4 | 1 (deferred) |
-| Phase 3 (P2) | 5 | 2 | 3 (deferred) |
-| Phase 4 (v0.4.0) | 13 | 9 | 4 |
-| **Total** | **31** | **23** | **8** |
+| Phase 3 (P2) | 5 | 1 | 1 superseded, 3 deferred |
+| Phase 4 (Hardening) | 13 | 9 | 4 |
+| **Total** | **31** | **22** | **1 superseded, 8 deferred** |
 
 ### Immediate Next Steps
 
 ```
-→ Phase 4.1: Full-pipeline evaluation (in progress)
-→ Phase 4.3: Authors field fix (trivial, quick win)
-→ Phase 4.6: Docstring fix (trivial)
-→ Phase 4.5: Dead parameters cleanup
+→ Build and install a wheel, then smoke-test packaged MCP skill resources
+→ Add deterministic MCP contract tests and run them in CI
+→ Calibrate the no-answer evaluation judge with a sanitized fixture corpus
+→ Implement section parent linking before relying on nested-section expansion
 ```

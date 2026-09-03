@@ -10,7 +10,7 @@
 
 > **将 Zotero 文库变成 AI 可检索的知识库。**
 >
-> 从 PDF 分块到双语语义检索的完整 RAG 管线，全程本地运行。按语义找论文，而不只是匹配关键词。兼容所有 MCP 协议的 AI 客户端。
+> 从 PDF 分块到双语语义检索的完整 RAG 管线，本地建立并检索 Zotero 文库。按语义找论文，而不只是匹配关键词。兼容所有 MCP 协议的 AI 客户端。
 
 ---
 
@@ -19,7 +19,7 @@
 - [RAG 管线](#rag-管线) — 核心
 - [快速开始](#快速开始)
 - [客户端配置](#客户端配置)
-- [MCP 工具一览 (36)](#mcp-工具一览-36)
+- [MCP 工具一览 (40)](#mcp-工具一览-40)
 - [配置项说明](#配置项说明)
 - [表格与图](#表格与图)
 - [其他功能](#其他功能)
@@ -84,7 +84,8 @@ RAG 管线是本项目的核心。所有设计决策——从分块策略到嵌�
 │    → 双路 RRF 融合 (k=60)                             │
 │    → Cross-Encoder 重排序 (ms-marco-MiniLM-L-6-v2)   │
 │    → MMR 多样性 (λ=0.4, 每篇最多 3 chunks)           │
-│    → 双语查询扩展 (中文词典 + OPUS-MT 翻译)│
+│    → 客户端主导的双语检索策略                         │
+│      多次中英查询、`expand_query` 术语提示与结果合并 │
 │    → 双格式输出: JSON items + Markdown                │
 │      context_block (blockquote 引用, ★★★ 分级)        │
 └──────────────────────────────────────────────────────┘
@@ -92,10 +93,10 @@ RAG 管线是本项目的核心。所有设计决策——从分块策略到嵌�
 
 ### 搜索建议
 
-- **英文查询默认只搜英文文献**——如果查询本身是英文，系统认为你在检索英文文献，不启动 CN→EN 翻译。
-- **中文查询自动扩到双语**——OPUS-MT 将中文查询翻译为英文，在整个文库中搜索。结果按语言分组展示（中文论文在前，英文在后）。
-- **`language` 参数**——`language="cn"` 强制只搜中文论文，`language="en"` 只搜英文，默认 `"auto"`（全部检索）。
-- **构建自己的词典**——使用 `import_query_dict` 批量导入领域术语映射，或用 `add_query_synonym` 逐个添加。
+- **`search_papers` 是单查询检索器**——接受中文、英文或混合查询，但服务端不会自动改写或翻译查询。
+- **中文/混合查询需要跨语种召回时**，让 MCP 客户端遵循 `bilingual-search` skill：以多个中英文查询调用并按权重合并结果；快速标题或关键词匹配则可直接单次查询。
+- **翻译专业术语前使用 `expand_query`**——它仅返回用户保存的中英同义词和匹配的 Zotero 标签，不含内置术语词典。
+- **索引期双语富化仍在本地执行且可选**——重建索引时可用 OPUS-MT 翻译中文论文题名和关键词；这与查询改写无关，受 `ZRA_INDEX_BILINGUAL_ENRICHMENT` 控制。
 
 ### 管线核心特性
 
@@ -113,8 +114,9 @@ RAG 管线是本项目的核心。所有设计决策——从分块策略到嵌�
 | **双格式输出** | 核心工具同时返回 `items`（JSON 元数据）和 `context_block`（LLM 优化 Markdown）。blockquote 引用原文、★★★ 相关度分级、句边界截断。Markdown 为 LLM 主消费通道，JSON 服务程序化消费者。 |
 | **相关度分级** | 每条结果附带基于 Cross-Encoder 分数百分位的 `relevance_tier`（high/medium/low）。LLM 对 ★★★ 的直觉理解远胜于 0.0321 这类原始浮点数。 |
 | **MMR 多样性** | Chunk 级 Maximal Marginal Relevance（λ=0.4，网格搜索调优）。防止单篇论文主导搜索结果。硬 cap 每篇 3 chunks + per-document penalty。多样性提升 54%。 |
-| **双语查询扩展** | 四层扩展：(1) 内置 300+ 中英学术术语词典（方法名、研究概念）；(2) 自动从 Zotero 标签提取个性化术语；(3) 用户通过 `add_query_synonym`/`import_query_dict` 自定义词对；(4) **OPUS-MT 神经机器翻译** CN→EN（懒加载，首次约 3-5s，后续约 400ms/查）。同时有索引时双语富化——中文论文标题和关键词自动翻译后写入 BM25 文本，实现跨语言精确匹配。 |
-| **词典管理** | 4 个 MCP 工具：`add_query_synonym`、`remove_query_synonym`、`list_query_synonyms`、`import_query_dict`。用户可以构建自己的领域术语映射，持久化跨会话保留。 |
+| **双语检索策略** | `search_papers` 有意保持单查询检索。对高召回的中文/混合查询，MCP 客户端遵循 `bilingual-search` skill 执行并合并多次中英文查询。服务端通过 `expand_query` 提供用户同义词和 Zotero 标签，但没有预置词典或查询期 NMT。 |
+| **索引期双语富化** | 可在本地用 OPUS-MT 翻译中文论文题名和关键词，并以 `[Title_EN]` / `[Keywords_EN]` 写入索引文本。默认开启，可用 `ZRA_INDEX_BILINGUAL_ENRICHMENT` 控制，且与查询改写分离。 |
+| **术语管理** | 5 个 MCP 工具：`expand_query`、`add_query_synonym`、`remove_query_synonym`、`list_query_synonyms`、`import_query_dict`。用户可构建并持久化自己的中英术语映射。 |
 | **检索可观测性** | 每次搜索输出 JSONL 全链路追踪：查询、策略、候选数、重排序状态、top-20 结果及分数、延迟分解（关键词/语义/重排序/MMR/总计）。字节偏移索引支持快速回溯。 |
 | **嵌入质量诊断** | 6 阶段分析：论文内/间相似度、离群 chunk 检测、chunk 长度-相似度 Pearson 相关性、章节类型嵌入分离度、自动问题检测与修复建议。 |
 | **系统性评估** | 60 条黄金查询（直接命中/跨文档/无答案三类）。指标：Recall@5/10/20、MRR、NDCG@10。CLI 支持基线保存和 A/B 对比。 |
@@ -213,7 +215,9 @@ ZOTERO_API_KEY=your_api_key_here
 
 ---
 
-## MCP 工具一览 (36)
+## MCP 工具一览 (40)
+
+其中 36 个始终注册；4 个 CNKI 工具仅在 `CNKI_ENABLED=true` 时注册。
 
 | 类别 | 工具 |
 |------|------|
@@ -222,7 +226,7 @@ ZOTERO_API_KEY=your_api_key_here
 | **写入** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **管理** | `add_note`, `edit_tags`, `manage_collections` |
 | **洞察** | `reading_status`, `recommend_papers`, `generate_review_note`, `generate_reading_note`, `suggest_tags`, `find_arguments` |
-| **管控** | `sync_index`, `check_health`, `inspect_index`, `test_recall`, `recent_retrievals`, `retrieval_trace`, `retrieval_stats`, `add_query_synonym` |
+| **管控** | `sync_index`, `check_health`, `inspect_index`, `test_recall`, `recent_retrievals`, `retrieval_trace`, `retrieval_stats`, `expand_query`, `add_query_synonym`, `remove_query_synonym`, `list_query_synonyms`, `import_query_dict` |
 
 <details>
 <summary>展开工具详情</summary>
@@ -262,6 +266,7 @@ ZOTERO_API_KEY=your_api_key_here
 - **`inspect_index`** — chunk 统计、完整性标签、章节分布等
 - **`test_recall`** — 单篇论文检索质量测试
 - **`recent_retrievals`** / **`retrieval_trace`** / **`retrieval_stats`** — 检索观测
+- **`expand_query`** — 在客户端组织下一轮查询前，查询保存的中英同义词与匹配的 Zotero 标签
 - **`add_query_synonym`** — 添加中英文同义词对
 - **`remove_query_synonym`** — 移除用户自定义同义词对
 - **`list_query_synonyms`** — 列出所有用户自定义同义词
@@ -271,12 +276,12 @@ ZOTERO_API_KEY=your_api_key_here
 
 ### 双语检索 Skills
 
-多调用加权双语检索与 GraphRAG 图扩展策略以独立 skill 文件发布——`.claude/skills/bilingual-search/SKILL.md` 与 `.claude/skills/graph-expansion/SKILL.md`。它们：
+高召回场景可选用的多调用加权双语检索与 GraphRAG 图扩展策略以独立 skill 文件发布——`.claude/skills/bilingual-search/SKILL.md` 与 `.claude/skills/graph-expansion/SKILL.md`。它们：
 
 - 可被 Claude Code 等支持 skill 的客户端作为项目 skill 按需加载；
 - 由 server 通过 FastMCP 原生 skills provider 作为 MCP resources 暴露
   （`skill://bilingual-search/SKILL.md`、`skill://graph-expansion/SKILL.md`），
-  支持 skill 的 MCP 客户端可按需获取。目录可用 `ZRA_SKILLS_DIR` 配置。
+  支持 skill 的 MCP 客户端可按需获取。安装后的 wheel 将它们放在 `project_a_mcp/skills`，源码检出使用 `.claude/skills`；可用 `ZRA_SKILLS_DIR` 配置其他目录。
 
 所有 MCP 客户端即使不加载 skill 也能获得策略——`search_papers` 工具描述中保留了紧凑摘要（槽位/权重表 + 合并规则）。
 
@@ -300,8 +305,8 @@ ZOTERO_API_KEY=your_api_key_here
 | `ZRA_CHROMA_PORT` | `18000` | ChromaDB 服务器端口 |
 | `ZRA_AUTO_SYNC` | `true` | 启动时自动增量同步 |
 | `ZRA_CLEAN_ENABLED` | `true` | 分块前去除期刊 boilerplate |
-| `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | OPUS-MT 翻译模型缓存目录 (~300MB) |
-| `ZRA_SKILLS_DIR` | `<项目根>/.claude/skills` | 策略 skill 目录,作为 MCP resources 暴露(`bilingual-search`、`graph-expansion`) |
+| `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | OPUS-MT 索引期元数据翻译模型缓存目录 (~300MB) |
+| `ZRA_SKILLS_DIR` | 已安装包的 `project_a_mcp/skills` | 作为 MCP resources 暴露的策略 skills 目录；源码检出回退到 `.claude/skills` |
 | `ZRA_INDEX_BILINGUAL_ENRICHMENT` | `true` | 索引时追加 `[Title_EN]` / `[Keywords_EN]` 提示（仅用于消融实验，关闭后需重建索引） |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | 提升在线搜索速率 |
 | `OPENALEX_MAILTO` | — | OpenAlex 礼貌池 |
@@ -386,8 +391,8 @@ research_core/
                 IMRaD 章节检测、chunk 标记
   rag/         — ChromaDB 存储+检索、ONNX INT8 + FP32 嵌入、
                 SQLite 元数据库、Cross-Encoder + MMR 重排序、
-                双语查询扩展、评估、检索日志、嵌入诊断
-  tools/       — 36 个 MCP 工具实现（发现/阅读/写入/管理/洞察/管控）
+                索引期双语富化、评估、检索日志、嵌入诊断
+  tools/       — 40 个 MCP 工具适配层（36 常驻 + 4 个 CNKI 条件注册）
   zotero/      — Zotero 本地 + Web API 客户端
 project_a_mcp/ — MCP 服务端入口 (stdio 传输)
 scripts/       — CLI 工具（索引、审计、评估、基准测试、发布）

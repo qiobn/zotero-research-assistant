@@ -10,7 +10,7 @@
 
 > **Turn your Zotero library into an AI-searchable knowledge base.**
 >
-> A production-grade RAG pipeline — from PDF chunking to bilingual semantic retrieval — that runs entirely on your machine. Find papers by meaning, not just keywords. Works with any MCP-compatible AI client.
+> A production-grade RAG pipeline — from PDF chunking to bilingual semantic retrieval — that indexes and searches your Zotero library locally. Find papers by meaning, not just keywords. Works with any MCP-compatible AI client.
 
 ---
 
@@ -19,7 +19,7 @@
 - [RAG Pipeline](#rag-pipeline) — the core
 - [Quick Start](#quick-start)
 - [Client Setup](#client-setup)
-- [MCP Tools (36)](#mcp-tools-36)
+- [MCP Tools (40)](#mcp-tools-40)
 - [Configuration](#configuration)
 - [Tables & Figures](#tables--figures)
 - [Other Features](#other-features)
@@ -87,11 +87,10 @@ Your Zotero Library
 │    ↓                                                  │
 │    MMR diversity (λ=0.4, max 3 chunks/paper)         │
 │    ↓                                                  │
-│    Bilingual query expansion                          │
-│      ├─ Layer 1: Dict (CN↔EN, 300+ pairs)             │
-│      ├─ Layer 2: Zotero tags                           │
-│      ├─ Layer 3: User synonyms (add_query_synonym)     │
-│      └─ Layer 4: NMT CN→EN translation (OPUS-MT)      │
+│    Client-guided bilingual retrieval                  │
+│      ├─ Multi-call CN/EN queries when recall matters  │
+│      ├─ User synonyms + Zotero tags via expand_query  │
+│      └─ Translation/decomposition by the MCP client   │
 │    ↓                                                  │
 │    Dual-format output: JSON items + Markdown          │
 │    context_block (blockquote evidence, ★★★ tiers)    │
@@ -100,15 +99,16 @@ Your Zotero Library
 
 ### Search Tips
 
-- **English queries search English papers only** — if your query is in English, the
-  system assumes you're targeting English literature and skips CN→EN translation.
-- **Chinese queries search both languages** — automatic NMT translation expands Chinese
-  queries to English, searching the entire library. Results are grouped by language
-  (Chinese papers first, then English).
-- **`language` parameter** — use `language="cn"` to restrict results to Chinese papers,
-  or `language="en"` for English only (default: `"auto"`).
-- **Build your own dictionary** — use `import_query_dict` to bulk-load domain-specific
-  CN→EN term pairs, or add individual terms with `add_query_synonym`.
+- **`search_papers` is a single-query engine** — it accepts Chinese, English, or mixed
+  text but does not rewrite or translate your query internally.
+- **For Chinese/mixed cross-language recall**, have the MCP client follow the
+  `bilingual-search` skill: make several CN/EN queries and weight-merge their results.
+  Use the lighter single-query path for quick title or keyword matches.
+- **Use `expand_query` before translating a specialized term** — it returns only your
+  saved CN→EN synonyms and matching Zotero tags; there is no built-in term dictionary.
+- **Index-time enrichment remains local and optional** — Chinese paper titles and
+  keywords can be translated with OPUS-MT while rebuilding the index. This is separate
+  from query formulation and is controlled by `ZRA_INDEX_BILINGUAL_ENRICHMENT`.
 
 ### Key Pipeline Features
 
@@ -126,8 +126,9 @@ Your Zotero Library
 | **Dual-Format Output** | Key tools return both `items` (JSON metadata) and `context_block` (LLM-optimized Markdown). Blockquote for evidence text, ★★★ star ratings for relevance tiers, sentence-boundary truncation. Markdown is the primary LLM consumption channel; JSON serves programmatic consumers. |
 | **Relevance Tiers** | Each result gets a percentile-based `relevance_tier` (high/medium/low) computed from Cross-Encoder scores. LLMs understand ★★★ more intuitively than raw floats like 0.0321. |
 | **MMR Diversity** | Maximal Marginal Relevance at the chunk level (λ=0.4, tuned via grid search). Prevents single-paper dominance in top results. Hard cap of 3 chunks per paper + per-document penalty. +54% paper diversity vs un-diversified. |
-| **Bilingual Query Expansion** | Four-layer expansion: (1) built-in 300+ CN↔EN academic term dictionary (methodology names, research concepts); (2) auto-extracted Zotero tags for personalization; (3) user-defined synonyms via `add_query_synonym`/`import_query_dict` tools; (4) **OPUS-MT neural translation** CN→EN (lazy-loaded, ~400ms/query). Index-time enrichment also translates Chinese paper titles and keywords so BM25 can cross-lingually match. |
-| **Dictionary Management** | 4 MCP tools: `add_query_synonym`, `remove_query_synonym`, `list_query_synonyms`, `import_query_dict`. Build your own CN→EN term mappings and persist them across sessions. |
+| **Bilingual Retrieval Strategy** | `search_papers` intentionally stays a single-query engine. For high-recall Chinese/mixed requests, the MCP client follows the `bilingual-search` skill to make and merge several CN/EN queries. The server provides `expand_query` with user-defined synonyms and Zotero tags, but no preset dictionary or query-time NMT. |
+| **Index-Time Bilingual Enrichment** | Chinese paper titles and keywords can be translated locally with OPUS-MT and appended to indexed text as `[Title_EN]` / `[Keywords_EN]`. It is enabled by default, configurable with `ZRA_INDEX_BILINGUAL_ENRICHMENT`, and distinct from query formulation. |
+| **Term Management** | 5 MCP tools: `expand_query`, `add_query_synonym`, `remove_query_synonym`, `list_query_synonyms`, `import_query_dict`. Build and persist your own CN→EN term mappings. |
 | **Retrieval Observability** | Every search emits a JSONL trace: query, strategy, candidate counts, reranker state, top-20 results with scores, latency breakdown (keyword/semantic/rerank/MMR/total). Byte-offset index for fast replay. 3 query tools: `recent_retrievals`, `retrieval_trace`, `retrieval_stats`. |
 | **Embedding Diagnostics** | 6-phase analysis: intra/inter-paper similarity, outlier chunk detection, chunk length-similarity Pearson correlation, section-type embedding separation, automated issue detection + fix suggestions. |
 | **Systematic Evaluation** | 60 golden queries across direct-hit, cross-document, and no-answer categories. Metrics: Recall@5/10/20, MRR, NDCG@10. CLI with `--save-baseline` / `--compare` for A/B testing. |
@@ -226,7 +227,10 @@ Verify: `codex mcp list`.
 
 ---
 
-## MCP Tools (36)
+## MCP Tools (40)
+
+36 tools are always registered. Four CNKI tools are registered only when
+`CNKI_ENABLED=true`.
 
 | Category | Tools |
 |----------|-------|
@@ -235,7 +239,7 @@ Verify: `codex mcp list`.
 | **Write** | `suggest_citations`, `export_bibliography`, `add_paper`, `cnki_add_to_zotero` |
 | **Manage** | `add_note`, `edit_tags`, `manage_collections` |
 | **Insight** | `reading_status`, `recommend_papers`, `generate_review_note`, `generate_reading_note`, `suggest_tags`, `find_arguments` |
-| **Admin** | `sync_index`, `check_health`, `inspect_index`, `test_recall`, `recent_retrievals`, `retrieval_trace`, `retrieval_stats`, `add_query_synonym` |
+| **Admin** | `sync_index`, `check_health`, `inspect_index`, `test_recall`, `recent_retrievals`, `retrieval_trace`, `retrieval_stats`, `expand_query`, `add_query_synonym`, `remove_query_synonym`, `list_query_synonyms`, `import_query_dict` |
 
 <details>
 <summary>Expand tool details</summary>
@@ -275,6 +279,7 @@ Verify: `codex mcp list`.
 - **`inspect_index`** — Chunk stats, completeness flags, section breakdown, per-paper details.
 - **`test_recall`** — Retrieval quality test for a specific paper.
 - **`recent_retrievals`** / **`retrieval_trace`** / **`retrieval_stats`** — Retrieval observability.
+- **`expand_query`** — Look up saved CN→EN synonyms and matching Zotero tags before a client formulates another query.
 - **`add_query_synonym`** — Add a CN→EN bilingual synonym pair for query expansion.
 - **`remove_query_synonym`** — Remove a user-defined synonym pair.
 - **`list_query_synonyms`** — List all user-defined synonyms.
@@ -284,7 +289,7 @@ Verify: `codex mcp list`.
 
 ### Bilingual Search Skills
 
-The mandatory multi-call bilingual search and GraphRAG expansion strategies ship
+The optional high-recall bilingual search and GraphRAG expansion strategies ship
 as standalone skill files — `.claude/skills/bilingual-search/SKILL.md` and
 `.claude/skills/graph-expansion/SKILL.md`. They are:
 
@@ -292,7 +297,8 @@ as standalone skill files — `.claude/skills/bilingual-search/SKILL.md` and
 - Served as MCP resources by the server
   (`skill://bilingual-search/SKILL.md`, `skill://graph-expansion/SKILL.md`) via
   FastMCP's native skills provider, so skill-aware MCP clients can fetch them on
-  demand. Configure the directory with `ZRA_SKILLS_DIR`.
+  demand. Installed wheels include them under `project_a_mcp/skills`; source
+  checkouts use `.claude/skills`. Configure another directory with `ZRA_SKILLS_DIR`.
 
 Every MCP client still gets the strategy without loading skills — `search_papers`
 carries a condensed summary (slot/weight table + merge rule) in its tool description.
@@ -317,8 +323,8 @@ carries a condensed summary (slot/weight table + merge rule) in its tool descrip
 | `ZRA_CHROMA_PORT` | `18000` | ChromaDB server port (server mode) |
 | `ZRA_AUTO_SYNC` | `true` | Auto incremental sync on startup |
 | `ZRA_CLEAN_ENABLED` | `true` | Strip journal boilerplate before chunking |
-| `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | Cache directory for OPUS-MT translation model (~300MB) |
-| `ZRA_SKILLS_DIR` | `<project_root>/.claude/skills` | Directory of strategy skills exposed as MCP resources (`bilingual-search`, `graph-expansion`) |
+| `ZRA_NMT_CACHE_DIR` | `{persist_dir}/hf_cache/` | Cache directory for OPUS-MT index-time metadata translation (~300MB) |
+| `ZRA_SKILLS_DIR` | packaged `project_a_mcp/skills` | Directory of strategy skills exposed as MCP resources; source checkouts fall back to `.claude/skills` |
 | `ZRA_INDEX_BILINGUAL_ENRICHMENT` | `true` | Append `[Title_EN]` / `[Keywords_EN]` hints during indexing (set `false` only for ablation + reindex) |
 | `SEMANTIC_SCHOLAR_API_KEY` | — | Higher rate limits for online search |
 | `OPENALEX_MAILTO` | — | OpenAlex polite pool |
@@ -403,9 +409,9 @@ research_core/
                 IMRaD section detector, chunk quality tagging
   rag/         — ChromaDB store + retriever, ONNX INT8 + FP32 embedding,
                 SQLite metadata DB, Cross-Encoder + MMR reranking,
-                bilingual query expansion, evaluation, retrieval logger,
+                index-time bilingual enrichment, evaluation, retrieval logger,
                 embedding diagnostics
-  tools/       — 36 MCP tool implementations (discover/read/write/manage/insight/admin)
+  tools/       — 40 MCP tool adapters (36 always-on + 4 CNKI-conditional)
   zotero/      — Zotero local + web API client
 project_a_mcp/ — MCP server entry point (stdio transport)
 scripts/       — CLI utilities (index, audit, evaluate, benchmark, publish)

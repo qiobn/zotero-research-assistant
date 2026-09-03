@@ -24,7 +24,7 @@ def _require_playwright():
     except ImportError as exc:
         raise CnkiConfigError(
             "Playwright is required for CNKI search. Install with: "
-            "uv pip install 'zotero-research-assistant[cnki]' && playwright install chromium"
+            "uv pip install 'zra-mcp[cnki]' && playwright install chromium"
         ) from exc
 
 

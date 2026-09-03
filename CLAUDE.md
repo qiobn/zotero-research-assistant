@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-This is **Zotero Research Assistant** — an MCP (Model Context Protocol) server that turns a Zotero reference library into an AI-searchable knowledge base. 36 MCP tools across 6 categories. **Core focus: production-grade RAG pipeline (chunking + retrieval quality) for academic papers.**
+This is **Zotero Research Assistant** — an MCP (Model Context Protocol) server that turns a Zotero reference library into an AI-searchable knowledge base. 40 MCP tools across 6 categories (36 always-on + 4 CNKI-conditional). **Core focus: production-grade RAG pipeline (chunking + retrieval quality) for academic papers.**
 
 - **Author:** qiobn
 - **Language:** Python 3.11+
-- **Package:** `zotero-research-assistant`
+- **Package:** `zra-mcp`
 - **Entry:** `project_a_mcp/server.py` → `zra-mcp` CLI command
 - **Key deps:** ChromaDB, onnxruntime (INT8 default), sentence-transformers (FP32 fallback), PyMuPDF, FastMCP, PyZotero
 
@@ -16,7 +16,7 @@ This is **Zotero Research Assistant** — an MCP (Model Context Protocol) server
 research_core/
   parsers/     — PDF extraction, text cleaner (52 rules), chunker, section detector
   rag/         — ChromaDB store, retriever, SQLite metadata DB, evaluation, logger, diagnostics
-  tools/       — 36 MCP tool implementations
+  tools/       — 40 MCP tool adapters (36 always-on + 4 CNKI-conditional)
   zotero/      — Zotero local + web API client
 project_a_mcp/ — MCP server entry point (stdio)
 scripts/       — CLI utils (index_library, audit_index, run_evaluation, benchmark_*, publish)
@@ -30,7 +30,7 @@ docs/          — Setup guides (Cherry Studio CN/EN)
 
 **On every significant change (new feature, bug fix, non-trivial refactor), you MUST:**
 
-1. **Update `DEVELOPMENT_LOG.md`** — Record:
+1. **Update `docs/DEVELOPMENT_LOG.md` and `docs/DEVELOPMENT_LOG_EN.md`** — Record:
    - What was changed (with commit hash)
    - What problem it solved
    - Technical decisions made and their rationale
@@ -46,16 +46,14 @@ docs/          — Setup guides (Cherry Studio CN/EN)
    - Types: `feat:` / `fix:` / `docs:` / `refactor:` / `chore:`
    - Example:
      ```
-     feat: add query rewrite for bilingual academic search
+     feat: add client-guided bilingual search strategy
 
-     Dictionary-based CN<->EN term expansion with three layers:
-     Layer 1: ~300 built-in methodology pairs from query_dict.json
-     Layer 2: auto-extracted from user's Zotero tags during sync
-     Layer 3: user-defined via add_query_synonym MCP tool
+     Keep search_papers as a single-query retrieval engine. Expose
+     user-defined synonyms and Zotero tags through expand_query so MCP
+     clients can formulate multi-call CN/EN searches when needed.
 
-     Expansion runs in search_papers() — zero added latency, no LLM
-     dependency. Each expanded term runs independent semantic search
-     with RRF merging and expansion weight scoring.
+     Package strategy skills with the wheel and expose them as MCP
+     resources for skill-aware clients.
      ```
 
 4. **Push** after each logical unit of work (not after every micro-edit).
@@ -98,7 +96,7 @@ docs/          — Setup guides (Cherry Studio CN/EN)
 When adding/removing features or changing behavior, update:
 1. `README.md` (English) + `README_zh.md` (Chinese) — keep in sync
 2. `CHANGELOG.md` — keep-a-changelog format
-3. `DEVELOPMENT_LOG.md` — technical details and decisions
+3. `docs/DEVELOPMENT_LOG.md` and `docs/DEVELOPMENT_LOG_EN.md` — technical details and decisions
 4. `DEVELOPMENT_PLAN.md` — progress bars and task checkboxes
 5. `.env.example` — new env vars with comments
 
@@ -117,14 +115,16 @@ When adding/removing features or changing behavior, update:
 | `research_core/rag/evaluation.py` | Recall@K, MRR, NDCG |
 | `research_core/rag/retriever.py` | ChromaDB retriever with section expansion + enrichment |
 
-## Current State (v0.4.9)
+## Current State (v0.4.10.dev0)
 
-- Phase 0/1/2/3 (partial) complete; Phase 4 (v0.4.0) in progress
-- 36 MCP tools (32 always-on + 4 CNKI-conditional), all operational
-- Strategy skills (bilingual-search, graph-expansion) in `.claude/skills/`, exposed
-  as MCP resources via FastMCP skills provider
+- Development baseline: `feat/lightweight-graphrag`, 12 commits ahead of `main`
+- 40 MCP tools (36 always-on + 4 CNKI-conditional)
+- `search_papers` is intentionally single-query: the MCP client owns query translation,
+  decomposition and multi-call merging; `expand_query` exposes user synonyms and Zotero tags
+- Strategy skills are in `.claude/skills/` for source checkouts and packaged as
+  `project_a_mcp/skills` in wheels; FastMCP exposes them as MCP resources
 - Key features: BM25+Dense hybrid retrieval, ONNX INT8 embedding, MMR diversity,
-  bilingual query expansion, contextual chunk enrichment, dual-format output,
+  optional index-time bilingual metadata enrichment, contextual chunk enrichment, dual-format output,
   externalized multi-call search strategy (7-call RRF-weighted)
-- Next priorities: judge-prompt calibration for the no_answer category, verify
-  skill resources are consumed by MCP clients, chunk size tuning
+- Next priorities: wheel install/resource smoke test, no-answer judge calibration,
+  contract tests for MCP responses, and chunk-size tuning

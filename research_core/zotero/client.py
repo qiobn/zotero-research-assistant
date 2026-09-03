@@ -23,6 +23,7 @@ import httpx
 from loguru import logger
 from pyzotero import zotero
 
+from research_core import __version__
 from research_core.zotero.models import Annotation, Item
 
 F = TypeVar("F")
@@ -130,7 +131,7 @@ class ZoteroClient:
         _http_client = httpx.Client(
             transport=_transport,
             headers={
-                "User-Agent": "ZoteroResearchAssistant/0.4.8",
+                "User-Agent": f"ZoteroResearchAssistant/{__version__}",
                 "Zotero-API-Version": "3",
             },
             timeout=_ZOTERO_TIMEOUT,

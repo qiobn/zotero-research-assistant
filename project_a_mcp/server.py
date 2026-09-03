@@ -1,6 +1,6 @@
 """Zotero Research Assistant — MCP server.
 
-39 MCP tools (35 always-on + 4 CNKI-conditional), one intent each,
+40 MCP tools (36 always-on + 4 CNKI-conditional), one intent each,
 designed to compose via `item_key`.
 
 Categories:
@@ -15,8 +15,8 @@ Categories:
              suggest_tags, find_arguments
   ADMIN      sync_index, check_health, inspect_index, test_recall,
              recent_retrievals, retrieval_trace, retrieval_stats,
-             add_query_synonym, remove_query_synonym, list_query_synonyms,
-             import_query_dict
+             expand_query, add_query_synonym, remove_query_synonym,
+             list_query_synonyms, import_query_dict
 
 Note: CNKI tools (search_cnki_literature, cnki_paper_detail, cnki_navigate_pages,
 cnki_add_to_zotero) are only registered when CNKI_ENABLED=true.
@@ -305,12 +305,15 @@ def _add_skills_provider() -> None:
     skill files. FastMCP's native skills provider serves them as MCP
     resources so skill-aware clients (e.g. Claude Desktop) can load the
     strategy on demand instead of paying the always-on token cost of a fat
-    docstring. Directory defaults to <project_root>/.claude/skills, overridable
-    via ZRA_SKILLS_DIR. Missing directory or old FastMCP → skipped silently.
+    docstring. Installed wheels use project_a_mcp/skills; a source checkout falls
+    back to <project_root>/.claude/skills. Override either with ZRA_SKILLS_DIR.
+    Missing directories or old FastMCP versions are skipped silently.
     """
     skills_root = os.getenv("ZRA_SKILLS_DIR", "").strip()
     if not skills_root:
-        skills_root = str(Path(__file__).resolve().parent.parent / ".claude" / "skills")
+        packaged_skills = Path(__file__).resolve().parent / "skills"
+        source_skills = Path(__file__).resolve().parent.parent / ".claude" / "skills"
+        skills_root = str(packaged_skills if packaged_skills.is_dir() else source_skills)
     if not Path(skills_root).is_dir():
         logger.info(f"Skills provider skipped: {skills_root} not found")
         return
@@ -590,9 +593,10 @@ def search_papers(
     Pure single-query retrieval engine: BM25 + Dense (bge-m3) + Cross-Encoder
     + MMR diversity. No internal query rewriting or translation.
 
-    *** BILINGUAL SEARCH — MULTI-CALL IS MANDATORY ***
-    For each Chinese query make 5-7 calls and weight-merge the results
-    (single/dual-call recall is measurably lower):
+    *** BILINGUAL SEARCH — HIGH-RECALL MULTI-CALL STRATEGY ***
+    For Chinese/mixed queries where recall matters, make 5-7 calls and
+    weight-merge the results (single/dual-call retrieval is faster but has
+    measurably lower recall in the recorded evaluation history):
 
       A. CN original               (w3)
       B. EN full translation       (w3)

@@ -7,16 +7,30 @@
 
 ---
 
+## v0.4.10.dev0 — 一致性与打包基线 (2026-09-03)
+
+当前开发基线为 `feat/lightweight-graphrag`，相对 `main` 线性领先 12 个提交；PyPI 已发布版本为 0.4.9，源码进入下一个开发版本 **0.4.10.dev0**。
+
+- 工具清单统一为 **40 个**：36 个常驻，4 个仅在 `CNKI_ENABLED=true` 时注册。
+- `search_papers` 明确为单查询检索器；查询翻译、分解和多调用合并由 MCP 客户端负责。`expand_query` 只提供用户同义词和 Zotero 标签，索引期 OPUS-MT 题名/关键词富化仍独立保留。
+- wheel 通过 Hatch `force-include` 打包 `.claude/skills` 到 `project_a_mcp/skills`；服务端优先读取安装后的资源，源码检出回退到 `.claude/skills`。
+- 修正索引期 NMT 默认缓存路径，统一使用 `{CHROMA_PERSIST_DIR}/hf_cache`，不再在 macOS/Linux 中创建字面量 Windows 路径目录。
+- 版本常量、Zotero User-Agent、CNKI 安装提示、PyPI 发布 URL、README、路线图和 CHANGELOG 统一到当前开发状态。
+
+后续验证重点：从干净环境构建/安装 wheel 后读取 MCP skill resources，并把 MCP 返回 envelope 纳入无外部服务的 contract tests。
+
+---
+
 ## v0.4.9 — 正式发布 (2026-08-10)
 
-把自 0.4.8(PyPI 最新)以来的所有未发布工作统一发布为 **v0.4.9**,对齐仓库版本、CHANGELOG、PyPI:
+把自 `main` 0.4.8 以来的所有未发布工作统一发布为 **v0.4.9**,对齐仓库版本、CHANGELOG、PyPI:
 
 - 索引时双语富化开关 `ZRA_INDEX_BILINGUAL_ENRICHMENT`
 - HNSW 索引损坏修复 + httpx transport patch + NMT 超时修复
 - 检索评估加固 + 确定性 7-call 策略评估框架
 - 策略外置为 `.claude/skills/`(`bilingual-search` / `graph-expansion`)
 - skills 通过 FastMCP `SkillsDirectoryProvider` 暴露为 MCP resources(`ZRA_SKILLS_DIR` 可配)
-- 修正 pyproject 描述工具数 39 → 36(实际 36)
+- 修正 pyproject 描述工具数 39 → 40（36 个常驻 + 4 个 CNKI 条件注册）
 
 ---
 

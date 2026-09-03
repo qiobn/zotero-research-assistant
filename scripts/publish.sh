@@ -96,7 +96,7 @@ echo "==> Uploading $VERSION to $REPO"
 
 echo "==> Done. View at:"
 if [ "$REPO" = "testpypi" ]; then
-  echo "   https://test.pypi.org/project/zotero-research-assistant/$VERSION/"
+  echo "   https://test.pypi.org/project/zra-mcp/$VERSION/"
 else
-  echo "   https://pypi.org/project/zotero-research-assistant/$VERSION/"
+  echo "   https://pypi.org/project/zra-mcp/$VERSION/"
 fi

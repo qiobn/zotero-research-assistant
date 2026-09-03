@@ -9,6 +9,28 @@
 
 ---
 
+## v0.4.10.dev0 — Consistency and Packaging Baseline (2026-09-03)
+
+Development continues on `feat/lightweight-graphrag`, which is 12 linear commits
+ahead of `main`. PyPI 0.4.9 remains the published release; source now identifies
+as `0.4.10.dev0`.
+
+- The canonical tool count is **40**: 36 always-on tools and four tools that are
+  registered only with `CNKI_ENABLED=true`.
+- `search_papers` is explicitly a single-query retrieval engine. The MCP client
+  owns query translation, decomposition and multi-call merging; `expand_query`
+  exposes only user-defined synonyms and Zotero tags. OPUS-MT remains an optional,
+  separate index-time metadata-enrichment step.
+- Hatch wheel builds now package `.claude/skills` as `project_a_mcp/skills`. The
+  server prefers installed resources and falls back to source-tree skills.
+- The default index-time NMT cache is now `{CHROMA_PERSIST_DIR}/hf_cache` on every
+  platform, replacing a Windows path literal that was invalid as a POSIX default.
+
+Next validation: build and install the wheel in a clean environment, smoke-test
+the MCP skill resources, and add deterministic contract tests for MCP responses.
+
+---
+
 ## v0.3.0 — RAG Pipeline Upgrade (2026-07-06)
 
 ### Dual-Format Output: JSON + Markdown Context Block (2026-07-10, `706afff`)

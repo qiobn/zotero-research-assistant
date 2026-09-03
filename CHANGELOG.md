@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Release metadata and packaging consistency** — source now identifies as
+  `0.4.10.dev0`; documentation and package metadata consistently report 40 MCP
+  tools (36 always-on plus 4 CNKI-conditional). The runtime User-Agent now uses
+  the shared version constant, and the CNKI install hint and publish URLs use
+  the `zra-mcp` distribution name.
+- **Packaged strategy skills** — wheel builds now include the strategy skills
+  under `project_a_mcp/skills`. The MCP server uses those resources when
+  installed and falls back to `.claude/skills` in a source checkout.
+- **Portable NMT cache location** — index-time OPUS-MT metadata enrichment now
+  defaults to `{CHROMA_PERSIST_DIR}/hf_cache` on every platform instead of a
+  Windows path literal that created a malformed relative directory on POSIX.
+
 ### Added
 - **Component ablation harness** — `run_recall_evaluation.py` gains `--ablation`
   and `--ablation-set` to isolate the contribution of each retrieval component
@@ -37,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.9] - 2026-08-10
 
 ### Added
-- **Standalone strategy skills** — the mandatory 7-call weighted bilingual search
+- **Standalone strategy skills** — the high-recall 7-call weighted bilingual search
   and GraphRAG graph-expansion methods ship as skill files in `.claude/skills/`
   (`bilingual-search`, `graph-expansion`), loadable on demand by Claude Code and
   other skill-aware clients.
@@ -379,7 +392,7 @@ standalone MCP server (no agent scaffold) with 32 single-intent tools.
   citation management, review/reading-note generation, tag suggestions, and the
   first Cherry Studio setup guide.
 
-[Unreleased]: https://github.com/qiobn/zotero-research-assistant/compare/v0.3.1...main
+[Unreleased]: https://github.com/qiobn/zotero-research-assistant/commits/feat/lightweight-graphrag
 [0.3.1]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.3.1
 [0.3.0]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.3.0
 [0.2.0]: https://github.com/qiobn/zotero-research-assistant/releases/tag/v0.2.0

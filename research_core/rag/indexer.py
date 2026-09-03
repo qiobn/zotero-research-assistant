@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+from pathlib import Path
 
 import chromadb
 from loguru import logger
@@ -35,7 +36,7 @@ def _is_chinese_text(text: str, threshold: float = 0.3) -> bool:
 
 
 def _get_nmt_model():
-    """Lazy-load OPUS-MT zh→en model (shared with query_rewriter)."""
+    """Lazy-load the OPUS-MT zh→en model used for index enrichment."""
     global _nmt_pipeline
     if _nmt_pipeline is not None:
         return _nmt_pipeline
@@ -44,13 +45,12 @@ def _get_nmt_model():
             return _nmt_pipeline
         cache_dir = os.getenv("ZRA_NMT_CACHE_DIR")
         if not cache_dir:
-            # Use a known ASCII-only path to avoid sentencepiece Chinese-char crash
-            d = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
-            if os.path.isabs(d) and all(ord(c) < 128 for c in d):
-                cache_dir = os.path.join(d, "hf_cache")
-            else:
-                cache_dir = "D:\\tmp\\zra_nmt_cache"
-                os.makedirs(cache_dir, exist_ok=True)
+            cache_dir = str(
+                Path(os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")).expanduser()
+                / "hf_cache"
+            )
+        cache_dir = str(Path(cache_dir).expanduser())
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
         os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
         try:
             from transformers import MarianMTModel, MarianTokenizer

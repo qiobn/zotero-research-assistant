@@ -1,6 +1,6 @@
 ---
 name: bilingual-search
-description: "Run the mandatory 5-7 call weighted bilingual search for Chinese/mixed CN-EN queries against the Zotero library via search_papers. Use for cross-document or relationship queries, comprehensive review, or when one call returns <10 results; skip for quick title/keyword matches."
+description: "Run the high-recall 5-7 call weighted bilingual search for Chinese/mixed CN-EN queries against the Zotero library via search_papers. Use for cross-document or relationship queries, comprehensive review, or when one call returns <10 results; skip for quick title/keyword matches."
 ---
 
 # Bilingual Search — Multi-Call Weighted Strategy
@@ -8,8 +8,9 @@ description: "Run the mandatory 5-7 call weighted bilingual search for Chinese/m
 Single-vector embedding can only approximate one semantic direction. To match the
 recall of a full search pipeline (dictionary + NMT + tags + decomposition), make
 **5-7 `search_papers` calls per Chinese query** and weight-merge the results.
-This is not optional — single-call or dual-call recall is measurably lower
-(measurement history: tests/eval_results/RECALL_EVALUATION_LOG.md).
+Use this when recall matters — single-call or dual-call retrieval is faster but
+has measurably lower recall in the recorded evaluation history
+(`tests/eval_results/RECALL_EVALUATION_LOG.md`).
 
 ## The 7 slots
 

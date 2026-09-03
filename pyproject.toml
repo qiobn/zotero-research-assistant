@@ -1,7 +1,7 @@
 [project]
 name = "zra-mcp"
-version = "0.4.9"
-description = "AI-powered Zotero research assistant — a standalone MCP server with 36 tools for literature search, bilingual retrieval, reading analysis, citation management, and review writing."
+version = "0.4.10.dev0"
+description = "AI-powered Zotero research assistant — a standalone MCP server with 40 tools for literature search, bilingual retrieval, reading analysis, citation management, and review writing."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "qiobn"}]
@@ -35,10 +35,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "build>=1.2",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
     "ruff>=0.12",
+    "twine>=6.0",
 ]
 cnki = [
     "playwright>=1.49",
@@ -58,6 +60,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["research_core", "project_a_mcp"]
+
+[tool.hatch.build.targets.wheel.force-include]
+".claude/skills" = "project_a_mcp/skills"
 
 [tool.ruff]
 src = ["research_core", "project_a_mcp", "tests"]
