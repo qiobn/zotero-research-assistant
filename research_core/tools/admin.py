@@ -28,9 +28,9 @@ from research_core.rag.database import (
     list_paper_keys,
     upsert_paper,
 )
-from research_core.rag.indexer import Indexer
 from research_core.rag.index_generation import IndexGenerationStore
 from research_core.rag.index_manifest import IndexManifest, IndexRuntime
+from research_core.rag.indexer import Indexer
 from research_core.rag.retriever import Retriever
 from research_core.rag.store import clone_collection, delete_collection, sync_lock
 from research_core.rag.sync_state import SyncState
@@ -126,12 +126,13 @@ def _index_metadata(
     chunk_list = list(chunks)  # ensure list
     sections_info, chunk_section_map = build_section_map(chunk_list)
 
-    # Build SectionRows
+    # Build rows before insertion. ``parent_idx`` is local to the detector's
+    # result, so it is resolved to a SQLite ``parent_id`` below.
     section_rows = []
     for sec in sections_info:
         section_rows.append({
             "item_key": item_key,
-            "parent_id": None,  # simplified: no parent linking for now
+            "parent_id": None,
             "heading": sec.heading,
             "section_type": sec.section_type,
             "level": sec.level,
@@ -146,7 +147,15 @@ def _index_metadata(
     conn.execute("DELETE FROM chunks_meta WHERE item_key = ?", (item_key,))
 
     section_ids: list[int] = []
-    for sr in section_rows:
+    for section_idx, sr in enumerate(section_rows):
+        parent_idx = sections_info[section_idx].parent_idx
+        if parent_idx is not None:
+            if parent_idx < 0 or parent_idx >= len(section_ids):
+                raise ValueError(
+                    "Section hierarchy must reference an earlier parent section"
+                )
+            sr["parent_id"] = section_ids[parent_idx]
+
         cur = conn.execute("""
             INSERT INTO sections
                 (item_key, parent_id, heading, section_type, level,

@@ -9,6 +9,20 @@
 
 ---
 
+## Persisted Section Parent Links (2026-09-04)
+
+- `_index_metadata()` now maps the section detector's local `parent_idx` to the
+  actual SQLite `sections.parent_id` created for its parent. Subsection
+  hierarchy therefore survives indexing instead of being flattened at write time.
+- Offline regressions cover two- and three-level nesting plus re-indexing one
+  paper, so structural context never points to old section rows.
+
+Next: surface no-OCR extraction failures (scanned, garbled, fragmented) through
+index inspection and health checks, then add deterministic MCP response contract
+tests.
+
+---
+
 ## Atomic Index Generation Promotion (2026-09-04)
 
 - Every sync now builds in `_index_generations/<build_id>` and a distinct Chroma
@@ -21,8 +35,8 @@
   directory; a corrupt pointer fails explicitly instead of silently selecting a
   wrong legacy index.
 
-Next: add OCR fallback for scanned PDFs and document-type-specific ingestion
-quality gates for research papers and legal documents.
+Next: improve no-OCR ingestion-quality observability and add configurable
+document-type quality gates for research papers and legal documents.
 
 ---
 

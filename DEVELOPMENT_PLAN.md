@@ -11,7 +11,7 @@ Phase 0 (Audit)    ████████████████████ 
 Phase 1 (P0)       ████████████████████ 100%  ✅ DONE
 Phase 2 (P1)       ████████████████████ 100%  ✅ DONE
 Phase 3 (P2)       ████████░░░░░░░░░░░░  40%  (3.1 superseded, 3.3 complete; 3.2/3.4/3.5 deferred)
-Phase 4 (Hardening) ████████████████░░░░  73%  11 of 15 audit/release tasks complete
+Phase 4 (Hardening) ████████████████░░░░  80%  12 of 15 audit/release tasks complete
 ```
 
 ---
@@ -77,13 +77,12 @@ Issues identified during full architecture review:
 
 ---
 
-### 4.4 Section Parent Linking ⬜ 🟡 MEDIUM
+### 4.4 Section Parent Linking ✅ 🟡 MEDIUM
 
-> **Problem**: `section_detector.py` computes `parent_idx` (subsection hierarchy) but SQLite `sections.parent_id` is always NULL. Subsections of Methods, etc. are flattened.
->
-> **Fix**: Store parent-child relationships in SQLite during `_index_metadata()`.
-
-**Estimate:** 0.5 day
+> **Completed**: `_index_metadata()` now resolves each detected section's local
+> `parent_idx` to the parent SQLite row ID while inserting sections. Nested
+> sections retain their hierarchy across indexing and re-indexing, with offline
+> regression coverage for multiple levels and replacement of old relationships.
 
 ---
 
@@ -183,14 +182,13 @@ Issues identified during full architecture review:
 | Phase 1 (P0) | 3 | 3 | 0 |
 | Phase 2 (P1) | 5 | 4 | 1 (deferred) |
 | Phase 3 (P2) | 5 | 1 | 1 superseded, 3 deferred |
-| Phase 4 (Hardening) | 15 | 11 | 4 |
-| **Total** | **33** | **24** | **1 superseded, 8 deferred** |
+| Phase 4 (Hardening) | 15 | 12 | 3 |
+| **Total** | **33** | **25** | **1 superseded, 7 deferred** |
 
 ### Immediate Next Steps
 
 ```
-→ Add OCR fallback and document-type-specific ingestion quality gates
+→ Surface no-OCR extraction-quality failures in index inspection and health checks
 → Add deterministic MCP contract tests and run them in CI
 → Calibrate the no-answer evaluation judge with a sanitized fixture corpus
-→ Implement section parent linking before relying on nested-section expansion
 ```

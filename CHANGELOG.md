@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Nested section metadata** — subsection relationships detected during PDF
+  indexing are now stored in SQLite. Section-level context can retain its
+  document hierarchy after an index update instead of flattening every section.
 - **Atomic index promotion** — synchronization now constructs a separate
   generation for Chroma, SQLite, and BM25, then swaps a durable active-generation
   pointer only after manifest validation. Failed or interrupted builds leave the

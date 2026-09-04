@@ -7,12 +7,25 @@
 
 ---
 
+## 章节父子关系持久化 (2026-09-04)
+
+- `_index_metadata()` 现将 section detector 返回的本地 `parent_idx` 映射为
+  SQLite `sections.parent_id`。父章节先插入，子章节直接引用其真实数据库主键；
+  章节层级不再在入库时被扁平化。
+- 回归测试覆盖二级、三级小节，以及同一论文重新索引后旧关系被完整替换，避免
+  `expand_to_section` 等结构化读取建立在失真的元数据上。
+
+下一步：在 `inspect_index` / 健康检查中公开无 OCR 的提取失败明细（扫描、乱码、
+碎片化），并补 MCP 返回契约测试。
+
+---
+
 ## 原子索引代际切换 (2026-09-04)
 
 - 索引改为代际构建：每次同步在 `_index_generations/<build_id>` 与独立 Chroma collection 中完成，普通同步先克隆当前代际再应用增量；`force_rebuild` 从空 staging 构建，不会删除正在服务的索引。
 - 仅当 manifest 三份计数校验通过，才原子替换 `_active_index_generation.json`；常驻 Retriever 会在下一次读取时重绑新代际。失败构建不可见但保留诊断，成功代际保留最近两版。活动指针写入 fsync 文件与目录；损坏指针会显式报错，不会静默回退到错误索引。
 
-下一步：为扫描件加入 OCR fallback，并针对论文、法律文书等文档类型实施不同的摄取质量门控。
+下一步：完善无 OCR 的摄取质量可观测性，并实施文档类型可配置的质量门控。
 
 ---
 
