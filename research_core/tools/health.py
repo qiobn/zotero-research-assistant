@@ -191,7 +191,7 @@ def _check_vector_index(retriever) -> dict:
             "fix": "Check CHROMA_PERSIST_DIR in .env and ensure the directory is writable.",
         }
     try:
-        count = retriever._collection.count()
+        count = retriever.count()
         from research_core.rag.index_manifest import IndexManifest
 
         manifest = IndexManifest.load(retriever._persist_dir)

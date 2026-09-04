@@ -75,8 +75,10 @@ class IndexManifest:
     schema_version: int = MANIFEST_SCHEMA_VERSION
 
     @classmethod
-    def start(cls, runtime: IndexRuntime) -> IndexManifest:
-        return cls(build_id=uuid.uuid4().hex, runtime=runtime)
+    def start(
+        cls, runtime: IndexRuntime, build_id: str | None = None
+    ) -> IndexManifest:
+        return cls(build_id=build_id or uuid.uuid4().hex, runtime=runtime)
 
     @classmethod
     def load(cls, persist_dir: str) -> IndexManifest | None:

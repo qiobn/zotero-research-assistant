@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Atomic index promotion** — synchronization now constructs a separate
+  generation for Chroma, SQLite, and BM25, then swaps a durable active-generation
+  pointer only after manifest validation. Failed or interrupted builds leave the
+  previous searchable generation untouched; readers automatically rebind after a
+  successful promotion and retain two recent generations for rollback.
 - **Index-copy consistency** — `sync_index` now deletes a paper from both
   Chroma and SQLite metadata on removal, full rebuild, and before replacing an
   updated PDF. This prevents deleted metadata and stale tail chunks from

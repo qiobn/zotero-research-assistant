@@ -1,6 +1,6 @@
 # Development Plan — RAG Full-Pipeline Optimization
 
-> Last updated: 2026-09-03 | Current development version: v0.4.10.dev0
+> Last updated: 2026-09-04 | Current development version: v0.4.10.dev0
 
 ---
 
@@ -11,7 +11,7 @@ Phase 0 (Audit)    ████████████████████ 
 Phase 1 (P0)       ████████████████████ 100%  ✅ DONE
 Phase 2 (P1)       ████████████████████ 100%  ✅ DONE
 Phase 3 (P2)       ████████░░░░░░░░░░░░  40%  (3.1 superseded, 3.3 complete; 3.2/3.4/3.5 deferred)
-Phase 4 (Hardening) ███████████████░░░░░  71%  10 of 14 audit/release tasks complete
+Phase 4 (Hardening) ████████████████░░░░  73%  11 of 15 audit/release tasks complete
 ```
 
 ---
@@ -150,9 +150,20 @@ Issues identified during full architecture review:
 > then marks the build `ready` only when all three counts agree. `Retriever`
 > suppresses BM25 for `building` / `degraded` manifests; health checks expose
 > legacy, incomplete, and count-mismatched states. CI covers this baseline on
-> all branches. **Still pending**: build Chroma and SQLite in a staging location
-> and atomically switch the active build; the current manifest detects and blocks
-> mixed state but does not make a multi-store rebuild atomic.
+> all branches.
+
+### 4.15 Atomic index generation promotion ✅
+
+> **Completed**: each sync now builds in a new `_index_generations/<build_id>`
+> directory and a uniquely named Chroma collection. Normal syncs clone the active
+> generation before applying the incremental diff; `force_rebuild` starts clean
+> without deleting the live generation. SQLite, BM25, and vector counts must pass
+> manifest validation before a durable atomic replacement of
+> `_active_index_generation.json`; long-lived retrievers rebind when that pointer
+> changes. Failed builds stay unreachable for diagnosis, while only generations
+> older than the two most recent successful builds are retired. Legacy indexes are
+> migrated on their next sync. Offline coverage includes pointer failure, metadata
+> cloning, vector-copy payloads, reader rebind, and cleanup safeguards.
 
 ---
 
@@ -172,13 +183,13 @@ Issues identified during full architecture review:
 | Phase 1 (P0) | 3 | 3 | 0 |
 | Phase 2 (P1) | 5 | 4 | 1 (deferred) |
 | Phase 3 (P2) | 5 | 1 | 1 superseded, 3 deferred |
-| Phase 4 (Hardening) | 14 | 10 | 4 |
-| **Total** | **32** | **23** | **1 superseded, 8 deferred** |
+| Phase 4 (Hardening) | 15 | 11 | 4 |
+| **Total** | **33** | **24** | **1 superseded, 8 deferred** |
 
 ### Immediate Next Steps
 
 ```
-→ Implement staging-index build and atomic active-build switching
+→ Add OCR fallback and document-type-specific ingestion quality gates
 → Add deterministic MCP contract tests and run them in CI
 → Calibrate the no-answer evaluation judge with a sanitized fixture corpus
 → Implement section parent linking before relying on nested-section expansion

@@ -150,39 +150,50 @@ class EnrichedResult:
         }
 
 
-# ── Database singleton ─────────────────────────────────────────────────
+# ── Database cache ─────────────────────────────────────────────────────
 
 _lock = threading.Lock()
-_conn: sqlite3.Connection | None = None
+_connections: dict[str, sqlite3.Connection] = {}
 
 
 def _db_path(persist_dir: str = ".chroma_db") -> str:
-    return os.path.join(persist_dir, DB_FILENAME)
+    return os.path.abspath(os.path.join(persist_dir, DB_FILENAME))
 
 
 def get_db(persist_dir: str = ".chroma_db") -> sqlite3.Connection:
-    """Return a shared SQLite connection (thread-safe singleton)."""
-    global _conn
-    if _conn is not None:
-        return _conn
+    """Return the shared SQLite connection for one database path.
+
+    An active index generation and an unreachable staging generation can be
+    read/written concurrently during atomic promotion, so they cannot share a
+    process-global connection.
+    """
+    path = _db_path(persist_dir)
+    if path in _connections:
+        return _connections[path]
     with _lock:
-        if _conn is not None:
-            return _conn
-        path = _db_path(persist_dir)
+        if path in _connections:
+            return _connections[path]
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        _conn = sqlite3.connect(path, check_same_thread=False)
-        _conn.row_factory = sqlite3.Row
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.execute("PRAGMA foreign_keys=ON")
-        _create_tables(_conn)
-    return _conn
+        conn = sqlite3.connect(path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        _create_tables(conn)
+        _connections[path] = conn
+    return conn
 
 
-def close_db() -> None:
-    global _conn
-    if _conn:
-        _conn.close()
-        _conn = None
+def close_db(persist_dir: str | None = None) -> None:
+    """Close one cached connection, or all connections when no path is given."""
+    with _lock:
+        if persist_dir is None:
+            paths = list(_connections)
+        else:
+            paths = [_db_path(persist_dir)]
+        for path in paths:
+            conn = _connections.pop(path, None)
+            if conn is not None:
+                conn.close()
 
 
 def _create_tables(conn: sqlite3.Connection) -> None:

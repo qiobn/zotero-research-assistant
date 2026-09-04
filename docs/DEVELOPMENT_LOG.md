@@ -7,6 +7,15 @@
 
 ---
 
+## 原子索引代际切换 (2026-09-04)
+
+- 索引改为代际构建：每次同步在 `_index_generations/<build_id>` 与独立 Chroma collection 中完成，普通同步先克隆当前代际再应用增量；`force_rebuild` 从空 staging 构建，不会删除正在服务的索引。
+- 仅当 manifest 三份计数校验通过，才原子替换 `_active_index_generation.json`；常驻 Retriever 会在下一次读取时重绑新代际。失败构建不可见但保留诊断，成功代际保留最近两版。活动指针写入 fsync 文件与目录；损坏指针会显式报错，不会静默回退到错误索引。
+
+下一步：为扫描件加入 OCR fallback，并针对论文、法律文书等文档类型实施不同的摄取质量门控。
+
+---
+
 ## v0.4.10.dev0 — 一致性与打包基线 (2026-09-03)
 
 当前开发基线为 `feat/lightweight-graphrag`，相对 `main` 线性领先 12 个提交；PyPI 已发布版本为 0.4.9，源码进入下一个开发版本 **0.4.10.dev0**。
@@ -19,8 +28,7 @@
 - 新增 `_index_manifest.json`：一次同步从 `building` 开始，记录 build ID、影响语料的运行时配置，以及 Chroma / SQLite / BM25 三份 chunk 计数；三者一致才标记为 `ready`，否则为 `degraded`。
 - 删除、强制重建和 PDF 更新统一同时清理 Chroma 与 SQLite；更新前先删除旧 chunk，避免新版 PDF chunk 变少时遗留向量尾项。`Retriever` 在 manifest 为 `building` 或 `degraded` 时禁用 BM25，健康检查会显示未验证、未完成或计数不一致的索引。
 - CI 改为每个分支 push 都运行，新增 SQLite 级联删除和 BM25 门禁离线测试，并对 wheel 内两个 strategy skill 做打包 smoke test。
-
-下一步：实现 staging index 与活动索引原子切换；当前 manifest 能检测并阻断混合状态，但尚不能让跨 Chroma / SQLite 的重建原子提交。
+后续验证重点：从干净环境构建/安装 wheel 后读取 MCP skill resources，并把 MCP 返回 envelope 纳入无外部服务的 contract tests。
 
 ---
 

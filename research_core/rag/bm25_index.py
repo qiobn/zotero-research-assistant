@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+BM25_FILENAME = "_bm25_index.pkl"
+
 # ── Tokenizer ────────────────────────────────────────────────────────
 
 # Matches ASCII words: at least 2 alphabetic chars, not pure digits
@@ -85,7 +87,7 @@ class BM25Index:
 
     def __init__(self, persist_dir: str = ".chroma_db"):
         self._persist_dir = persist_dir
-        self._pickle_path = os.path.join(persist_dir, "_bm25_index.pkl")
+        self._pickle_path = os.path.join(persist_dir, BM25_FILENAME)
         self._model = None          # BM25Okapi instance
         self._chunk_ids: list[str] = []      # parallel to _corpus
         self._item_keys: list[str] = []      # parallel to _corpus

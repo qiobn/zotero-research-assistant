@@ -29,8 +29,10 @@ from research_core.rag.database import (
     upsert_paper,
 )
 from research_core.rag.indexer import Indexer
+from research_core.rag.index_generation import IndexGenerationStore
 from research_core.rag.index_manifest import IndexManifest, IndexRuntime
 from research_core.rag.retriever import Retriever
+from research_core.rag.store import clone_collection, delete_collection, sync_lock
 from research_core.rag.sync_state import SyncState
 from research_core.zotero.client import ZoteroClient
 
@@ -352,7 +354,45 @@ def _finalize_index_build(
     report.index_status = manifest.status
 
 
+def _promote_generation(
+    *,
+    generation_store: IndexGenerationStore,
+    generation,
+    manifest: IndexManifest,
+    root_persist_dir: str,
+    state: SyncState,
+) -> bool:
+    """Publish a validated staging generation, then retire only old generations."""
+    if manifest.status != "ready":
+        logger.error(
+            f"Index generation {generation.build_id} was not activated: "
+            f"{manifest.error or manifest.status}"
+        )
+        return False
+
+    generation_store.activate(generation)
+    state.save()
+    for stale in generation_store.stale_generations(keep=2):
+        try:
+            delete_collection(root_persist_dir, stale.collection_name)
+            generation_store.discard(stale)
+        except Exception as exc:
+            logger.warning(f"Failed to clean retired index generation {stale.build_id}: {exc}")
+    return True
+
+
 def sync_index(
+    zot: ZoteroClient,
+    indexer: Indexer,
+    retriever: Retriever,
+    force_rebuild: bool = False,
+) -> SyncReport:
+    """Synchronize the library through one serialized generation transaction."""
+    with sync_lock:
+        return _sync_index_locked(zot, indexer, retriever, force_rebuild)
+
+
+def _sync_index_locked(
     zot: ZoteroClient,
     indexer: Indexer,
     retriever: Retriever,
@@ -369,12 +409,14 @@ def sync_index(
     force_rebuild=True drops ALL stored state and reindexes everything.
     """
     report = SyncReport(incremental=not force_rebuild)
-    persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
+    root_persist_dir = os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
     embedding_model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
     runtime = IndexRuntime.from_environment()
+    generation_store = IndexGenerationStore(root_persist_dir)
+    active_generation = generation_store.active()
 
-    state = SyncState.load(persist_dir)
-    previous_manifest = IndexManifest.load(persist_dir)
+    state = SyncState.load(root_persist_dir)
+    previous_manifest = IndexManifest.load(active_generation.persist_dir)
 
     rebuild_reason = state.needs_rebuild(embedding_model)
     manifest_issues = (
@@ -389,21 +431,68 @@ def sync_index(
         force_rebuild = True
         report.incremental = False
 
-    # Persist the unsafe state before changing any index copy. A restarted MCP
-    # process will therefore suppress BM25 until this build is finalized.
-    manifest = IndexManifest.start(runtime)
+    current_versions = zot.get_item_versions()
+    new_keys, modified_keys, deleted_keys = state.diff(current_versions)
+    active_indexed_keys: set[str] = set()
+    if force_rebuild:
+        active_indexed_keys = retriever.list_indexed_items()
+
+    needs_generation = (
+        force_rebuild
+        or active_generation.legacy
+        or previous_manifest is None
+        or bool(new_keys | modified_keys | deleted_keys)
+    )
+    if not needs_generation:
+        report.total_chunks_after = retriever.count()
+        report.metadata_chunks = count_chunk_metadata(
+            get_db(active_generation.persist_dir)
+        )
+        report.bm25_indexed = previous_manifest.bm25_chunks
+        report.index_build_id = previous_manifest.build_id
+        report.index_status = previous_manifest.status
+        report.skipped.extend(current_versions)
+        return report
+
+    staging_generation = generation_store.begin()
+    try:
+        if not force_rebuild:
+            generation_store.clone_metadata(active_generation, staging_generation)
+            clone_collection(
+                root_persist_dir,
+                active_generation.collection_name,
+                staging_generation.collection_name,
+            )
+        staging_indexer = Indexer(
+            persist_dir=root_persist_dir,
+            collection_name=staging_generation.collection_name,
+        )
+        staging_retriever = Retriever(
+            persist_dir=staging_generation.persist_dir,
+            collection=staging_indexer.collection,
+            follow_active_generation=False,
+        )
+    except Exception:
+        delete_collection(root_persist_dir, staging_generation.collection_name)
+        generation_store.discard(staging_generation)
+        raise
+
+    # From here onward every mutation targets the unreachable staging generation.
+    indexer = staging_indexer
+    retriever = staging_retriever
+    persist_dir = staging_generation.persist_dir
+    manifest = IndexManifest.start(runtime, build_id=staging_generation.build_id)
     manifest.save(persist_dir)
 
     if force_rebuild:
-        conn = get_db(persist_dir)
-        indexed_keys = retriever.list_indexed_items() | list_paper_keys(conn)
-        for key in indexed_keys:
-            _remove_indexed_item(indexer, persist_dir, key)
-            report.removed.append(key)
+        indexed_keys = active_indexed_keys | list_paper_keys(
+            get_db(active_generation.persist_dir)
+        )
+        report.removed.extend(sorted(indexed_keys))
         state.item_versions.clear()
-
-    current_versions = zot.get_item_versions()
-    new_keys, modified_keys, deleted_keys = state.diff(current_versions)
+        new_keys = set(current_versions)
+        modified_keys = set()
+        deleted_keys = set()
 
     for key in deleted_keys:
         _remove_indexed_item(indexer, persist_dir, key)
@@ -415,13 +504,19 @@ def sync_index(
         logger.info("No new or modified items to index")
         state.embedding_model = embedding_model
         state.chunking_version = CHUNKING_VERSION
-        state.save()
         _finalize_index_build(
             indexer=indexer,
             retriever=retriever,
             persist_dir=persist_dir,
             manifest=manifest,
             report=report,
+        )
+        _promote_generation(
+            generation_store=generation_store,
+            generation=staging_generation,
+            manifest=manifest,
+            root_persist_dir=root_persist_dir,
+            state=state,
         )
         for key in current_versions:
             if key not in keys_to_process and key not in deleted_keys:
@@ -601,7 +696,6 @@ def sync_index(
 
     state.embedding_model = embedding_model
     state.chunking_version = CHUNKING_VERSION
-    state.save()
     report.total_lines_cleaned = total_cleaned_lines
     report.cleaning_categories = dict(
         sorted(all_clean_cats.items(), key=lambda x: -x[1])[:15]
@@ -624,7 +718,7 @@ def sync_index(
         load_user_tags(all_tags)
 
         # Load user-defined synonyms from disk
-        synonyms_file = os.path.join(persist_dir, "query_dict_user.json")
+        synonyms_file = os.path.join(root_persist_dir, "query_dict_user.json")
         from research_core.rag.query_rewriter import load_user_synonyms
         load_user_synonyms(synonyms_file)
         user_syns = get_user_synonyms()
@@ -641,7 +735,7 @@ def sync_index(
     # guarantee future processes can query the collection.
     try:
         from research_core.rag.store import ensure_collection_healthy
-        healthy = ensure_collection_healthy(persist_dir)
+        healthy = ensure_collection_healthy(root_persist_dir)
         if not healthy:
             logger.error(
                 "HNSW rebuild failed — "
@@ -657,6 +751,14 @@ def sync_index(
         persist_dir=persist_dir,
         manifest=manifest,
         report=report,
+    )
+
+    _promote_generation(
+        generation_store=generation_store,
+        generation=staging_generation,
+        manifest=manifest,
+        root_persist_dir=root_persist_dir,
+        state=state,
     )
 
     if chunk_lengths:
@@ -684,7 +786,7 @@ def sync_index(
     # Log rotation: cleanup entries older than 90 days (best-effort)
     try:
         from research_core.rag.logger import RetrievalLogger
-        rl = RetrievalLogger(persist_dir=persist_dir)
+        rl = RetrievalLogger(persist_dir=root_persist_dir)
         rl.rotate(keep_days=90)
     except Exception:
         pass

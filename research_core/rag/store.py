@@ -1,4 +1,4 @@
-"""Shared ChromaDB client and collection singleton.
+"""Shared ChromaDB clients and named collection cache.
 
 On Windows, ChromaDB PersistentClient has a known cross-process HNSW bug.
 We use client-server mode by default (HttpClient + embedded server subprocess)
@@ -17,8 +17,8 @@ from loguru import logger
 from research_core.rag.embedding import get_embedding_function
 
 _lock = threading.Lock()
-_client: chromadb.ClientAPI | None = None
-_collection: chromadb.Collection | None = None
+_clients: dict[str, chromadb.ClientAPI] = {}
+_collections: dict[tuple[str, str], chromadb.Collection] = {}
 
 sync_lock = threading.RLock()
 """Reentrant lock to serialize index write operations (sync_index, delete, upsert).
@@ -77,23 +77,27 @@ def get_collection(
     persist_dir: str | None = None,
     collection_name: str = "research_chunks",
 ) -> chromadb.Collection:
-    """Return the shared ChromaDB collection (singleton).
+    """Return a cached Chroma collection for one root path and name.
 
-    Thread-safe: first call initializes; subsequent calls return cached instance.
+    Atomic index generations need the active collection and one staging
+    collection to coexist. The cache is therefore keyed by both values rather
+    than globally pinning the first collection requested by this process.
     """
-    global _client, _collection
-    if _collection is not None:
-        return _collection
+    path = os.path.abspath(persist_dir or os.getenv("CHROMA_PERSIST_DIR", ".chroma_db"))
+    key = (path, collection_name)
+    if key in _collections:
+        return _collections[key]
 
     with _lock:
-        if _collection is not None:
-            return _collection
-
-        path = persist_dir or os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
-        _client = _create_client(path)
+        if key in _collections:
+            return _collections[key]
+        client = _clients.get(path)
+        if client is None:
+            client = _create_client(path)
+            _clients[path] = client
         metadata = _hnsw_metadata()
         try:
-            _collection = _client.get_or_create_collection(
+            collection = client.get_or_create_collection(
                 name=collection_name,
                 metadata=metadata,
                 embedding_function=get_embedding_function(),
@@ -101,14 +105,65 @@ def get_collection(
         except Exception as e:
             # Older/newer ChromaDB may reject some hnsw:* keys — fall back to space only.
             logger.warning(f"HNSW tuning metadata rejected ({e}); using defaults.")
-            _collection = _client.get_or_create_collection(
+            collection = client.get_or_create_collection(
                 name=collection_name,
                 metadata={"hnsw:space": "cosine"},
                 embedding_function=get_embedding_function(),
             )
 
-        _apply_search_ef(_collection, metadata["hnsw:search_ef"])
-    return _collection
+        _apply_search_ef(collection, metadata["hnsw:search_ef"])
+        _collections[key] = collection
+    return collection
+
+
+def clone_collection(
+    persist_dir: str,
+    source_name: str,
+    target_name: str,
+    *,
+    page_size: int = 500,
+) -> int:
+    """Copy all stored vector records into a new named collection."""
+    source = get_collection(persist_dir, source_name)
+    target = get_collection(persist_dir, target_name)
+    copied = 0
+    offset = 0
+    while True:
+        batch = source.get(
+            limit=page_size,
+            offset=offset,
+            include=["documents", "embeddings", "metadatas"],
+        )
+        ids = batch.get("ids", []) or []
+        if not ids:
+            break
+        records: dict = {
+            "ids": ids,
+            "documents": batch.get("documents") or [],
+            "metadatas": batch.get("metadatas") or [],
+        }
+        if batch.get("embeddings") is not None:
+            records["embeddings"] = batch["embeddings"]
+        target.add(**records)
+        copied += len(ids)
+        offset += len(ids)
+    return copied
+
+
+def delete_collection(persist_dir: str, collection_name: str) -> None:
+    """Delete one named collection and evict only its cache entry."""
+    path = os.path.abspath(persist_dir)
+    key = (path, collection_name)
+    with _lock:
+        client = _clients.get(path)
+        if client is None:
+            client = _create_client(path)
+            _clients[path] = client
+        try:
+            client.delete_collection(collection_name)
+        except Exception as exc:
+            logger.debug(f"delete_collection({collection_name}) skipped: {exc}")
+        _collections.pop(key, None)
 
 
 def reset_collection(persist_dir: str | None = None) -> None:
@@ -122,17 +177,9 @@ def reset_collection(persist_dir: str | None = None) -> None:
 
     Thread-safe: holds _lock to prevent races with get_collection().
     """
-    global _client, _collection
-    with _lock:
-        path = persist_dir or os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
-        if _client is None:
-            _client = _create_client(path)
-        try:
-            _client.delete_collection("research_chunks")
-            logger.info("Dropped corrupted ChromaDB collection for rebuild")
-        except Exception as e:
-            logger.debug(f"delete_collection during reset: {e}")
-        _collection = None
+    path = persist_dir or os.getenv("CHROMA_PERSIST_DIR", ".chroma_db")
+    delete_collection(path, "research_chunks")
+    logger.info("Dropped corrupted ChromaDB collection for rebuild")
 
 
 def ensure_collection_healthy(persist_dir: str | None = None) -> bool:

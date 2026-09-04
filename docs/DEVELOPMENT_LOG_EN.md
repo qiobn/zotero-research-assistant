@@ -9,6 +9,23 @@
 
 ---
 
+## Atomic Index Generation Promotion (2026-09-04)
+
+- Every sync now builds in `_index_generations/<build_id>` and a distinct Chroma
+  collection. Normal syncs clone the active generation before applying an
+  incremental diff; a forced rebuild starts clean without deleting the live index.
+- Only a manifest-validated generation can atomically replace
+  `_active_index_generation.json`. Long-lived retrievers rebind on their next
+  read; failed generations remain unreachable for diagnosis, and the two newest
+  successful generations are retained. Pointer writes fsync the file and parent
+  directory; a corrupt pointer fails explicitly instead of silently selecting a
+  wrong legacy index.
+
+Next: add OCR fallback for scanned PDFs and document-type-specific ingestion
+quality gates for research papers and legal documents.
+
+---
+
 ## v0.4.10.dev0 — Consistency and Packaging Baseline (2026-09-03)
 
 Development continues on `feat/lightweight-graphrag`, which is 12 linear commits
@@ -34,9 +51,8 @@ as `0.4.10.dev0`.
   expose legacy, incomplete, and count-mismatched index states.
 - CI now runs on every branch push, with offline cascade-deletion / BM25-gate
   regressions and a wheel smoke test for both packaged strategy skills.
-
-Next: implement staging builds and an atomic active-index switch. The manifest
-detects and blocks mixed state today, but a multi-store rebuild is not yet atomic.
+Next validation: build and install the wheel in a clean environment, smoke-test
+the MCP skill resources, and add deterministic contract tests for MCP responses.
 
 ---
 

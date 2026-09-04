@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import chromadb
 from loguru import logger
 
+from research_core.rag.index_generation import IndexGenerationStore
 from research_core.rag.store import get_collection
 
 
@@ -72,16 +73,37 @@ class Retriever:
         persist_dir: str = ".chroma_db",
         collection_name: str = "research_chunks",
         collection: chromadb.Collection | None = None,
+        follow_active_generation: bool = True,
     ):
-        self._collection = collection or get_collection(
-            persist_dir, collection_name
-        )
+        self._index_root = persist_dir
+        self._follow_active_generation = follow_active_generation and collection is None
+        self._generation_id = ""
         self._persist_dir = persist_dir
+        self._collection = collection
         self._bm25 = None  # Lazy-loaded BM25Index
+        if self._follow_active_generation:
+            self._ensure_active_generation()
+        elif self._collection is None:
+            self._collection = get_collection(persist_dir, collection_name)
+
+    def _ensure_active_generation(self) -> None:
+        """Rebind a long-lived reader after an atomic generation promotion."""
+        if not self._follow_active_generation:
+            return
+        generation = IndexGenerationStore(self._index_root).active()
+        if generation.build_id == self._generation_id:
+            return
+        self._collection = get_collection(
+            self._index_root, generation.collection_name
+        )
+        self._persist_dir = generation.persist_dir
+        self._generation_id = generation.build_id
+        self._bm25 = None
 
     @property
     def bm25(self):
         """Lazy-load the BM25 index. Returns None if not built yet."""
+        self._ensure_active_generation()
         if self._bm25 is None:
             from research_core.rag.index_manifest import IndexManifest
 
@@ -130,6 +152,7 @@ class Retriever:
         with the hit chunk ±N surrounding chunks within the same section —
         a lighter alternative to full section expansion (~500 chars vs ~2000).
         """
+        self._ensure_active_generation()
         effective_where = self._build_where(
             where, include_references
         )
@@ -162,6 +185,7 @@ class Retriever:
 
         Returns None if no section is found for this chunk.
         """
+        self._ensure_active_generation()
         chunk_id = f"{item_key}:{chunk_idx}"
         try:
             from research_core.rag.database import get_db
@@ -224,6 +248,7 @@ class Retriever:
 
         Returns None if no neighbors are found (single-chunk sections).
         """
+        self._ensure_active_generation()
         chunk_id = f"{item_key}:{chunk_idx}"
         try:
             from research_core.rag.database import get_db
@@ -314,6 +339,7 @@ class Retriever:
         Populates: paper_abstract, paper_authors, paper_year, paper_doi,
                    paper_keywords, section_heading, section_type.
         """
+        self._ensure_active_generation()
         chunk_ids = [f"{r.item_key}:{r.chunk_idx}" for r in results]
         if not chunk_ids:
             return
@@ -363,6 +389,7 @@ class Retriever:
         Previously only used semantic search, which missed rare terms
         appearing in the PDF body but poorly captured by embeddings.
         """
+        self._ensure_active_generation()
         # ── BM25 search (filtered to this paper) ──
         bm25_scores: dict[int, float] = {}  # chunk_idx → BM25 score
         bm25_texts: dict[int, str] = {}
@@ -461,6 +488,7 @@ class Retriever:
         page: int | None = None,
     ) -> list[RetrievalResult]:
         """Retrieve all chunks of one paper, optionally filtered by page."""
+        self._ensure_active_generation()
         where: dict = {"item_key": item_key}
         if page is not None:
             where = {
@@ -497,6 +525,7 @@ class Retriever:
         item_key: str,
     ) -> list[RetrievalResult]:
         """Retrieve chunks containing figure/table captions for a paper."""
+        self._ensure_active_generation()
         where: dict = {
             "$and": [
                 {"item_key": item_key},
@@ -536,6 +565,7 @@ class Retriever:
         ``table_ref`` matches are returned — this resolves a prose passage's
         cited tables (e.g. "see Table 3") to their content.
         """
+        self._ensure_active_generation()
         where: dict = {
             "$and": [{"item_key": item_key}, {"is_table": True}]
         }
@@ -575,6 +605,7 @@ class Retriever:
         are returned — this resolves a prose passage's cited figures (e.g.
         "see Figure 2") to their caption / rough description.
         """
+        self._ensure_active_generation()
         where: dict = {
             "$and": [{"item_key": item_key}, {"is_figure": True}]
         }
@@ -717,6 +748,7 @@ class Retriever:
 
     def list_indexed_items(self) -> set[str]:
         """Return the set of item_keys currently indexed."""
+        self._ensure_active_generation()
         raw = self._collection.get(include=["metadatas"])
         metas = raw.get("metadatas", []) or []
         return {m.get("item_key", "") for m in metas if m.get("item_key")}
@@ -734,6 +766,7 @@ class Retriever:
         return {"$and": [where, ref_filter]}
 
     def count(self) -> int:
+        self._ensure_active_generation()
         return self._collection.count()
 
     @staticmethod

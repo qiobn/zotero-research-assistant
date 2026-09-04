@@ -87,6 +87,7 @@ def test_retriever_blocks_bm25_for_a_degraded_manifest(tmp_path, monkeypatch):
     retriever = Retriever.__new__(Retriever)
     retriever._persist_dir = str(tmp_path)
     retriever._bm25 = None
+    retriever._follow_active_generation = False
 
     assert retriever.bm25 is None
 
@@ -105,5 +106,6 @@ def test_retriever_allows_bm25_for_a_ready_manifest(tmp_path, monkeypatch):
     retriever = Retriever.__new__(Retriever)
     retriever._persist_dir = str(tmp_path)
     retriever._bm25 = None
+    retriever._follow_active_generation = False
 
     assert retriever.bm25 is not None
